@@ -1,0 +1,15 @@
+[package]
+name = "mamut-standalone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+mamut-dsp.workspace = true
+mamut-engine.workspace = true
+mamut-patch.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,121 @@
+[meta]
+schema_version = 1
+patch_name = "Furnace Choir"
+author = "Mamut"
+description = "Dense choir body with hot Pec center"
+tags = ["poly", "pec", "choir"]
+
+[engine.osc1]
+saw_level = 0.62
+pulse_level = 0.18
+triangle_level = 0.08
+noise_level = 0.01
+
+[engine.osc2]
+saw_level = 0.40
+pulse_level = 0.28
+triangle_level = 0.00
+interval_semitones = 7
+fine_tune_cents = 3.0
+sync_amount = 0.12
+crossmod_amount = 0.08
+
+[engine.sub]
+level = 0.48
+octave_offset = -1
+
+[engine.mixer]
+pre_filter_drive = 0.42
+body_mix = 0.62
+
+[engine.filter]
+cutoff_hz = 2400.0
+resonance = 0.18
+drive = 0.26
+keytrack = 0.35
+
+[engine.amp_env]
+attack_ms = 18.0
+decay_ms = 220.0
+sustain = 0.88
+release_ms = 540.0
+
+[engine.filter_env]
+attack_ms = 22.0
+decay_ms = 260.0
+sustain = 0.30
+release_ms = 480.0
+depth = 0.46
+
+[engine.voice]
+stereo_width = 0.52
+detune_spread_cents = 8.0
+velocity_to_level = 0.25
+velocity_to_filter = 0.18
+
+[engine.final_stage]
+body_drive = 0.46
+asymmetry = 0.15
+low_mid_emphasis = 0.68
+output_trim_db = -4.0
+
+[engine.fx.chorus]
+enabled = true
+mix = 0.14
+depth = 0.22
+rate_hz = 0.18
+
+[engine.fx.reverb]
+enabled = true
+mix = 0.12
+size = 0.40
+damping = 0.46
+
+[macros]
+gravitacija = 0.48
+bloom = 0.28
+heat = 0.72
+ruin = 0.14
+swarm = 0.30
+
+[macro_response.gravitacija]
+sensitivity = 1.05
+curve = "linear"
+softness = 0.40
+
+[macro_response.bloom]
+sensitivity = 0.90
+curve = "soft_plus"
+softness = 0.45
+
+[macro_response.heat]
+sensitivity = 1.20
+curve = "early_rise"
+softness = 0.38
+
+[macro_response.ruin]
+sensitivity = 0.80
+curve = "linear"
+softness = 0.20
+
+[macro_response.swarm]
+sensitivity = 0.95
+curve = "soft_plus"
+softness = 0.55
+
+[identity_bias]
+horizont_bias = -0.15
+pec_bias = 0.42
+baklja_bias = -0.10
+gravitacija_pressure_bias = 0.18
+rupture_threshold_bias = 0.08
+body_focus_bias = 0.32
+
+[performance_response]
+velocity_to_level = 0.28
+velocity_to_filter = 0.16
+aftertouch_to_gravitacija = 0.18
+aftertouch_to_baklja = 0.10
+mod_wheel_to_bloom = 0.22
+mod_wheel_to_swarm = 0.26
+bend_range_semitones = 2

@@ -1,0 +1,122 @@
+[meta]
+schema_version = 1
+patch_name = "Razor Thaw"
+author = "Mamut"
+description = "Baklja-ready lead with high Ruin pressure"
+tags = ["lead", "baklja", "edge"]
+
+[engine.osc1]
+saw_level = 0.58
+pulse_level = 0.34
+triangle_level = 0.00
+noise_level = 0.03
+fine_tune_cents = -2.0
+
+[engine.osc2]
+saw_level = 0.50
+pulse_level = 0.22
+triangle_level = 0.00
+interval_semitones = 12
+fine_tune_cents = 7.0
+sync_amount = 0.46
+crossmod_amount = 0.34
+
+[engine.sub]
+level = 0.22
+octave_offset = -1
+
+[engine.mixer]
+pre_filter_drive = 0.52
+body_mix = 0.34
+
+[engine.filter]
+cutoff_hz = 3100.0
+resonance = 0.38
+drive = 0.30
+keytrack = 0.52
+
+[engine.amp_env]
+attack_ms = 8.0
+decay_ms = 160.0
+sustain = 0.72
+release_ms = 260.0
+
+[engine.filter_env]
+attack_ms = 5.0
+decay_ms = 180.0
+sustain = 0.18
+release_ms = 220.0
+depth = 0.64
+
+[engine.voice]
+stereo_width = 0.40
+detune_spread_cents = 6.0
+velocity_to_level = 0.22
+velocity_to_filter = 0.32
+
+[engine.final_stage]
+body_drive = 0.42
+asymmetry = 0.36
+low_mid_emphasis = 0.40
+output_trim_db = -5.0
+
+[engine.fx.chorus]
+enabled = false
+mix = 0.0
+depth = 0.0
+rate_hz = 0.20
+
+[engine.fx.reverb]
+enabled = true
+mix = 0.10
+size = 0.24
+damping = 0.52
+
+[macros]
+gravitacija = 0.68
+bloom = 0.14
+heat = 0.46
+ruin = 0.78
+swarm = 0.18
+
+[macro_response.gravitacija]
+sensitivity = 1.12
+curve = "late_rise"
+softness = 0.42
+
+[macro_response.bloom]
+sensitivity = 0.80
+curve = "linear"
+softness = 0.30
+
+[macro_response.heat]
+sensitivity = 1.00
+curve = "linear"
+softness = 0.28
+
+[macro_response.ruin]
+sensitivity = 1.30
+curve = "early_rise"
+softness = 0.16
+
+[macro_response.swarm]
+sensitivity = 0.84
+curve = "linear"
+softness = 0.24
+
+[identity_bias]
+horizont_bias = -0.24
+pec_bias = 0.06
+baklja_bias = 0.52
+gravitacija_pressure_bias = 0.22
+rupture_threshold_bias = -0.24
+body_focus_bias = 0.08
+
+[performance_response]
+velocity_to_level = 0.24
+velocity_to_filter = 0.34
+aftertouch_to_gravitacija = 0.22
+aftertouch_to_baklja = 0.42
+mod_wheel_to_bloom = 0.14
+mod_wheel_to_swarm = 0.18
+bend_range_semitones = 12

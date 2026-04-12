@@ -1,0 +1,38 @@
+[workspace]
+members = [
+    "crates/mamut-params",
+    "crates/mamut-patch",
+    "crates/mamut-identity",
+    "crates/mamut-dsp",
+    "crates/mamut-engine",
+    "crates/mamut-standalone",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "1.0.100"
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.17"
+toml = "0.8.23"
+
+mamut-dsp = { path = "crates/mamut-dsp" }
+mamut-engine = { path = "crates/mamut-engine" }
+mamut-identity = { path = "crates/mamut-identity" }
+mamut-params = { path = "crates/mamut-params" }
+mamut-patch = { path = "crates/mamut-patch" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unwrap_used = "warn"
