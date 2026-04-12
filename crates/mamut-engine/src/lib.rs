@@ -586,23 +586,29 @@ impl Engine {
         let direct = self.render_smoothers.next_direct(self.last_direct);
         let derived = self.last_frame.derived;
         let identity = self.last_frame.identity;
+        let engine_patch = &self.patch.engine;
         let sample_rate_hz = self.config.sample_rate_hz;
         let pitch_bend_semitones = self.control.pitch_bend_semitones;
-        let note_velocity_to_level = self
-            .patch
-            .engine
+        let note_velocity_to_level = engine_patch
             .voice
             .velocity_to_level
             .unwrap_or(self.patch.performance_response.velocity_to_level)
             .clamp(0.0, 1.0);
-        let note_velocity_to_filter = self
-            .patch
-            .engine
+        let note_velocity_to_filter = engine_patch
             .voice
             .velocity_to_filter
             .unwrap_or(self.patch.performance_response.velocity_to_filter)
             .clamp(0.0, 1.0);
         let voice_count = self.voices.len().max(1);
+        let osc1_fine = engine_patch.osc1.fine_tune_cents.unwrap_or(0.0) / 100.0;
+        let osc2_fine = engine_patch.osc2.fine_tune_cents / 100.0;
+        let sub_octave = engine_patch.sub.octave_offset as f32 * 12.0;
+        let mixer_body_gain = 0.4 + engine_patch.mixer.body_mix * 0.6;
+        let pre_filter_gain = 1.0 + engine_patch.mixer.pre_filter_drive * 2.0;
+        let voice_level_gain = 0.40 + direct.voice_level * 0.60;
+        let stereo_width = direct.stereo_width;
+        let strain_drive = 1.0 + derived.strain * 0.22;
+        let strain_bias = identity.baklja_edge * 0.18;
 
         let mut left = 0.0;
         let mut right = 0.0;
@@ -623,9 +629,6 @@ impl Engine {
             };
             let spread_detune_semitones =
                 spread_position * direct.detune_spread_cents * 0.5 / 100.0;
-            let osc1_fine = self.patch.engine.osc1.fine_tune_cents.unwrap_or(0.0) / 100.0;
-            let osc2_fine = self.patch.engine.osc2.fine_tune_cents / 100.0;
-            let sub_octave = self.patch.engine.sub.octave_offset as f32 * 12.0;
             let pulse_width = (0.50 + identity.baklja_edge * 0.18 - identity.horizont_air * 0.05)
                 .clamp(0.08, 0.92);
 
@@ -655,59 +658,70 @@ impl Engine {
             let sub_mix = voice.sub.square_sample() * direct.sub_level;
             voice.sub.advance(sub_freq, sample_rate_hz);
 
-            let body_mix = sub_mix
-                * (0.4 + self.patch.engine.mixer.body_mix * 0.6)
-                * (0.6 + derived.mass * 0.4);
+            let body_mix = sub_mix * mixer_body_gain * (0.62 + derived.mass * 0.46);
             let pre_filter = soft_clip(
-                (osc1_mix + osc2_mix + body_mix)
-                    * (1.0
-                        + self.patch.engine.mixer.pre_filter_drive * 2.0
-                        + direct.filter_drive * 0.8),
-                identity.baklja_edge * 0.12,
+                (osc1_mix + osc2_mix + body_mix) * (pre_filter_gain + direct.filter_drive * 0.8),
+                strain_bias,
             );
 
             let filter_env = voice.filter_env.next_sample();
-            let keytrack = 1.0 + ((note as f32 - 60.0) / 48.0) * direct.filter_tracking * 0.5;
-            let velocity_filter = 1.0 + voice.velocity * note_velocity_to_filter;
+            let keytrack = (1.0 + ((note as f32 - 60.0) / 48.0) * direct.filter_tracking * 0.42)
+                .clamp(0.55, 1.35);
+            let velocity_filter = 1.0 + voice.velocity * note_velocity_to_filter * 0.85;
             let cutoff_hz = (direct.cutoff_hz
-                * (0.35 + filter_env * direct.filter_env_depth * 0.85)
-                * keytrack.max(0.25)
+                * (0.42 + filter_env * direct.filter_env_depth * 0.78)
+                * keytrack
                 * velocity_filter)
-                .clamp(20.0, sample_rate_hz * 0.45);
-            let filtered =
-                voice
-                    .filter
-                    .process(pre_filter, cutoff_hz, direct.resonance, sample_rate_hz);
+                .clamp(20.0, sample_rate_hz * 0.42);
+            let filtered = voice.filter.process(
+                pre_filter,
+                cutoff_hz,
+                direct.resonance,
+                direct.filter_drive,
+                derived.strain,
+                sample_rate_hz,
+            );
 
             let amp = voice.amp_env.next_sample();
             let velocity_gain =
                 1.0 - note_velocity_to_level + voice.velocity * note_velocity_to_level;
-            let mut sample = filtered * amp * velocity_gain * (0.40 + direct.voice_level * 0.60);
-            sample = soft_clip(
-                sample * (1.0 + derived.strain * 0.25),
-                direct.final_asymmetry * 0.18,
-            );
+            let mut sample = filtered * amp * velocity_gain * voice_level_gain;
+            sample = soft_clip(sample * strain_drive, direct.final_asymmetry * 0.14);
 
             if voice.phase != VoicePhase::Held && voice.amp_env.is_idle() {
                 *voice = VoiceState::idle(sample_rate_hz, slot);
                 continue;
             }
 
-            let pan = spread_position * direct.stereo_width;
+            let pan = spread_position * stereo_width;
             let left_gain = ((1.0 - pan) * 0.5).clamp(0.0, 1.0).sqrt();
             let right_gain = ((1.0 + pan) * 0.5).clamp(0.0, 1.0).sqrt();
             left += sample * left_gain;
             right += sample * right_gain;
         }
 
-        self.final_body_left += (left - self.final_body_left) * 0.04;
-        self.final_body_right += (right - self.final_body_right) * 0.04;
-        left += self.final_body_left * direct.low_mid_emphasis * 0.42;
-        right += self.final_body_right * direct.low_mid_emphasis * 0.42;
+        self.final_body_left += (left - self.final_body_left) * (0.022 + derived.mass * 0.026);
+        self.final_body_right += (right - self.final_body_right) * (0.022 + derived.mass * 0.026);
 
-        let body_drive = 1.0 + direct.body_drive * 2.2 + direct.final_saturation * 1.5;
-        left = soft_clip(left * body_drive, direct.final_asymmetry);
-        right = soft_clip(right * body_drive, -direct.final_asymmetry);
+        let raw_mid = (left + right) * 0.5;
+        let raw_side = (left - right) * 0.5;
+        let body_mid = (self.final_body_left + self.final_body_right) * 0.5;
+        let focus_amount = (derived.body_focus * 0.26
+            + identity.grav_pull * 0.22
+            + direct.stereo_crossfeed * 0.18)
+            .clamp(0.0, 0.75);
+        let saturated_mid = soft_clip(
+            (raw_mid + body_mid * (0.30 + direct.low_mid_emphasis * 0.58))
+                * (1.0 + direct.body_drive * 1.75 + direct.final_saturation * 1.25),
+            direct.final_asymmetry * 0.70,
+        );
+        let saturated_side = soft_clip(
+            raw_side * (1.0 + direct.final_saturation * 0.28),
+            -direct.final_asymmetry * 0.18,
+        ) * (1.0 - focus_amount);
+
+        left = saturated_mid + saturated_side;
+        right = saturated_mid - saturated_side;
 
         if direct.chorus_enabled {
             (left, right) = self.chorus.process(
@@ -729,7 +743,7 @@ impl Engine {
             );
         }
 
-        let crossfeed = (1.0 - direct.stereo_crossfeed).clamp(0.0, 1.0) * 0.18;
+        let crossfeed = (0.04 + direct.stereo_crossfeed * 0.16).clamp(0.0, 0.22);
         let crossfed_left = left * (1.0 - crossfeed) + right * crossfeed;
         let crossfed_right = right * (1.0 - crossfeed) + left * crossfeed;
         let output_gain = db_to_gain(direct.output_trim_db);
@@ -851,12 +865,15 @@ fn resolve_direct_parameters(
     let engine = &patch.engine;
     let identity = resolved_frame.identity;
     let derived = resolved_frame.derived;
+    let shaped = resolved_frame.shaped_macros;
 
-    let cutoff_scale = 1.0 + resolved_frame.shaped_macros.bloom * 0.55
-        - resolved_frame.shaped_macros.gravitacija * 0.35;
+    let cutoff_scale =
+        0.90 + shaped.bloom * 0.62 + identity.horizont_air * 0.18 - shaped.gravitacija * 0.40;
     let cutoff_hz = (engine.filter.cutoff_hz * cutoff_scale).clamp(20.0, 20_000.0);
     let stereo_width = (engine.voice.stereo_width + identity.horizont_span * 0.18).clamp(0.0, 1.0);
-    let stereo_crossfeed = (1.0 - derived.spatial_dispersion * 0.75).clamp(0.0, 1.0);
+    let stereo_crossfeed = (0.10 + derived.body_focus * 0.28 + identity.grav_pull * 0.10
+        - derived.spatial_dispersion * 0.10)
+        .clamp(0.0, 1.0);
 
     DirectParameters {
         osc1_wave_mix: [
@@ -879,14 +896,16 @@ fn resolve_direct_parameters(
         sync_amount: (engine.osc2.sync_amount + identity.baklja_sync_bias * 0.30).clamp(0.0, 1.0),
         crossmod_amount: (engine.osc2.crossmod_amount + identity.baklja_ready * 0.24)
             .clamp(0.0, 1.0),
-        detune_spread_cents: (engine.voice.detune_spread_cents
-            * (0.75 + resolved_frame.shaped_macros.swarm * 0.45))
+        detune_spread_cents: (engine.voice.detune_spread_cents * (0.72 + shaped.swarm * 0.42))
             .clamp(0.0, 50.0),
         cutoff_hz,
-        resonance: (engine.filter.resonance + identity.baklja_edge * 0.18).clamp(0.0, 1.0),
-        filter_drive: (engine.filter.drive + identity.pec_heat * 0.25).clamp(0.0, 1.0),
+        resonance: (engine.filter.resonance + identity.baklja_edge * 0.14 + shaped.ruin * 0.06
+            - derived.mass * 0.04)
+            .clamp(0.0, 1.0),
+        filter_drive: (engine.filter.drive + identity.pec_heat * 0.18 + derived.strain * 0.10)
+            .clamp(0.0, 1.0),
         filter_env_depth: (engine.filter_env.depth + identity.horizont_open * 0.12).clamp(0.0, 1.0),
-        filter_tracking: engine.filter.keytrack,
+        filter_tracking: (engine.filter.keytrack * (0.92 - derived.mass * 0.12)).clamp(0.0, 1.0),
         amp_env: AdsrTiming {
             attack_ms: engine.amp_env.attack_ms,
             decay_ms: engine.amp_env.decay_ms,
@@ -909,7 +928,10 @@ fn resolve_direct_parameters(
         output_trim_db: engine.final_stage.output_trim_db,
         stereo_width,
         stereo_crossfeed,
-        final_saturation: (engine.final_stage.body_drive + derived.mass * 0.18).clamp(0.0, 1.0),
+        final_saturation: (engine.final_stage.body_drive
+            + derived.mass * 0.14
+            + derived.strain * 0.08)
+            .clamp(0.0, 1.0),
         final_asymmetry: (engine.final_stage.asymmetry + identity.baklja_edge * 0.22)
             .clamp(0.0, 1.0),
         low_mid_emphasis: (engine.final_stage.low_mid_emphasis + derived.mass * 0.15)
@@ -1134,6 +1156,118 @@ mod tests {
                     },
                 },
             ],
+            macro_state: None,
+            output: Some(StereoBlockMut::new(&mut left, &mut right)),
+        });
+
+        assert!(left.iter().all(|sample| sample.is_finite()));
+        assert!(right.iter().all(|sample| sample.is_finite()));
+        assert!(
+            left.iter()
+                .zip(right.iter())
+                .map(|(left, right)| left.abs().max(right.abs()))
+                .fold(0.0, f32::max)
+                > 0.0001
+        );
+    }
+
+    #[test]
+    fn dry_path_remains_non_silent_with_fx_disabled() {
+        let mut patch = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        patch.engine.fx.chorus.enabled = false;
+        patch.engine.fx.reverb.enabled = false;
+        let mut engine =
+            Engine::new(EngineConfig::default(), patch).expect("fixture must validate");
+        let mut left = [0.0_f32; 512];
+        let mut right = [0.0_f32; 512];
+
+        engine.process_block(ProcessBlock {
+            frame_count: 512,
+            note_events: &[Scheduled {
+                frame_offset: 0,
+                event: NoteEvent::NoteOn {
+                    note: 43,
+                    velocity: 0.88,
+                },
+            }],
+            controller_events: &[],
+            macro_state: None,
+            output: Some(StereoBlockMut::new(&mut left, &mut right)),
+        });
+
+        let peak = left
+            .iter()
+            .zip(right.iter())
+            .map(|(left, right)| left.abs().max(right.abs()))
+            .fold(0.0, f32::max);
+        assert!(peak > 0.0001);
+        assert!(left.iter().all(|sample| sample.is_finite()));
+        assert!(right.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn dense_chord_playback_with_fx_stays_finite() {
+        let mut engine = fixture_engine();
+        let mut left = [0.0_f32; 1024];
+        let mut right = [0.0_f32; 1024];
+        let note_events = [
+            Scheduled {
+                frame_offset: 0,
+                event: NoteEvent::NoteOn {
+                    note: 48,
+                    velocity: 0.82,
+                },
+            },
+            Scheduled {
+                frame_offset: 32,
+                event: NoteEvent::NoteOn {
+                    note: 55,
+                    velocity: 0.84,
+                },
+            },
+            Scheduled {
+                frame_offset: 64,
+                event: NoteEvent::NoteOn {
+                    note: 60,
+                    velocity: 0.88,
+                },
+            },
+            Scheduled {
+                frame_offset: 96,
+                event: NoteEvent::NoteOn {
+                    note: 67,
+                    velocity: 0.90,
+                },
+            },
+        ];
+        let controller_events = [
+            Scheduled {
+                frame_offset: 128,
+                event: ControllerEvent::Macro {
+                    id: MacroId::Gravitacija,
+                    value: 0.82,
+                },
+            },
+            Scheduled {
+                frame_offset: 256,
+                event: ControllerEvent::Macro {
+                    id: MacroId::Heat,
+                    value: 0.74,
+                },
+            },
+            Scheduled {
+                frame_offset: 384,
+                event: ControllerEvent::Macro {
+                    id: MacroId::Ruin,
+                    value: 0.70,
+                },
+            },
+        ];
+
+        engine.process_block(ProcessBlock {
+            frame_count: 1024,
+            note_events: &note_events,
+            controller_events: &controller_events,
             macro_state: None,
             output: Some(StereoBlockMut::new(&mut left, &mut right)),
         });

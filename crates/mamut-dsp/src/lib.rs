@@ -249,16 +249,35 @@ impl StateVariableFilter {
         input: f32,
         cutoff_hz: f32,
         resonance: f32,
+        drive: f32,
+        strain: f32,
         sample_rate_hz: f32,
     ) -> f32 {
-        let cutoff_hz = cutoff_hz.clamp(20.0, sample_rate_hz * 0.45);
-        let frequency = (PI * cutoff_hz / sample_rate_hz.max(1.0)).sin() * 2.0;
-        let damping = (2.0 - resonance.clamp(0.0, 1.0) * 1.8).clamp(0.1, 2.0);
+        let cutoff_hz = cutoff_hz.clamp(20.0, sample_rate_hz * 0.42);
+        let resonance = resonance.clamp(0.0, 1.0);
+        let drive = drive.clamp(0.0, 1.0);
+        let strain = strain.clamp(0.0, 1.0);
+        let frequency = ((PI * cutoff_hz / sample_rate_hz.max(1.0)).sin() * 1.92).clamp(0.0, 1.8);
+        let damping = (1.95 - resonance * 1.34 - strain * 0.24).clamp(0.12, 1.95);
+        let input_gain = 1.0 + drive * 1.9 + strain * 0.35;
+        let mut stage_input = soft_clip(input * input_gain, strain * 0.20);
+        let blend = (0.42 + drive * 0.24 + strain * 0.12).clamp(0.0, 1.0);
 
-        let high = input - self.low - damping * self.band;
-        self.band += frequency * high;
-        self.low += frequency * self.band;
-        self.low
+        for _ in 0..2 {
+            let high = stage_input - self.low - damping * self.band;
+            self.band += frequency * high * 0.5;
+            self.band = soft_clip(self.band * (1.0 + drive * 0.10), strain * 0.05);
+            self.low += frequency * self.band * 0.5;
+            self.low = mix(
+                self.low,
+                soft_clip(self.low * (1.0 + drive * 0.18), strain * 0.08),
+                blend,
+            );
+            stage_input = self.low;
+        }
+
+        let output = mix(self.low, self.low + self.band * 0.10, strain * 0.32);
+        soft_clip(output, strain * 0.14 + resonance * 0.04)
     }
 }
 
@@ -297,23 +316,35 @@ impl SimpleChorus {
         depth: f32,
         rate_hz: f32,
     ) -> (f32, f32) {
-        let base_delay = self.sample_rate_hz * 0.018;
-        let modulation = self.sample_rate_hz * 0.008 * depth.clamp(0.0, 1.0);
-        let lfo = (self.lfo_phase * TAU).sin();
-        let left_delay = base_delay + modulation * lfo;
-        let right_delay = base_delay - modulation * lfo;
+        let mix = mix.clamp(0.0, 1.0);
+        let depth = depth.clamp(0.0, 1.0);
+        let base_delay = self.sample_rate_hz * 0.014;
+        let modulation = self.sample_rate_hz * 0.006 * depth;
+        let lfo_a = (self.lfo_phase * TAU).sin();
+        let lfo_b = ((self.lfo_phase + 0.31).fract() * TAU).sin();
+        let lfo_c = ((self.lfo_phase + 0.63).fract() * TAU).sin();
+        let left_delay = base_delay + modulation * lfo_a;
+        let right_delay = base_delay + modulation * lfo_b;
+        let cross_delay = base_delay * 0.74 + modulation * 0.45 * lfo_c;
         let delayed_left = self.read_delay(&self.left_buffer, left_delay);
         let delayed_right = self.read_delay(&self.right_buffer, right_delay);
+        let cross_left = self.read_delay(&self.right_buffer, cross_delay * 0.94);
+        let cross_right = self.read_delay(&self.left_buffer, cross_delay * 1.06);
+        let center = (left + right) * 0.5;
+        let feedback = 0.08 + depth * 0.12;
 
-        self.left_buffer[self.write_index] = left;
-        self.right_buffer[self.write_index] = right;
+        self.left_buffer[self.write_index] = sanitize_sample(left + delayed_left * feedback);
+        self.right_buffer[self.write_index] = sanitize_sample(right + delayed_right * feedback);
         self.write_index = (self.write_index + 1) % self.left_buffer.len();
         self.lfo_phase = (self.lfo_phase + rate_hz.max(0.01) / self.sample_rate_hz).fract();
 
-        let mix = mix.clamp(0.0, 1.0);
+        let wet_left = delayed_left * 0.66 + cross_left * 0.22 + center * 0.12;
+        let wet_right = delayed_right * 0.66 + cross_right * 0.22 + center * 0.12;
+        let dry_gain = 1.0 - mix * 0.72;
+        let wet_gain = mix * 0.78;
         (
-            left * (1.0 - mix) + delayed_left * mix,
-            right * (1.0 - mix) + delayed_right * mix,
+            sanitize_sample(left * dry_gain + wet_left * wet_gain),
+            sanitize_sample(right * dry_gain + wet_right * wet_gain),
         )
     }
 
@@ -358,23 +389,46 @@ impl SimpleReverb {
         size: f32,
         damping: f32,
     ) -> (f32, f32) {
+        let mix = mix.clamp(0.0, 1.0);
+        let size = size.clamp(0.0, 1.0);
+        let damping = damping.clamp(0.0, 0.99);
         let delayed_left = self.left_buffer[self.write_index];
         let delayed_right = self.right_buffer[self.write_index];
-        let damping = damping.clamp(0.0, 0.99);
-        let feedback = (0.45 + size.clamp(0.0, 1.0) * 0.45).clamp(0.0, 0.92);
+        let len = self.left_buffer.len();
+        let tap_a_offset = ((len as f32) * (0.16 + size * 0.28)).round() as usize;
+        let tap_b_offset = ((len as f32) * (0.31 + size * 0.22)).round() as usize;
+        let tap_left = self.read_tap(&self.left_buffer, tap_a_offset.max(1));
+        let tap_right = self.read_tap(&self.right_buffer, tap_a_offset.max(1));
+        let cross_left = self.read_tap(&self.right_buffer, tap_b_offset.max(1));
+        let cross_right = self.read_tap(&self.left_buffer, tap_b_offset.max(1));
+        let feedback = (0.34 + size * 0.40).clamp(0.0, 0.88);
+        let diffusion = 0.16 + size * 0.22;
+        let damping_blend = 1.0 - damping * 0.88;
 
-        self.damped_left += (delayed_left - self.damped_left) * (1.0 - damping);
-        self.damped_right += (delayed_right - self.damped_right) * (1.0 - damping);
+        self.damped_left +=
+            ((delayed_left + cross_left * diffusion) - self.damped_left) * damping_blend;
+        self.damped_right +=
+            ((delayed_right + cross_right * diffusion) - self.damped_right) * damping_blend;
 
-        self.left_buffer[self.write_index] = left + self.damped_right * feedback;
-        self.right_buffer[self.write_index] = right + self.damped_left * feedback;
+        self.left_buffer[self.write_index] =
+            sanitize_sample(left * 0.42 + self.damped_right * feedback);
+        self.right_buffer[self.write_index] =
+            sanitize_sample(right * 0.42 + self.damped_left * feedback);
         self.write_index = (self.write_index + 1) % self.left_buffer.len();
 
-        let mix = mix.clamp(0.0, 1.0);
+        let wet_left = delayed_left * 0.48 + tap_left * 0.18 + cross_left * 0.26;
+        let wet_right = delayed_right * 0.48 + tap_right * 0.18 + cross_right * 0.26;
+        let dry_gain = 1.0 - mix * 0.58;
+        let wet_gain = mix * (0.62 + size * 0.10);
         (
-            left * (1.0 - mix) + self.damped_left * mix,
-            right * (1.0 - mix) + self.damped_right * mix,
+            sanitize_sample(left * dry_gain + wet_left * wet_gain),
+            sanitize_sample(right * dry_gain + wet_right * wet_gain),
         )
+    }
+
+    fn read_tap(&self, buffer: &[f32], offset: usize) -> f32 {
+        let len = buffer.len();
+        buffer[(self.write_index + len - (offset % len.max(1))) % len]
     }
 }
 
@@ -489,8 +543,40 @@ mod tests {
     fn filter_output_stays_finite() {
         let mut filter = StateVariableFilter::new();
         for _ in 0..1024 {
-            let sample = filter.process(0.5, 1_200.0, 0.4, 48_000.0);
+            let sample = filter.process(0.5, 1_200.0, 0.4, 0.3, 0.2, 48_000.0);
             assert!(sample.is_finite());
+        }
+    }
+
+    #[test]
+    fn filter_survives_extreme_drive_and_strain() {
+        let mut filter = StateVariableFilter::new();
+        for _ in 0..4096 {
+            let sample = filter.process(0.85, 8_400.0, 0.95, 0.95, 0.90, 48_000.0);
+            assert!(sample.is_finite());
+        }
+    }
+
+    #[test]
+    fn chorus_output_stays_finite_over_long_run() {
+        let mut chorus = SimpleChorus::new(48_000.0);
+        for step in 0..12_000 {
+            let phase = step as f32 * 0.01;
+            let (left, right) =
+                chorus.process(phase.sin() * 0.7, phase.cos() * 0.6, 0.42, 0.64, 0.28);
+            assert!(left.is_finite());
+            assert!(right.is_finite());
+        }
+    }
+
+    #[test]
+    fn reverb_output_stays_finite_over_long_run() {
+        let mut reverb = SimpleReverb::new(48_000.0);
+        for step in 0..18_000 {
+            let impulse = if step % 512 == 0 { 0.9 } else { 0.0 };
+            let (left, right) = reverb.process(impulse, impulse * 0.7, 0.36, 0.58, 0.44);
+            assert!(left.is_finite());
+            assert!(right.is_finite());
         }
     }
 }
