@@ -1,4 +1,7 @@
-use mamut_dsp::{AdsrTiming, StereoBlockMut, sanitize_block};
+use mamut_dsp::{
+    AdsrEnvelope, AdsrTiming, NoiseRng, Oscillator, SimpleChorus, SimpleReverb,
+    StateVariableFilter, StereoBlockMut, db_to_gain, midi_note_hz, sanitize_sample, soft_clip,
+};
 use mamut_identity::{
     DerivedState, IdentityState, MacroState, ResolvedIdentityFrame, resolve_identity,
 };
@@ -88,6 +91,7 @@ pub struct DirectParameters {
     pub filter_env_depth: f32,
     pub filter_tracking: f32,
     pub amp_env: AdsrTiming,
+    pub filter_env: AdsrTiming,
     pub voice_level: f32,
     pub body_drive: f32,
     pub output_trim_db: f32,
@@ -131,23 +135,97 @@ struct ControlState {
     aftertouch: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+impl Default for ControlState {
+    fn default() -> Self {
+        Self {
+            pitch_bend_semitones: 0.0,
+            mod_wheel: 0.0,
+            sustain_down: false,
+            aftertouch: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct VoiceState {
     note: Option<u8>,
     velocity: f32,
     phase: VoicePhase,
     age: u64,
-    release_blocks: u32,
+    osc1: Oscillator,
+    osc2: Oscillator,
+    sub: Oscillator,
+    noise: NoiseRng,
+    filter: StateVariableFilter,
+    amp_env: AdsrEnvelope,
+    filter_env: AdsrEnvelope,
 }
 
 impl VoiceState {
-    fn idle() -> Self {
+    fn idle(sample_rate_hz: f32, slot: usize) -> Self {
+        let seed = (0x1234_5678_u32).wrapping_add((slot as u32).wrapping_mul(0x9E37_79B9));
         Self {
             note: None,
             velocity: 0.0,
             phase: VoicePhase::Idle,
             age: 0,
-            release_blocks: 0,
+            osc1: Oscillator::new(),
+            osc2: Oscillator::new(),
+            sub: Oscillator::new(),
+            noise: NoiseRng::new(seed),
+            filter: StateVariableFilter::new(),
+            amp_env: AdsrEnvelope::new(
+                sample_rate_hz,
+                AdsrTiming {
+                    attack_ms: 10.0,
+                    decay_ms: 50.0,
+                    sustain: 1.0,
+                    release_ms: 100.0,
+                },
+            ),
+            filter_env: AdsrEnvelope::new(
+                sample_rate_hz,
+                AdsrTiming {
+                    attack_ms: 10.0,
+                    decay_ms: 50.0,
+                    sustain: 1.0,
+                    release_ms: 100.0,
+                },
+            ),
+        }
+    }
+
+    fn trigger(
+        &mut self,
+        note: u8,
+        velocity: f32,
+        age: u64,
+        amp_env: AdsrTiming,
+        filter_env: AdsrTiming,
+        slot: usize,
+    ) {
+        self.note = Some(note);
+        self.velocity = velocity.clamp(0.0, 1.0);
+        self.phase = VoicePhase::Held;
+        self.age = age;
+        self.filter.reset();
+        self.amp_env.set_timing(amp_env);
+        self.filter_env.set_timing(filter_env);
+        self.amp_env.note_on();
+        self.filter_env.note_on();
+        self.osc1
+            .set_phase((((slot as f32) * 0.137) + note as f32 * 0.017).fract());
+        self.osc2
+            .set_phase((((slot as f32) * 0.223) + note as f32 * 0.031).fract());
+        self.sub
+            .set_phase((((slot as f32) * 0.089) + note as f32 * 0.013).fract());
+    }
+
+    fn start_release(&mut self) {
+        if self.phase != VoicePhase::Idle {
+            self.phase = VoicePhase::Released;
+            self.amp_env.note_off();
+            self.filter_env.note_off();
         }
     }
 }
@@ -165,67 +243,101 @@ pub struct Engine {
     last_block_frames: usize,
     last_events_processed: usize,
     last_peak_output: f32,
+    final_body_left: f32,
+    final_body_right: f32,
+    chorus: SimpleChorus,
+    reverb: SimpleReverb,
 }
 
 impl Engine {
     pub fn new(config: EngineConfig, patch: PatchFileV1) -> Result<Self, PatchValidationError> {
         validate_patch_v1(&patch)?;
         let config = EngineConfig {
+            sample_rate_hz: config.sample_rate_hz.max(8_000.0),
+            max_block_frames: config.max_block_frames.max(1),
             voice_count: config.voice_count.max(1),
-            ..config
         };
         let live_macros = MacroState::from_defaults(&patch.macros);
         let last_frame = resolve_identity(&patch, &live_macros);
         let last_direct = resolve_direct_parameters(&patch, last_frame, ControlState::default());
-
-        Ok(Self {
+        let mut engine = Self {
             config,
             patch,
             live_macros,
             control: ControlState::default(),
-            voices: vec![VoiceState::idle(); config.voice_count.max(1)],
+            voices: (0..config.voice_count)
+                .map(|slot| VoiceState::idle(config.sample_rate_hz, slot))
+                .collect(),
             age_counter: 0,
             last_frame,
             last_direct,
             last_block_frames: 0,
             last_events_processed: 0,
             last_peak_output: 0.0,
-        })
+            final_body_left: 0.0,
+            final_body_right: 0.0,
+            chorus: SimpleChorus::new(config.sample_rate_hz),
+            reverb: SimpleReverb::new(config.sample_rate_hz),
+        };
+        engine.refresh_resolved_state();
+        Ok(engine)
     }
 
     pub fn load_patch(&mut self, patch: PatchFileV1) -> Result<(), PatchValidationError> {
         validate_patch_v1(&patch)?;
         self.patch = patch;
         self.live_macros = MacroState::from_defaults(&self.patch.macros);
-        self.last_frame = resolve_identity(&self.patch, &self.live_macros);
-        self.last_direct = resolve_direct_parameters(&self.patch, self.last_frame, self.control);
+        self.refresh_resolved_state();
         Ok(())
     }
 
-    pub fn process_block(&mut self, mut block: ProcessBlock<'_>) {
-        if let Some(output) = block.output.as_mut() {
-            output.clear();
+    pub fn process_block(&mut self, block: ProcessBlock<'_>) {
+        let frame_count = block.frame_count.min(self.config.max_block_frames);
+        let mut output = block.output;
+        if let Some(buffer) = output.as_mut() {
+            buffer.clear();
         }
 
-        self.process_events(block.note_events, block.controller_events);
         if let Some(macro_state) = block.macro_state {
             self.live_macros = macro_state.clamped();
         }
+        self.refresh_resolved_state();
 
-        let effective_macros = self.effective_macro_state();
-        self.last_frame = resolve_identity(&self.patch, &effective_macros);
-        self.last_direct = resolve_direct_parameters(&self.patch, self.last_frame, self.control);
-        self.advance_release_state();
+        let mut note_index = 0;
+        let mut controller_index = 0;
+        let mut events_processed = 0;
+        let mut peak_output: f32 = 0.0;
 
-        if let Some(output) = block.output.as_mut() {
-            sanitize_block(output);
-            self.last_peak_output = output.peak_abs();
-        } else {
-            self.last_peak_output = 0.0;
+        for frame in 0..frame_count {
+            while controller_index < block.controller_events.len()
+                && block.controller_events[controller_index].frame_offset <= frame
+            {
+                self.handle_controller_event(block.controller_events[controller_index].event);
+                controller_index += 1;
+                events_processed += 1;
+                self.refresh_resolved_state();
+            }
+
+            while note_index < block.note_events.len()
+                && block.note_events[note_index].frame_offset <= frame
+            {
+                self.handle_note_event(block.note_events[note_index].event);
+                note_index += 1;
+                events_processed += 1;
+            }
+
+            let (left, right) = self.render_frame();
+            peak_output = peak_output.max(left.abs().max(right.abs()));
+
+            if let Some(buffer) = output.as_mut() {
+                buffer.left[frame] = sanitize_sample(left);
+                buffer.right[frame] = sanitize_sample(right);
+            }
         }
 
-        self.last_block_frames = block.frame_count;
-        self.last_events_processed = block.note_events.len() + block.controller_events.len();
+        self.last_block_frames = frame_count;
+        self.last_events_processed = events_processed;
+        self.last_peak_output = peak_output;
     }
 
     pub fn snapshot(&self) -> EngineSnapshot {
@@ -274,35 +386,14 @@ impl Engine {
         }
     }
 
-    fn process_events(
-        &mut self,
-        note_events: &[ScheduledNoteEvent],
-        controller_events: &[ScheduledControllerEvent],
-    ) {
-        let mut note_index = 0;
-        let mut controller_index = 0;
+    fn refresh_resolved_state(&mut self) {
+        let effective_macros = self.effective_macro_state();
+        self.last_frame = resolve_identity(&self.patch, &effective_macros);
+        self.last_direct = resolve_direct_parameters(&self.patch, self.last_frame, self.control);
 
-        while note_index < note_events.len() || controller_index < controller_events.len() {
-            let next_note = note_events.get(note_index);
-            let next_controller = controller_events.get(controller_index);
-
-            match (next_note, next_controller) {
-                (Some(note_event), Some(controller_event))
-                    if controller_event.frame_offset <= note_event.frame_offset =>
-                {
-                    self.handle_controller_event(controller_event.event);
-                    controller_index += 1;
-                }
-                (Some(note_event), _) => {
-                    self.handle_note_event(note_event.event);
-                    note_index += 1;
-                }
-                (None, Some(controller_event)) => {
-                    self.handle_controller_event(controller_event.event);
-                    controller_index += 1;
-                }
-                (None, None) => break,
-            }
+        for voice in &mut self.voices {
+            voice.amp_env.set_timing(self.last_direct.amp_env);
+            voice.filter_env.set_timing(self.last_direct.filter_env);
         }
     }
 
@@ -326,8 +417,7 @@ impl Engine {
                 if !down {
                     for voice in &mut self.voices {
                         if voice.phase == VoicePhase::SustainedReleased {
-                            voice.phase = VoicePhase::Released;
-                            voice.release_blocks = 0;
+                            voice.start_release();
                         }
                     }
                 }
@@ -338,40 +428,37 @@ impl Engine {
             ControllerEvent::Macro { id, value } => {
                 self.live_macros.set(id, value.clamp(0.0, 1.0));
             }
-            ControllerEvent::DirectParam { id, value } => {
-                self.apply_direct_param(id, value);
-            }
+            ControllerEvent::DirectParam { id, value } => self.apply_direct_param(id, value),
         }
     }
 
     fn note_on(&mut self, note: u8, velocity: f32) {
         let voice_index = self.allocate_voice_index();
         self.age_counter += 1;
-        self.voices[voice_index] = VoiceState {
-            note: Some(note),
-            velocity: velocity.clamp(0.0, 1.0),
-            phase: VoicePhase::Held,
-            age: self.age_counter,
-            release_blocks: 0,
-        };
+        self.voices[voice_index].trigger(
+            note,
+            velocity,
+            self.age_counter,
+            self.last_direct.amp_env,
+            self.last_direct.filter_env,
+            voice_index,
+        );
     }
 
     fn note_off(&mut self, note: u8) {
-        let candidate = self
+        if let Some(index) = self
             .voices
             .iter()
             .enumerate()
             .filter(|(_, voice)| voice.note == Some(note) && voice.phase != VoicePhase::Idle)
             .min_by_key(|(_, voice)| voice.age)
-            .map(|(index, _)| index);
-
-        if let Some(index) = candidate {
+            .map(|(index, _)| index)
+        {
             let voice = &mut self.voices[index];
             if self.control.sustain_down {
                 voice.phase = VoicePhase::SustainedReleased;
             } else {
-                voice.phase = VoicePhase::Released;
-                voice.release_blocks = 0;
+                voice.start_release();
             }
         }
     }
@@ -403,18 +490,6 @@ impl Engine {
             .unwrap_or(0)
     }
 
-    fn advance_release_state(&mut self) {
-        for voice in &mut self.voices {
-            if voice.phase == VoicePhase::Released {
-                if voice.release_blocks >= 1 {
-                    *voice = VoiceState::idle();
-                } else {
-                    voice.release_blocks += 1;
-                }
-            }
-        }
-    }
-
     fn effective_macro_state(&self) -> MacroState {
         let performance = self.patch.performance_response;
         let mut macros = self.live_macros;
@@ -423,6 +498,161 @@ impl Engine {
         macros.bloom += self.control.mod_wheel * performance.mod_wheel_to_bloom;
         macros.swarm += self.control.mod_wheel * performance.mod_wheel_to_swarm;
         macros.clamped()
+    }
+
+    fn render_frame(&mut self) -> (f32, f32) {
+        let direct = self.last_direct;
+        let derived = self.last_frame.derived;
+        let identity = self.last_frame.identity;
+        let sample_rate_hz = self.config.sample_rate_hz;
+        let pitch_bend_semitones = self.control.pitch_bend_semitones;
+        let note_velocity_to_level = self
+            .patch
+            .engine
+            .voice
+            .velocity_to_level
+            .unwrap_or(self.patch.performance_response.velocity_to_level)
+            .clamp(0.0, 1.0);
+        let note_velocity_to_filter = self
+            .patch
+            .engine
+            .voice
+            .velocity_to_filter
+            .unwrap_or(self.patch.performance_response.velocity_to_filter)
+            .clamp(0.0, 1.0);
+        let voice_count = self.voices.len().max(1);
+
+        let mut left = 0.0;
+        let mut right = 0.0;
+
+        for (slot, voice) in self.voices.iter_mut().enumerate() {
+            if voice.phase == VoicePhase::Idle {
+                continue;
+            }
+
+            let Some(note) = voice.note else {
+                continue;
+            };
+
+            let spread_position = if voice_count == 1 {
+                0.0
+            } else {
+                (slot as f32 / (voice_count - 1) as f32) * 2.0 - 1.0
+            };
+            let spread_detune_semitones =
+                spread_position * direct.detune_spread_cents * 0.5 / 100.0;
+            let osc1_fine = self.patch.engine.osc1.fine_tune_cents.unwrap_or(0.0) / 100.0;
+            let osc2_fine = self.patch.engine.osc2.fine_tune_cents / 100.0;
+            let sub_octave = self.patch.engine.sub.octave_offset as f32 * 12.0;
+            let pulse_width = (0.50 + identity.baklja_edge * 0.18 - identity.horizont_air * 0.05)
+                .clamp(0.08, 0.92);
+
+            let osc1_note =
+                note as f32 + pitch_bend_semitones + osc1_fine + spread_detune_semitones;
+            let osc1_freq = midi_note_hz(osc1_note);
+            let osc1_mix = mixed_wave(
+                &voice.osc1,
+                direct.osc1_wave_mix,
+                pulse_width,
+                &mut voice.noise,
+            );
+            let osc1_wrapped = voice.osc1.advance(osc1_freq, sample_rate_hz);
+
+            if osc1_wrapped && direct.sync_amount > 0.0 {
+                voice.osc2.hard_sync(direct.sync_amount);
+            }
+
+            let osc2_note =
+                note as f32 + direct.osc2_interval_semitones + osc2_fine + spread_detune_semitones;
+            let osc2_freq = midi_note_hz(osc2_note)
+                * (1.0 + osc1_mix * direct.crossmod_amount * 0.25).clamp(0.25, 4.0);
+            let osc2_mix = mixed_wave_osc2(&voice.osc2, direct.osc2_wave_mix, pulse_width);
+            voice.osc2.advance(osc2_freq, sample_rate_hz);
+
+            let sub_freq = midi_note_hz(note as f32 + pitch_bend_semitones + sub_octave);
+            let sub_mix = voice.sub.square_sample() * direct.sub_level;
+            voice.sub.advance(sub_freq, sample_rate_hz);
+
+            let body_mix = sub_mix
+                * (0.4 + self.patch.engine.mixer.body_mix * 0.6)
+                * (0.6 + derived.mass * 0.4);
+            let pre_filter = soft_clip(
+                (osc1_mix + osc2_mix + body_mix)
+                    * (1.0
+                        + self.patch.engine.mixer.pre_filter_drive * 2.0
+                        + direct.filter_drive * 0.8),
+                identity.baklja_edge * 0.12,
+            );
+
+            let filter_env = voice.filter_env.next_sample();
+            let keytrack = 1.0 + ((note as f32 - 60.0) / 48.0) * direct.filter_tracking * 0.5;
+            let velocity_filter = 1.0 + voice.velocity * note_velocity_to_filter;
+            let cutoff_hz = (direct.cutoff_hz
+                * (0.35 + filter_env * direct.filter_env_depth * 0.85)
+                * keytrack.max(0.25)
+                * velocity_filter)
+                .clamp(20.0, sample_rate_hz * 0.45);
+            let filtered =
+                voice
+                    .filter
+                    .process(pre_filter, cutoff_hz, direct.resonance, sample_rate_hz);
+
+            let amp = voice.amp_env.next_sample();
+            let velocity_gain =
+                1.0 - note_velocity_to_level + voice.velocity * note_velocity_to_level;
+            let mut sample = filtered * amp * velocity_gain * (0.40 + direct.voice_level * 0.60);
+            sample = soft_clip(
+                sample * (1.0 + derived.strain * 0.25),
+                direct.final_asymmetry * 0.18,
+            );
+
+            if voice.phase != VoicePhase::Held && voice.amp_env.is_idle() {
+                *voice = VoiceState::idle(sample_rate_hz, slot);
+                continue;
+            }
+
+            let pan = spread_position * direct.stereo_width;
+            let left_gain = ((1.0 - pan) * 0.5).clamp(0.0, 1.0).sqrt();
+            let right_gain = ((1.0 + pan) * 0.5).clamp(0.0, 1.0).sqrt();
+            left += sample * left_gain;
+            right += sample * right_gain;
+        }
+
+        self.final_body_left += (left - self.final_body_left) * 0.04;
+        self.final_body_right += (right - self.final_body_right) * 0.04;
+        left += self.final_body_left * direct.low_mid_emphasis * 0.42;
+        right += self.final_body_right * direct.low_mid_emphasis * 0.42;
+
+        let body_drive = 1.0 + direct.body_drive * 2.2 + direct.final_saturation * 1.5;
+        left = soft_clip(left * body_drive, direct.final_asymmetry);
+        right = soft_clip(right * body_drive, -direct.final_asymmetry);
+
+        if direct.chorus_enabled {
+            (left, right) = self.chorus.process(
+                left,
+                right,
+                direct.chorus_mix,
+                direct.chorus_depth,
+                direct.chorus_rate_hz,
+            );
+        }
+
+        if direct.reverb_enabled {
+            (left, right) = self.reverb.process(
+                left,
+                right,
+                direct.reverb_mix,
+                direct.reverb_size,
+                direct.reverb_damping,
+            );
+        }
+
+        let crossfeed = (1.0 - direct.stereo_crossfeed).clamp(0.0, 1.0) * 0.18;
+        let crossfed_left = left * (1.0 - crossfeed) + right * crossfeed;
+        let crossfed_right = right * (1.0 - crossfeed) + left * crossfeed;
+        let output_gain = db_to_gain(direct.output_trim_db);
+
+        (crossfed_left * output_gain, crossfed_right * output_gain)
     }
 
     fn apply_direct_param(&mut self, id: ParamId, value: f32) {
@@ -501,15 +731,24 @@ impl Engine {
     }
 }
 
-impl Default for ControlState {
-    fn default() -> Self {
-        Self {
-            pitch_bend_semitones: 0.0,
-            mod_wheel: 0.0,
-            sustain_down: false,
-            aftertouch: 0.0,
-        }
-    }
+fn mixed_wave(
+    oscillator: &Oscillator,
+    mix_levels: [f32; 4],
+    pulse_width: f32,
+    noise: &mut NoiseRng,
+) -> f32 {
+    let saw = oscillator.saw_sample() * mix_levels[0];
+    let pulse = oscillator.pulse_sample(pulse_width) * mix_levels[1];
+    let triangle = oscillator.triangle_sample() * mix_levels[2];
+    let noise = noise.next_bipolar() * mix_levels[3];
+    saw + pulse + triangle + noise
+}
+
+fn mixed_wave_osc2(oscillator: &Oscillator, mix_levels: [f32; 3], pulse_width: f32) -> f32 {
+    let saw = oscillator.saw_sample() * mix_levels[0];
+    let pulse = oscillator.pulse_sample(pulse_width) * mix_levels[1];
+    let triangle = oscillator.triangle_sample() * mix_levels[2];
+    saw + pulse + triangle
 }
 
 fn resolve_direct_parameters(
@@ -561,6 +800,13 @@ fn resolve_direct_parameters(
             decay_ms: engine.amp_env.decay_ms,
             sustain: engine.amp_env.sustain,
             release_ms: engine.amp_env.release_ms,
+        }
+        .clamp(),
+        filter_env: AdsrTiming {
+            attack_ms: engine.filter_env.adsr.attack_ms,
+            decay_ms: engine.filter_env.adsr.decay_ms,
+            sustain: engine.filter_env.adsr.sustain,
+            release_ms: engine.filter_env.adsr.release_ms,
         }
         .clamp(),
         voice_level: (0.75
@@ -727,14 +973,34 @@ mod tests {
             output: None,
         });
         assert_eq!(engine.snapshot().voices[0].phase, VoicePhase::Released);
+    }
 
+    #[test]
+    fn rendered_audio_is_non_silent_and_finite() {
+        let mut engine = fixture_engine();
+        let mut left = [0.0_f32; 256];
+        let mut right = [0.0_f32; 256];
         engine.process_block(ProcessBlock {
-            frame_count: 64,
-            note_events: &[],
+            frame_count: 256,
+            note_events: &[Scheduled {
+                frame_offset: 0,
+                event: NoteEvent::NoteOn {
+                    note: 60,
+                    velocity: 0.9,
+                },
+            }],
             controller_events: &[],
             macro_state: None,
-            output: None,
+            output: Some(StereoBlockMut::new(&mut left, &mut right)),
         });
-        assert_eq!(engine.snapshot().voices[0].phase, VoicePhase::Idle);
+
+        let peak = left
+            .iter()
+            .zip(right.iter())
+            .map(|(left, right)| left.abs().max(right.abs()))
+            .fold(0.0, f32::max);
+        assert!(peak > 0.0001);
+        assert!(left.iter().all(|sample| sample.is_finite()));
+        assert!(right.iter().all(|sample| sample.is_finite()));
     }
 }

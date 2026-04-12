@@ -25,4 +25,20 @@ Quick start:
 cargo test
 cargo run -p mamut-standalone
 cargo run -p mamut-standalone -- validate patches/factory/molten-horizon.toml
+cargo run -p mamut-standalone -- dry-run patches/factory/furnace-choir.toml
+cargo run -p mamut-standalone -- play --demo patches/factory/molten-horizon.toml
 ```
+
+Runtime notes:
+
+- `play` opens the default audio output device
+- if no MIDI input is available, or `--demo` is passed, a built-in demo performer
+  drives the synth
+- MIDI CC mapping:
+  - `1` -> mod wheel
+  - `64` -> sustain
+  - `71` -> `Heat`
+  - `73` -> `Bloom`
+  - `74` -> `Gravitacija`
+  - `75` -> `Ruin`
+  - `76` -> `Swarm`

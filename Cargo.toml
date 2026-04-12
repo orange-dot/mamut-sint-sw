@@ -17,6 +17,8 @@ version = "0.1.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
+cpal = "0.16.0"
+midir = "0.10.3"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
 toml = "0.8.23"

@@ -7,9 +7,12 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+cpal.workspace = true
 mamut-dsp.workspace = true
 mamut-engine.workspace = true
+mamut-params.workspace = true
 mamut-patch.workspace = true
+midir.workspace = true
 
 [lints]
 workspace = true
