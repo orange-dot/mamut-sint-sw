@@ -1,7 +1,37 @@
-# mamut-sint-sw
+# Mamut EPM / EPM1 Software Repo
 
-`mamut-sint-sw` is the sibling Rust workspace for the software-clone line of
-the `Mamut` synth concept.
+`mamut-sint-sw` is the canonical `EPM1` software repo inside the broader
+`Mamut EPM` program.
+
+Canonical line split:
+
+- `EPM1` = current software/runtime line in this repo `mamut-sint-sw`
+- `EPM2` = hardware line in sibling repo `mamut-sint-hw`
+
+Current product posture:
+
+- `EPM1` is the current primary playable expression of `Mamut EPM`
+- `EPM2` is the hardware continuation of the same identity
+- `Mamut EPM` is the umbrella concept across both lines
+
+This repo owns the live software/runtime implementation for `EPM1`:
+
+- standalone runtime
+- engine and DSP implementation
+- patch runtime code and validation
+- factory patch bank and playback ergonomics
+
+Shared identity language stays aligned across both lines:
+
+- `Horizont`
+- `Pec`
+- `Baklja`
+- `Gravitacija`
+
+Program map and repo split:
+
+- `docs/mamut-epm-program-map.md`
+- sibling `EPM2` hardware repo: `/home/dev/sel4/mamut-sint-hw`
 
 Current status:
 
@@ -61,6 +91,11 @@ Factory bank:
 - `cathedral-bloom` - stable wide `Horizont` pad
 - `ember-vault` - dry playable `Pec` bass
 - `gravity-wake` - performance arc around `Gravitacija`
+
+## Docs
+
+- `docs/mamut-epm-program-map.md` - umbrella map for `Mamut EPM`, `EPM1`, and `EPM2`
+- `docs/README.md` - local `EPM1` doc ownership and cross-repo references
 
 ## Review Gates
 
