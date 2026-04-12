@@ -42,3 +42,23 @@ Runtime notes:
   - `74` -> `Gravitacija`
   - `75` -> `Ruin`
   - `76` -> `Swarm`
+
+## Review Gates
+
+Strict Claude `seL4` review agents are vendored in:
+
+- `.claude/agents/`
+
+Repo-local workflow docs and helpers:
+
+- `docs/review-gates.md`
+- `tools/review/run-rust-file-review.sh`
+- `tools/review/run-rust-subsystem-review.sh`
+- `tools/review/run-integrated-review.sh`
+- `tools/review/run-rust-hotpath-review.sh`
+
+Mandatory gates for core runtime work:
+
+- `sel4-rust-systems-reviewer` for `mamut-engine`, `mamut-dsp`, `mamut-standalone`, `mamut-patch`
+- `sel4-rust-execution-optimizer` for hot-path audio/runtime changes
+- `sel4-integrated-systems-reviewer` for architecture, docs, schema, and boundary shifts
