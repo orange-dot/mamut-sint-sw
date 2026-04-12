@@ -1,5 +1,5 @@
 use mamut_dsp::{
-    AdsrEnvelope, AdsrTiming, NoiseRng, Oscillator, SimpleChorus, SimpleReverb,
+    AdsrEnvelope, AdsrTiming, LinearSmoother, NoiseRng, Oscillator, SimpleChorus, SimpleReverb,
     StateVariableFilter, StereoBlockMut, db_to_gain, midi_note_hz, sanitize_sample, soft_clip,
 };
 use mamut_identity::{
@@ -147,6 +147,81 @@ impl Default for ControlState {
 }
 
 #[derive(Debug, Clone)]
+struct RenderSmoothers {
+    sync_amount: LinearSmoother,
+    crossmod_amount: LinearSmoother,
+    cutoff_hz: LinearSmoother,
+    resonance: LinearSmoother,
+    filter_drive: LinearSmoother,
+    voice_level: LinearSmoother,
+    body_drive: LinearSmoother,
+    stereo_width: LinearSmoother,
+    stereo_crossfeed: LinearSmoother,
+    final_saturation: LinearSmoother,
+    final_asymmetry: LinearSmoother,
+    low_mid_emphasis: LinearSmoother,
+}
+
+impl RenderSmoothers {
+    fn new(direct: DirectParameters) -> Self {
+        Self {
+            sync_amount: LinearSmoother::new(direct.sync_amount),
+            crossmod_amount: LinearSmoother::new(direct.crossmod_amount),
+            cutoff_hz: LinearSmoother::new(direct.cutoff_hz),
+            resonance: LinearSmoother::new(direct.resonance),
+            filter_drive: LinearSmoother::new(direct.filter_drive),
+            voice_level: LinearSmoother::new(direct.voice_level),
+            body_drive: LinearSmoother::new(direct.body_drive),
+            stereo_width: LinearSmoother::new(direct.stereo_width),
+            stereo_crossfeed: LinearSmoother::new(direct.stereo_crossfeed),
+            final_saturation: LinearSmoother::new(direct.final_saturation),
+            final_asymmetry: LinearSmoother::new(direct.final_asymmetry),
+            low_mid_emphasis: LinearSmoother::new(direct.low_mid_emphasis),
+        }
+    }
+
+    fn set_targets(&mut self, direct: DirectParameters, sample_count: usize) {
+        self.sync_amount
+            .set_target(direct.sync_amount, sample_count);
+        self.crossmod_amount
+            .set_target(direct.crossmod_amount, sample_count);
+        self.cutoff_hz.set_target(direct.cutoff_hz, sample_count);
+        self.resonance.set_target(direct.resonance, sample_count);
+        self.filter_drive
+            .set_target(direct.filter_drive, sample_count);
+        self.voice_level
+            .set_target(direct.voice_level, sample_count);
+        self.body_drive.set_target(direct.body_drive, sample_count);
+        self.stereo_width
+            .set_target(direct.stereo_width, sample_count);
+        self.stereo_crossfeed
+            .set_target(direct.stereo_crossfeed, sample_count);
+        self.final_saturation
+            .set_target(direct.final_saturation, sample_count);
+        self.final_asymmetry
+            .set_target(direct.final_asymmetry, sample_count);
+        self.low_mid_emphasis
+            .set_target(direct.low_mid_emphasis, sample_count);
+    }
+
+    fn next_direct(&mut self, mut direct: DirectParameters) -> DirectParameters {
+        direct.sync_amount = self.sync_amount.next_value();
+        direct.crossmod_amount = self.crossmod_amount.next_value();
+        direct.cutoff_hz = self.cutoff_hz.next_value();
+        direct.resonance = self.resonance.next_value();
+        direct.filter_drive = self.filter_drive.next_value();
+        direct.voice_level = self.voice_level.next_value();
+        direct.body_drive = self.body_drive.next_value();
+        direct.stereo_width = self.stereo_width.next_value();
+        direct.stereo_crossfeed = self.stereo_crossfeed.next_value();
+        direct.final_saturation = self.final_saturation.next_value();
+        direct.final_asymmetry = self.final_asymmetry.next_value();
+        direct.low_mid_emphasis = self.low_mid_emphasis.next_value();
+        direct
+    }
+}
+
+#[derive(Debug, Clone)]
 struct VoiceState {
     note: Option<u8>,
     velocity: f32,
@@ -240,6 +315,8 @@ pub struct Engine {
     age_counter: u64,
     last_frame: ResolvedIdentityFrame,
     last_direct: DirectParameters,
+    render_smoothers: RenderSmoothers,
+    control_smoothing_samples: usize,
     last_block_frames: usize,
     last_events_processed: usize,
     last_peak_output: f32,
@@ -260,6 +337,7 @@ impl Engine {
         let live_macros = MacroState::from_defaults(&patch.macros);
         let last_frame = resolve_identity(&patch, &live_macros);
         let last_direct = resolve_direct_parameters(&patch, last_frame, ControlState::default());
+        let render_smoothers = RenderSmoothers::new(last_direct);
         let mut engine = Self {
             config,
             patch,
@@ -271,6 +349,8 @@ impl Engine {
             age_counter: 0,
             last_frame,
             last_direct,
+            render_smoothers,
+            control_smoothing_samples: control_smoothing_samples(config.sample_rate_hz),
             last_block_frames: 0,
             last_events_processed: 0,
             last_peak_output: 0.0,
@@ -390,6 +470,8 @@ impl Engine {
         let effective_macros = self.effective_macro_state();
         self.last_frame = resolve_identity(&self.patch, &effective_macros);
         self.last_direct = resolve_direct_parameters(&self.patch, self.last_frame, self.control);
+        self.render_smoothers
+            .set_targets(self.last_direct, self.control_smoothing_samples);
 
         for voice in &mut self.voices {
             voice.amp_env.set_timing(self.last_direct.amp_env);
@@ -501,7 +583,7 @@ impl Engine {
     }
 
     fn render_frame(&mut self) -> (f32, f32) {
-        let direct = self.last_direct;
+        let direct = self.render_smoothers.next_direct(self.last_direct);
         let derived = self.last_frame.derived;
         let identity = self.last_frame.identity;
         let sample_rate_hz = self.config.sample_rate_hz;
@@ -740,15 +822,25 @@ fn mixed_wave(
     let saw = oscillator.saw_sample() * mix_levels[0];
     let pulse = oscillator.pulse_sample(pulse_width) * mix_levels[1];
     let triangle = oscillator.triangle_sample() * mix_levels[2];
-    let noise = noise.next_bipolar() * mix_levels[3];
-    saw + pulse + triangle + noise
+    let noise = noise.next_bipolar() * mix_levels[3] * 0.85;
+    normalize_weighted_mix(saw + pulse + triangle + noise, &mix_levels)
 }
 
 fn mixed_wave_osc2(oscillator: &Oscillator, mix_levels: [f32; 3], pulse_width: f32) -> f32 {
     let saw = oscillator.saw_sample() * mix_levels[0];
     let pulse = oscillator.pulse_sample(pulse_width) * mix_levels[1];
     let triangle = oscillator.triangle_sample() * mix_levels[2];
-    saw + pulse + triangle
+    normalize_weighted_mix(saw + pulse + triangle, &mix_levels)
+}
+
+fn normalize_weighted_mix<const N: usize>(sample_sum: f32, mix_levels: &[f32; N]) -> f32 {
+    let normalizer = mix_levels.iter().copied().sum::<f32>().max(1.0);
+    sample_sum / normalizer
+}
+
+fn control_smoothing_samples(sample_rate_hz: f32) -> usize {
+    let smoothing_window = (sample_rate_hz * 0.006).round() as usize;
+    smoothing_window.max(8).min(512)
 }
 
 fn resolve_direct_parameters(
@@ -1002,5 +1094,58 @@ mod tests {
         assert!(peak > 0.0001);
         assert!(left.iter().all(|sample| sample.is_finite()));
         assert!(right.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn macro_sweeps_remain_finite() {
+        let mut engine = fixture_engine();
+        let mut left = [0.0_f32; 512];
+        let mut right = [0.0_f32; 512];
+
+        engine.process_block(ProcessBlock {
+            frame_count: 512,
+            note_events: &[Scheduled {
+                frame_offset: 0,
+                event: NoteEvent::NoteOn {
+                    note: 48,
+                    velocity: 0.92,
+                },
+            }],
+            controller_events: &[
+                Scheduled {
+                    frame_offset: 64,
+                    event: ControllerEvent::Macro {
+                        id: MacroId::Gravitacija,
+                        value: 0.84,
+                    },
+                },
+                Scheduled {
+                    frame_offset: 160,
+                    event: ControllerEvent::Macro {
+                        id: MacroId::Ruin,
+                        value: 0.76,
+                    },
+                },
+                Scheduled {
+                    frame_offset: 320,
+                    event: ControllerEvent::Macro {
+                        id: MacroId::Bloom,
+                        value: 0.72,
+                    },
+                },
+            ],
+            macro_state: None,
+            output: Some(StereoBlockMut::new(&mut left, &mut right)),
+        });
+
+        assert!(left.iter().all(|sample| sample.is_finite()));
+        assert!(right.iter().all(|sample| sample.is_finite()));
+        assert!(
+            left.iter()
+                .zip(right.iter())
+                .map(|(left, right)| left.abs().max(right.abs()))
+                .fold(0.0, f32::max)
+                > 0.0001
+        );
     }
 }

@@ -15,11 +15,13 @@ use mamut_dsp::StereoBlockMut;
 use mamut_engine::{ControllerEvent, Engine, EngineConfig, NoteEvent, ProcessBlock, Scheduled};
 use mamut_params::MacroId;
 use mamut_patch::{PatchFileV1, load_patch_toml, validate_patch_v1};
-use midir::{Ignore, MidiInput, MidiInputConnection};
+use midir::{Ignore, MidiInput, MidiInputConnection, MidiInputPort};
 
 fn main() {
     if let Err(error) = run() {
         eprintln!("error: {error:#}");
+        eprintln!();
+        print_usage();
         std::process::exit(1);
     }
 }
@@ -29,52 +31,120 @@ fn run() -> Result<()> {
 
     match args.first().map(String::as_str) {
         Some("list-factory") => list_factory_patches(),
+        Some("list-audio") => list_audio_devices(),
+        Some("list-midi") => list_midi_devices(),
         Some("validate") => {
-            let path = args
-                .get(1)
-                .map(PathBuf::from)
-                .unwrap_or_else(default_patch_path);
+            let path = resolve_patch_argument(args.get(1).map(String::as_str))?;
             let patch = load_patch_from_path(&path)?;
             validate_patch_v1(&patch).context("patch validation failed")?;
             println!("valid: {}", path.display());
             Ok(())
         }
         Some("dry-run") => {
-            let path = args
-                .get(1)
-                .map(PathBuf::from)
-                .unwrap_or_else(default_patch_path);
+            let path = resolve_patch_argument(args.get(1).map(String::as_str))?;
             dry_run(&path)
         }
         Some("play") => {
-            let path = args
-                .iter()
-                .skip(1)
-                .find(|arg| !arg.starts_with("--"))
-                .map(PathBuf::from)
-                .unwrap_or_else(default_patch_path);
-            let force_demo = args.iter().any(|arg| arg == "--demo");
-            play(&path, force_demo)
+            let options = parse_play_options(&args[1..])?;
+            play(&options)
+        }
+        Some("help") | Some("--help") | Some("-h") => {
+            print_usage();
+            Ok(())
         }
         None => dry_run(&default_patch_path()),
-        Some(other) => Err(anyhow!(
-            "unknown command `{other}`; expected `list-factory`, `validate`, `dry-run`, or `play`"
-        )),
+        Some(other) => Err(anyhow!("unknown command `{other}`")),
     }
 }
 
+fn print_usage() {
+    eprintln!(
+        "usage:
+  mamut-standalone
+  mamut-standalone list-factory
+  mamut-standalone list-audio
+  mamut-standalone list-midi
+  mamut-standalone validate [factory-name-or-path]
+  mamut-standalone dry-run [factory-name-or-path]
+  mamut-standalone play [--demo] [--audio-device <name-or-index>] [--midi-device <name-or-index>] [factory-name-or-path]"
+    );
+}
+
+#[derive(Debug, Clone)]
+struct FactoryPatchEntry {
+    stem: String,
+    slug: String,
+    path: PathBuf,
+    patch_name: String,
+    description: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct PlayOptions {
+    patch_path: PathBuf,
+    force_demo: bool,
+    audio_selector: Option<String>,
+    midi_selector: Option<String>,
+}
+
+struct NamedOutputDevice {
+    device: cpal::Device,
+    name: String,
+    is_default: bool,
+}
+
+#[derive(Clone)]
+struct NamedMidiPort {
+    port: MidiInputPort,
+    name: String,
+}
+
 fn list_factory_patches() -> Result<()> {
-    let factory_dir = workspace_root().join("patches/factory");
-    for entry in fs::read_dir(&factory_dir).with_context(|| {
-        format!(
-            "failed to read factory patch directory {}",
-            factory_dir.display()
-        )
-    })? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            println!("{}", entry.path().display());
+    for entry in factory_patch_entries()? {
+        let description = entry
+            .description
+            .as_deref()
+            .unwrap_or("no description")
+            .trim();
+        println!(
+            "{:<18} {:<20} {}",
+            entry.stem, entry.patch_name, description
+        );
+    }
+    Ok(())
+}
+
+fn list_audio_devices() -> Result<()> {
+    let host = cpal::default_host();
+    let devices = collect_output_devices(&host)?;
+    if devices.is_empty() {
+        println!("no output devices found");
+        return Ok(());
+    }
+
+    for (index, entry) in devices.iter().enumerate() {
+        let default_marker = if entry.is_default { " [default]" } else { "" };
+        println!("{index}: {}{default_marker}", entry.name);
+    }
+    Ok(())
+}
+
+fn list_midi_devices() -> Result<()> {
+    let midi_input = match MidiInput::new("mamut-standalone") {
+        Ok(midi_input) => midi_input,
+        Err(error) => {
+            println!("MIDI support unavailable: {error}");
+            return Ok(());
         }
+    };
+    let ports = collect_midi_ports(&midi_input)?;
+    if ports.is_empty() {
+        println!("no MIDI input devices found");
+        return Ok(());
+    }
+
+    for (index, port) in ports.iter().enumerate() {
+        println!("{index}: {}", port.name);
     }
     Ok(())
 }
@@ -107,6 +177,20 @@ fn dry_run(path: &Path) -> Result<()> {
         Scheduled {
             frame_offset: 64,
             event: ControllerEvent::ChannelAftertouch { pressure: 0.30 },
+        },
+        Scheduled {
+            frame_offset: 96,
+            event: ControllerEvent::Macro {
+                id: MacroId::Gravitacija,
+                value: 0.64,
+            },
+        },
+        Scheduled {
+            frame_offset: 160,
+            event: ControllerEvent::Macro {
+                id: MacroId::Ruin,
+                value: 0.42,
+            },
         },
     ];
 
@@ -156,14 +240,15 @@ fn dry_run(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn play(path: &Path, force_demo: bool) -> Result<()> {
-    let patch = load_patch_from_path(path)?;
+fn play(options: &PlayOptions) -> Result<()> {
+    let patch = load_patch_from_path(&options.patch_path)?;
     validate_patch_v1(&patch).context("patch validation failed")?;
 
     let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .context("no default output device available")?;
+    let device = select_output_device(&host, options.audio_selector.as_deref())?;
+    let device_name = device
+        .name()
+        .unwrap_or_else(|_| "unknown-device".to_string());
     let supported_config = device
         .default_output_config()
         .context("failed to query default output config")?;
@@ -180,7 +265,7 @@ fn play(path: &Path, force_demo: bool) -> Result<()> {
             max_block_frames: 2_048,
             voice_count: 6,
         },
-        patch,
+        patch.clone(),
     )?;
 
     let audio_state = AudioThreadState::new(engine, rx);
@@ -197,22 +282,28 @@ fn play(path: &Path, force_demo: bool) -> Result<()> {
         other => return Err(anyhow!("unsupported output sample format: {other:?}")),
     };
 
-    let midi_connection = open_first_midi_input(tx.clone(), bend_range)?;
-    let using_demo = force_demo || midi_connection.is_none();
+    let midi_connection = if options.force_demo {
+        None
+    } else {
+        open_midi_input(tx.clone(), bend_range, options.midi_selector.as_deref())?
+    };
+    let using_demo = options.force_demo || midi_connection.is_none();
     if using_demo {
         spawn_demo_performance(tx.clone());
     }
 
-    println!("play patch: {}", path.display());
+    println!(
+        "play patch: {} ({})",
+        patch.meta.patch_name,
+        options.patch_path.display()
+    );
     println!(
         "audio: {} @ {} Hz, {} channels",
-        device
-            .name()
-            .unwrap_or_else(|_| "unknown-device".to_string()),
-        stream_config.sample_rate.0,
-        channels
+        device_name, stream_config.sample_rate.0, channels
     );
-    if let Some(connection) = midi_connection.as_ref() {
+    if options.force_demo {
+        println!("midi: demo performer forced by --demo");
+    } else if let Some(connection) = midi_connection.as_ref() {
         println!("midi: connected ({})", connection.port_name);
     } else {
         println!("midi: no input connected, running demo performer");
@@ -233,11 +324,308 @@ fn keep_running_forever(_stream: Stream, _midi: Option<OpenedMidiConnection>) {
     }
 }
 
+fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
+    let mut patch_arg: Option<String> = None;
+    let mut force_demo = false;
+    let mut audio_selector = None;
+    let mut midi_selector = None;
+
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--demo" => {
+                force_demo = true;
+                index += 1;
+            }
+            "--audio-device" => {
+                let value = args
+                    .get(index + 1)
+                    .context("missing value after --audio-device")?;
+                audio_selector = Some(value.clone());
+                index += 2;
+            }
+            "--midi-device" => {
+                let value = args
+                    .get(index + 1)
+                    .context("missing value after --midi-device")?;
+                midi_selector = Some(value.clone());
+                index += 2;
+            }
+            option if option.starts_with("--") => {
+                return Err(anyhow!("unknown play option `{option}`"));
+            }
+            patch if patch_arg.is_none() => {
+                patch_arg = Some(patch.to_string());
+                index += 1;
+            }
+            extra => {
+                return Err(anyhow!(
+                    "unexpected extra argument `{extra}`; pass at most one patch name or path"
+                ));
+            }
+        }
+    }
+
+    Ok(PlayOptions {
+        patch_path: resolve_patch_argument(patch_arg.as_deref())?,
+        force_demo,
+        audio_selector,
+        midi_selector,
+    })
+}
+
 fn load_patch_from_path(path: &Path) -> Result<PatchFileV1> {
     let input = fs::read_to_string(path)
         .with_context(|| format!("failed to read patch file {}", path.display()))?;
     load_patch_toml(&input)
         .with_context(|| format!("failed to parse patch file {}", path.display()))
+}
+
+fn resolve_patch_argument(argument: Option<&str>) -> Result<PathBuf> {
+    let Some(argument) = argument else {
+        return Ok(default_patch_path());
+    };
+
+    let direct_path = PathBuf::from(argument);
+    if direct_path.exists() {
+        return Ok(direct_path);
+    }
+
+    let factory_dir = workspace_root().join("patches/factory");
+    let factory_candidate = if argument.ends_with(".toml") {
+        factory_dir.join(argument)
+    } else {
+        factory_dir.join(format!("{argument}.toml"))
+    };
+    if factory_candidate.exists() {
+        return Ok(factory_candidate);
+    }
+
+    let argument_slug = slugify(argument);
+    for entry in factory_patch_entries()? {
+        if entry.stem.eq_ignore_ascii_case(argument) || entry.slug == argument_slug {
+            return Ok(entry.path);
+        }
+    }
+
+    Err(anyhow!(
+        "unknown patch `{argument}`; use a path or run `list-factory` for available factory names"
+    ))
+}
+
+fn factory_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
+    let factory_dir = workspace_root().join("patches/factory");
+    let mut entries = Vec::new();
+
+    for entry in fs::read_dir(&factory_dir).with_context(|| {
+        format!(
+            "failed to read factory patch directory {}",
+            factory_dir.display()
+        )
+    })? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("toml") {
+            continue;
+        }
+
+        let patch = load_patch_from_path(&path)?;
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| anyhow!("invalid factory patch filename {}", path.display()))?
+            .to_string();
+        entries.push(FactoryPatchEntry {
+            stem: stem.clone(),
+            slug: slugify(&patch.meta.patch_name),
+            path,
+            patch_name: patch.meta.patch_name,
+            description: patch.meta.description,
+        });
+    }
+
+    entries.sort_by(|left, right| left.stem.cmp(&right.stem));
+    Ok(entries)
+}
+
+fn collect_output_devices(host: &cpal::Host) -> Result<Vec<NamedOutputDevice>> {
+    let default_name = host
+        .default_output_device()
+        .and_then(|device| device.name().ok());
+    let mut devices = Vec::new();
+    for device in host
+        .output_devices()
+        .context("failed to enumerate output devices")?
+    {
+        let name = device
+            .name()
+            .unwrap_or_else(|_| "unknown-device".to_string());
+        let is_default = default_name
+            .as_deref()
+            .is_some_and(|default_name| default_name == name);
+        devices.push(NamedOutputDevice {
+            device,
+            name,
+            is_default,
+        });
+    }
+    Ok(devices)
+}
+
+fn select_output_device(host: &cpal::Host, selector: Option<&str>) -> Result<cpal::Device> {
+    if selector.is_none() {
+        return host
+            .default_output_device()
+            .context("no default output device available");
+    }
+
+    let devices = collect_output_devices(host)?;
+    if devices.is_empty() {
+        return Err(anyhow!("no output devices available"));
+    }
+
+    let names: Vec<String> = devices.iter().map(|entry| entry.name.clone()).collect();
+    let index = select_named_index(selector.unwrap_or_default(), &names, "audio output device")?;
+    Ok(devices
+        .into_iter()
+        .nth(index)
+        .map(|entry| entry.device)
+        .ok_or_else(|| anyhow!("audio output device index {index} is out of range"))?)
+}
+
+fn collect_midi_ports(midi_input: &MidiInput) -> Result<Vec<NamedMidiPort>> {
+    let mut ports = Vec::new();
+    for port in midi_input.ports() {
+        let name = midi_input
+            .port_name(&port)
+            .unwrap_or_else(|_| "unknown-midi-port".to_string());
+        ports.push(NamedMidiPort { port, name });
+    }
+    Ok(ports)
+}
+
+fn open_midi_input(
+    tx: mpsc::Sender<RuntimeCommand>,
+    bend_range: f32,
+    selector: Option<&str>,
+) -> Result<Option<OpenedMidiConnection>> {
+    let mut midi_input = match MidiInput::new("mamut-standalone") {
+        Ok(midi_input) => midi_input,
+        Err(error) => {
+            return if selector.is_some() {
+                Err(anyhow!("failed to create MIDI input: {error}"))
+            } else {
+                Ok(None)
+            };
+        }
+    };
+    midi_input.ignore(Ignore::None);
+    let ports = collect_midi_ports(&midi_input)?;
+
+    if ports.is_empty() {
+        return if selector.is_some() {
+            Err(anyhow!("no MIDI input devices available"))
+        } else {
+            Ok(None)
+        };
+    }
+
+    let port_index = if let Some(selector) = selector {
+        let names: Vec<String> = ports.iter().map(|entry| entry.name.clone()).collect();
+        select_named_index(selector, &names, "MIDI input device")?
+    } else {
+        0
+    };
+
+    let selected = ports
+        .into_iter()
+        .nth(port_index)
+        .ok_or_else(|| anyhow!("MIDI input device index {port_index} is out of range"))?;
+    let port_name = selected.name.clone();
+    let connection = midi_input
+        .connect(
+            &selected.port,
+            "mamut-midi-in",
+            move |_stamp, message, _| {
+                if let Some(command) = parse_midi_message(message, bend_range) {
+                    let _ = tx.send(command);
+                }
+            },
+            (),
+        )
+        .map_err(|error| anyhow!("failed to open MIDI input connection: {error}"))?;
+
+    Ok(Some(OpenedMidiConnection {
+        port_name,
+        _connection: connection,
+    }))
+}
+
+fn select_named_index(selector: &str, names: &[String], kind: &str) -> Result<usize> {
+    if let Ok(index) = selector.parse::<usize>() {
+        return if index < names.len() {
+            Ok(index)
+        } else {
+            Err(anyhow!(
+                "{kind} index {index} is out of range; available count is {}",
+                names.len()
+            ))
+        };
+    }
+
+    if let Some((index, _)) = names
+        .iter()
+        .enumerate()
+        .find(|(_, name)| name.eq_ignore_ascii_case(selector))
+    {
+        return Ok(index);
+    }
+
+    let selector_lower = selector.to_ascii_lowercase();
+    let matches: Vec<usize> = names
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| {
+            name.to_ascii_lowercase()
+                .contains(&selector_lower)
+                .then_some(index)
+        })
+        .collect();
+
+    match matches.as_slice() {
+        [index] => Ok(*index),
+        [] => Err(anyhow!(
+            "no {kind} matched `{selector}`; run the relevant list command to inspect available devices"
+        )),
+        _ => Err(anyhow!(
+            "selector `{selector}` is ambiguous for {kind}; use a numeric index or a more specific name"
+        )),
+    }
+}
+
+fn slugify(value: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_hyphen = false;
+
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_was_hyphen = false;
+        } else if !last_was_hyphen && !slug.is_empty() {
+            slug.push('-');
+            last_was_hyphen = true;
+        }
+    }
+
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+
+    slug
 }
 
 fn workspace_root() -> PathBuf {
@@ -359,40 +747,6 @@ struct OpenedMidiConnection {
     _connection: MidiInputConnection<()>,
 }
 
-fn open_first_midi_input(
-    tx: mpsc::Sender<RuntimeCommand>,
-    bend_range: f32,
-) -> Result<Option<OpenedMidiConnection>> {
-    let mut midi_input =
-        MidiInput::new("mamut-standalone").context("failed to create MIDI input")?;
-    midi_input.ignore(Ignore::None);
-    let ports = midi_input.ports();
-    let Some(port) = ports.first() else {
-        return Ok(None);
-    };
-
-    let port_name = midi_input
-        .port_name(port)
-        .unwrap_or_else(|_| "unknown-midi-port".to_string());
-    let connection = midi_input
-        .connect(
-            port,
-            "mamut-midi-in",
-            move |_stamp, message, _| {
-                if let Some(command) = parse_midi_message(message, bend_range) {
-                    let _ = tx.send(command);
-                }
-            },
-            (),
-        )
-        .map_err(|error| anyhow!("failed to open MIDI input connection: {error}"))?;
-
-    Ok(Some(OpenedMidiConnection {
-        port_name,
-        _connection: connection,
-    }))
-}
-
 fn parse_midi_message(message: &[u8], bend_range: f32) -> Option<RuntimeCommand> {
     let status = *message.first()? & 0xF0;
     match status {
@@ -466,6 +820,8 @@ fn spawn_demo_performance(tx: mpsc::Sender<RuntimeCommand>) {
             (MacroId::Gravitacija, 0.52),
             (MacroId::Ruin, 0.38),
             (MacroId::Swarm, 0.44),
+            (MacroId::Gravitacija, 0.74),
+            (MacroId::Ruin, 0.62),
         ];
 
         let mut step = 0_usize;
@@ -494,4 +850,43 @@ fn spawn_demo_performance(tx: mpsc::Sender<RuntimeCommand>) {
             step = step.wrapping_add(1);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_factory_patch_by_stem() {
+        let path = resolve_patch_argument(Some("molten-horizon")).expect("factory patch resolves");
+        assert!(path.ends_with("patches/factory/molten-horizon.toml"));
+    }
+
+    #[test]
+    fn resolve_factory_patch_by_patch_name_slug() {
+        let path = resolve_patch_argument(Some("Molten Horizon")).expect("patch name resolves");
+        assert!(path.ends_with("patches/factory/molten-horizon.toml"));
+    }
+
+    #[test]
+    fn parse_play_options_supports_device_selection() {
+        let args = vec![
+            "--demo".to_string(),
+            "--audio-device".to_string(),
+            "2".to_string(),
+            "--midi-device".to_string(),
+            "Launchkey".to_string(),
+            "razor-thaw".to_string(),
+        ];
+
+        let options = parse_play_options(&args).expect("play options parse");
+        assert!(options.force_demo);
+        assert_eq!(options.audio_selector.as_deref(), Some("2"));
+        assert_eq!(options.midi_selector.as_deref(), Some("Launchkey"));
+        assert!(
+            options
+                .patch_path
+                .ends_with("patches/factory/razor-thaw.toml")
+        );
+    }
 }
