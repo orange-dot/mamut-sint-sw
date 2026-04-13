@@ -122,4 +122,4 @@ bend_range_semitones = 2
 
 [ui]
 preferred_page = "macros"
-
+favorite = true

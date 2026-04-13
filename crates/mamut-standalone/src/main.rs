@@ -79,7 +79,11 @@ interactive play controls:
   help
   status
   patches
+  favorites
   patch <factory-name-or-path>
+  next
+  prev
+  demo-patch
   macro <gravitacija|bloom|heat|ruin|swarm> <0..1>
   audio [name-or-index]
   midi [name-or-index]
@@ -132,7 +136,11 @@ enum RuntimeUiCommand {
     Help,
     Status,
     Patches,
+    Favorites,
     Patch(String),
+    NextFavorite,
+    PrevFavorite,
+    DemoPatch,
     Macro(MacroId, f32),
     AudioList,
     AudioSelect(String),
@@ -275,9 +283,22 @@ impl RuntimeSession {
                 Ok(RuntimeUiCommand::Help) => print_runtime_help(),
                 Ok(RuntimeUiCommand::Status) => self.print_status()?,
                 Ok(RuntimeUiCommand::Patches) => list_factory_patches()?,
+                Ok(RuntimeUiCommand::Favorites) => list_favorite_patches()?,
                 Ok(RuntimeUiCommand::Patch(argument)) => {
                     let path = resolve_patch_argument(Some(argument.as_str()))?;
                     self.switch_patch(path)?;
+                    self.print_status()?;
+                }
+                Ok(RuntimeUiCommand::NextFavorite) => {
+                    self.switch_favorite(1)?;
+                    self.print_status()?;
+                }
+                Ok(RuntimeUiCommand::PrevFavorite) => {
+                    self.switch_favorite(-1)?;
+                    self.print_status()?;
+                }
+                Ok(RuntimeUiCommand::DemoPatch) => {
+                    self.switch_patch(default_patch_path())?;
                     self.print_status()?;
                 }
                 Ok(RuntimeUiCommand::Macro(id, value)) => {
@@ -347,6 +368,10 @@ impl RuntimeSession {
         };
 
         println!("patch: {} - {}", snapshot.patch_name, description);
+        println!(
+            "favorite: {}",
+            if snapshot.patch_favorite { "yes" } else { "no" }
+        );
         println!(
             "audio: {} @ {} Hz, {} channels",
             self.audio_device_name, self.sample_rate_hz, self.channels
@@ -453,6 +478,11 @@ impl RuntimeSession {
         old_driver.stop();
         println!("demo performer enabled");
     }
+
+    fn switch_favorite(&mut self, direction: isize) -> Result<()> {
+        let path = adjacent_favorite_patch(&self.patch_path, direction)?;
+        self.switch_patch(path)
+    }
 }
 
 fn list_factory_patches() -> Result<()> {
@@ -465,6 +495,21 @@ fn list_factory_patches() -> Result<()> {
             .trim();
         println!(
             "{favorite} {:<18} {:<20} {}",
+            entry.stem, entry.patch_name, description
+        );
+    }
+    Ok(())
+}
+
+fn list_favorite_patches() -> Result<()> {
+    for entry in favorite_patch_entries()? {
+        let description = entry
+            .description
+            .as_deref()
+            .unwrap_or("no description")
+            .trim();
+        println!(
+            "* {:<18} {:<20} {}",
             entry.stem, entry.patch_name, description
         );
     }
@@ -670,7 +715,11 @@ fn print_runtime_help() {
     println!("  help                     show this command list");
     println!("  status                   show current patch, mode, macros, and activity");
     println!("  patches                  list factory patches");
+    println!("  favorites                list the live-ready favorite patches");
     println!("  patch <name-or-path>     load a factory patch or explicit TOML path");
+    println!("  next                     load the next favorite patch");
+    println!("  prev                     load the previous favorite patch");
+    println!("  demo-patch               jump to the default opener patch");
     println!("  macro <name> <0..1>      set one public macro");
     println!("  audio                    list available audio outputs");
     println!("  audio <name-or-index>    switch audio output (resets live performance state)");
@@ -743,6 +792,7 @@ fn parse_runtime_ui_command(input: &str) -> Result<RuntimeUiCommand> {
         "help" | "h" => Ok(RuntimeUiCommand::Help),
         "status" | "s" => Ok(RuntimeUiCommand::Status),
         "patches" | "list-patches" => Ok(RuntimeUiCommand::Patches),
+        "favorites" | "favs" => Ok(RuntimeUiCommand::Favorites),
         "patch" => {
             let argument = parts.collect::<Vec<_>>().join(" ");
             if argument.trim().is_empty() {
@@ -751,6 +801,9 @@ fn parse_runtime_ui_command(input: &str) -> Result<RuntimeUiCommand> {
                 Ok(RuntimeUiCommand::Patch(argument))
             }
         }
+        "next" | "next-favorite" => Ok(RuntimeUiCommand::NextFavorite),
+        "prev" | "previous" | "prev-favorite" => Ok(RuntimeUiCommand::PrevFavorite),
+        "demo-patch" => Ok(RuntimeUiCommand::DemoPatch),
         "macro" => {
             let macro_name = parts.next().context("macro command requires a macro name")?;
             let value = parts.next().context("macro command requires a value")?;
@@ -890,6 +943,48 @@ fn factory_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
 
     entries.sort_by(|left, right| left.stem.cmp(&right.stem));
     Ok(entries)
+}
+
+fn favorite_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
+    let favorites: Vec<FactoryPatchEntry> = factory_patch_entries()?
+        .into_iter()
+        .filter(|entry| entry.favorite)
+        .collect();
+    if favorites.is_empty() {
+        return Err(anyhow!("no favorite patches are marked in the factory bank"));
+    }
+    Ok(favorites)
+}
+
+fn adjacent_favorite_patch(current_path: &Path, direction: isize) -> Result<PathBuf> {
+    let favorites = favorite_patch_entries()?;
+    let current_stem = current_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let current_index = favorites
+        .iter()
+        .position(|entry| entry.stem == current_stem);
+
+    let target_index = match current_index {
+        Some(index) => wrap_index(index, direction, favorites.len()),
+        None if direction >= 0 => 0,
+        None => favorites.len().saturating_sub(1),
+    };
+
+    favorites
+        .get(target_index)
+        .map(|entry| entry.path.clone())
+        .ok_or_else(|| anyhow!("favorite patch selection failed"))
+}
+
+fn wrap_index(index: usize, direction: isize, len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    let len = len as isize;
+    let index = index as isize;
+    ((index + direction).rem_euclid(len)) as usize
 }
 
 fn collect_output_devices(host: &cpal::Host) -> Result<Vec<NamedOutputDevice>> {
@@ -1120,6 +1215,8 @@ impl AudioThreadState {
                     event,
                 }),
                 RuntimeCommand::LoadPatch(patch) => {
+                    self.note_events.clear();
+                    self.controller_events.clear();
                     if let Err(error) = self.engine.load_patch(patch) {
                         eprintln!("patch load failed in audio runtime: {error}");
                     }
@@ -1401,6 +1498,14 @@ mod tests {
             parse_runtime_ui_command("midi 1").expect("midi command parses"),
             RuntimeUiCommand::MidiSelect("1".to_string())
         );
+        assert_eq!(
+            parse_runtime_ui_command("next").expect("next parses"),
+            RuntimeUiCommand::NextFavorite
+        );
+        assert_eq!(
+            parse_runtime_ui_command("demo-patch").expect("demo patch parses"),
+            RuntimeUiCommand::DemoPatch
+        );
     }
 
     #[test]
@@ -1408,5 +1513,16 @@ mod tests {
         let entries = factory_patch_entries().expect("factory entries load");
         assert!(entries.len() >= 8);
         assert!(entries.iter().any(|entry| entry.favorite));
+    }
+
+    #[test]
+    fn favorite_navigation_wraps_across_live_set() {
+        let next = adjacent_favorite_patch(Path::new("patches/factory/razor-thaw.toml"), 1)
+            .expect("favorite next resolves");
+        assert!(next.ends_with("patches/factory/cathedral-bloom.toml"));
+
+        let prev = adjacent_favorite_patch(Path::new("patches/factory/molten-horizon.toml"), -1)
+            .expect("favorite prev resolves");
+        assert!(prev.ends_with("patches/factory/ember-vault.toml"));
     }
 }

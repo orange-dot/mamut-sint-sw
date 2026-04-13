@@ -115,6 +115,7 @@ pub struct EngineSnapshot {
     pub patch_name: String,
     pub patch_description: Option<String>,
     pub patch_tags: Vec<String>,
+    pub patch_favorite: bool,
     pub sample_rate_hz: f32,
     pub last_block_frames: usize,
     pub events_processed: usize,
@@ -327,6 +328,7 @@ pub struct Engine {
     final_body_right: f32,
     chorus: SimpleChorus,
     reverb: SimpleReverb,
+    patch_switch_mute_frames: usize,
 }
 
 impl Engine {
@@ -361,6 +363,7 @@ impl Engine {
             final_body_right: 0.0,
             chorus: SimpleChorus::new(config.sample_rate_hz),
             reverb: SimpleReverb::new(config.sample_rate_hz),
+            patch_switch_mute_frames: 0,
         };
         engine.refresh_resolved_state();
         Ok(engine)
@@ -371,7 +374,10 @@ impl Engine {
         self.patch = patch;
         self.live_macros = MacroState::from_defaults(&self.patch.macros);
         self.reset_runtime_state();
-        self.refresh_resolved_state();
+        self.patch_switch_mute_frames = patch_switch_mute_frames(self.config.sample_rate_hz);
+        self.last_frame = resolve_identity(&self.patch, &self.live_macros);
+        self.last_direct = resolve_direct_parameters(&self.patch, self.last_frame, self.control);
+        self.render_smoothers = RenderSmoothers::new(self.last_direct);
         Ok(())
     }
 
@@ -453,6 +459,12 @@ impl Engine {
             patch_name: self.patch.meta.patch_name.clone(),
             patch_description: self.patch.meta.description.clone(),
             patch_tags: self.patch.meta.tags.clone().unwrap_or_default(),
+            patch_favorite: self
+                .patch
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.favorite)
+                .unwrap_or(false),
             sample_rate_hz: self.config.sample_rate_hz,
             last_block_frames: self.last_block_frames,
             events_processed: self.last_events_processed,
@@ -581,7 +593,17 @@ impl Engine {
             .iter()
             .enumerate()
             .filter(|(_, voice)| voice.phase == VoicePhase::Released)
-            .min_by_key(|(_, voice)| voice.age)
+            .min_by(|left, right| compare_voice_reuse(left.1, right.1))
+        {
+            return index;
+        }
+
+        if let Some((index, _)) = self
+            .voices
+            .iter()
+            .enumerate()
+            .filter(|(_, voice)| voice.phase == VoicePhase::SustainedReleased)
+            .min_by(|left, right| compare_voice_reuse(left.1, right.1))
         {
             return index;
         }
@@ -589,6 +611,7 @@ impl Engine {
         self.voices
             .iter()
             .enumerate()
+            .filter(|(_, voice)| voice.phase == VoicePhase::Held)
             .min_by_key(|(_, voice)| voice.age)
             .map(|(index, _)| index)
             .unwrap_or(0)
@@ -597,14 +620,21 @@ impl Engine {
     fn effective_macro_state(&self) -> MacroState {
         let performance = self.patch.performance_response;
         let mut macros = self.live_macros;
-        macros.gravitacija += self.control.aftertouch * performance.aftertouch_to_gravitacija;
-        macros.ruin += self.control.aftertouch * performance.aftertouch_to_baklja;
-        macros.bloom += self.control.mod_wheel * performance.mod_wheel_to_bloom;
-        macros.swarm += self.control.mod_wheel * performance.mod_wheel_to_swarm;
+        let aftertouch = expressive_amount(self.control.aftertouch, 0.82);
+        let mod_wheel = expressive_amount(self.control.mod_wheel, 0.92);
+        macros.gravitacija += aftertouch * performance.aftertouch_to_gravitacija;
+        macros.ruin += aftertouch.powf(1.08) * performance.aftertouch_to_baklja;
+        macros.bloom += mod_wheel * performance.mod_wheel_to_bloom;
+        macros.swarm += mod_wheel.powf(0.88) * performance.mod_wheel_to_swarm;
         macros.clamped()
     }
 
     fn render_frame(&mut self) -> (f32, f32) {
+        if self.patch_switch_mute_frames > 0 {
+            self.patch_switch_mute_frames -= 1;
+            return (0.0, 0.0);
+        }
+
         let direct = self.render_smoothers.next_direct(self.last_direct);
         let derived = self.last_frame.derived;
         let identity = self.last_frame.identity;
@@ -689,7 +719,9 @@ impl Engine {
             let filter_env = voice.filter_env.next_sample();
             let keytrack = (1.0 + ((note as f32 - 60.0) / 48.0) * direct.filter_tracking * 0.42)
                 .clamp(0.55, 1.35);
-            let velocity_filter = 1.0 + voice.velocity * note_velocity_to_filter * 0.85;
+            let velocity_level = shaped_velocity_level(voice.velocity);
+            let velocity_filter_curve = shaped_velocity_filter(voice.velocity);
+            let velocity_filter = 1.0 + velocity_filter_curve * note_velocity_to_filter * 0.85;
             let cutoff_hz = (direct.cutoff_hz
                 * (0.42 + filter_env * direct.filter_env_depth * 0.78)
                 * keytrack
@@ -706,7 +738,7 @@ impl Engine {
 
             let amp = voice.amp_env.next_sample();
             let velocity_gain =
-                1.0 - note_velocity_to_level + voice.velocity * note_velocity_to_level;
+                1.0 - note_velocity_to_level + velocity_level * note_velocity_to_level;
             let mut sample = filtered * amp * velocity_gain * voice_level_gain;
             sample = soft_clip(sample * strain_drive, direct.final_asymmetry * 0.14);
 
@@ -847,6 +879,31 @@ impl Engine {
             ParamId::ReverbDamping => self.patch.engine.fx.reverb.damping = clamped,
         }
     }
+}
+
+fn compare_voice_reuse(left: &VoiceState, right: &VoiceState) -> std::cmp::Ordering {
+    left
+        .amp_env
+        .current_level()
+        .partial_cmp(&right.amp_env.current_level())
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| left.age.cmp(&right.age))
+}
+
+fn expressive_amount(value: f32, exponent: f32) -> f32 {
+    value.clamp(0.0, 1.0).powf(exponent.max(0.01))
+}
+
+fn shaped_velocity_level(value: f32) -> f32 {
+    value.clamp(0.0, 1.0).powf(0.78)
+}
+
+fn shaped_velocity_filter(value: f32) -> f32 {
+    value.clamp(0.0, 1.0).powf(1.08)
+}
+
+fn patch_switch_mute_frames(sample_rate_hz: f32) -> usize {
+    ((sample_rate_hz * 0.004).round() as usize).clamp(32, 256)
 }
 
 fn mixed_wave(
@@ -1312,6 +1369,7 @@ mod tests {
         assert_eq!(snapshot.patch_name, "Molten Horizon");
         assert!(snapshot.patch_description.is_some());
         assert!(snapshot.patch_tags.iter().any(|tag| tag == "monster"));
+        assert!(snapshot.patch_favorite);
     }
 
     #[test]

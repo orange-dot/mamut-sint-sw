@@ -120,3 +120,7 @@ aftertouch_to_baklja = 0.42
 mod_wheel_to_bloom = 0.14
 mod_wheel_to_swarm = 0.18
 bend_range_semitones = 12
+
+[ui]
+preferred_page = "macros"
+favorite = true

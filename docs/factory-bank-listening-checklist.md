@@ -38,6 +38,16 @@ should prove one clear role in the current product story.
   - prove: motion from `Bloom` and `Swarm` without a hollow center
   - listen for: chorus/reverb support, stereo width, and long holds
 
+## Live-Ready Favorites
+
+These are the four patches the runtime `favorites`, `next`, and `prev`
+commands should cycle through during live use:
+
+- `Molten Horizon` - opener and first demo patch
+- `Cathedral Bloom` - `Horizont` favorite
+- `Ember Vault` - `Pec` favorite
+- `Razor Thaw` - `Baklja` favorite
+
 ## Common Failure Signs
 
 - `Bloom` only sounds brighter instead of larger
@@ -59,3 +69,13 @@ Run this minimum pass before calling the bank stable:
 - compare `Glass Tide` with FX enabled and disabled
 - verify `Ember Vault` stays dry and useful at low buffer sizes
 
+## Live Controller Pass
+
+Before calling Sprint 5 stable, also run this live pass:
+
+- navigate only with `favorites`, `next`, and `prev`
+- switch favorites during light play and confirm the reset feels clean
+- hold notes and press aftertouch on `Razor Thaw`
+- repeat bass phrases on `Ember Vault` with sustain usage
+- use `Molten Horizon` as the opener and confirm macro travel reads clearly
+- use `Cathedral Bloom` to verify wide play stays elegant under mod wheel and `Swarm`

@@ -64,6 +64,14 @@ impl AdsrEnvelope {
         self.stage == EnvelopeStage::Idle
     }
 
+    pub fn current_level(&self) -> f32 {
+        self.level
+    }
+
+    pub fn stage(&self) -> EnvelopeStage {
+        self.stage
+    }
+
     pub fn next_sample(&mut self) -> f32 {
         match self.stage {
             EnvelopeStage::Idle => {

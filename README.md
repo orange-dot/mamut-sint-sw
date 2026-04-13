@@ -39,7 +39,8 @@ Current status:
 - patch/schema/identity/engine contracts are live in code
 - Sprint 2 standalone audio milestone is implemented
 - Sprint 3 standalone hardening is implemented
-- Sprint 4 playable productization is in progress
+- Sprint 4 playable productization is implemented
+- Sprint 5 live performance hardening is in progress
 - plugin/editor work is intentionally deferred
 
 Workspace crates:
@@ -71,14 +72,17 @@ Runtime notes:
 
 - `play` accepts either a patch path or a factory patch name like `molten-horizon`
 - when `play` is started from a terminal, it opens a tiny runtime control surface
-  with `status`, `patches`, `patch`, `macro`, `audio`, `midi`, `demo`, and `quit`
+  with `status`, `patches`, `favorites`, `patch`, `next`, `prev`,
+  `demo-patch`, `macro`, `audio`, `midi`, `demo`, and `quit`
 - `list-factory` shows the curated factory bank with display names and descriptions
+- `favorites`, `next`, and `prev` operate on the live-ready subset marked in patch metadata
 - `list-audio` and `list-midi` enumerate selectable devices by index
 - `play` opens the default audio output unless `--audio-device` is provided
 - if no MIDI input is available, or `--demo` is passed, a built-in demo performer
   drives the synth
 - switching audio from the runtime surface restarts the live session and resets
   current held notes and live macro state
+- switching patches during active play performs a clean voice/controller reset before the new patch becomes active
 - MIDI CC mapping:
   - `1` -> mod wheel
   - `64` -> sustain
@@ -98,6 +102,13 @@ Factory bank:
 - `gravity-wake` - performance arc around `Gravitacija`
 - `granite-plain` - dry poly anchor with restrained body
 - `glass-tide` - wide animated pad around `Bloom` and `Swarm`
+
+Live-ready favorites:
+
+- `molten-horizon` - opener and best first demo patch
+- `cathedral-bloom` - wide `Horizont` favorite
+- `ember-vault` - dry `Pec` favorite
+- `razor-thaw` - `Baklja` live lead
 
 ## Docs
 
