@@ -1,7 +1,12 @@
 use std::{
     env, fs,
+    io::{self, BufRead, IsTerminal, Write},
     path::{Path, PathBuf},
-    sync::mpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::Duration,
 };
@@ -12,7 +17,9 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use mamut_dsp::StereoBlockMut;
-use mamut_engine::{ControllerEvent, Engine, EngineConfig, NoteEvent, ProcessBlock, Scheduled};
+use mamut_engine::{
+    ControllerEvent, Engine, EngineConfig, EngineSnapshot, NoteEvent, ProcessBlock, Scheduled,
+};
 use mamut_params::MacroId;
 use mamut_patch::{PatchFileV1, load_patch_toml, validate_patch_v1};
 use midir::{Ignore, MidiInput, MidiInputConnection, MidiInputPort};
@@ -66,7 +73,18 @@ fn print_usage() {
   mamut-standalone list-midi
   mamut-standalone validate [factory-name-or-path]
   mamut-standalone dry-run [factory-name-or-path]
-  mamut-standalone play [--demo] [--audio-device <name-or-index>] [--midi-device <name-or-index>] [factory-name-or-path]"
+  mamut-standalone play [--demo] [--audio-device <name-or-index>] [--midi-device <name-or-index>] [factory-name-or-path]
+
+interactive play controls:
+  help
+  status
+  patches
+  patch <factory-name-or-path>
+  macro <gravitacija|bloom|heat|ruin|swarm> <0..1>
+  audio [name-or-index]
+  midi [name-or-index]
+  demo
+  quit"
     );
 }
 
@@ -77,6 +95,7 @@ struct FactoryPatchEntry {
     path: PathBuf,
     patch_name: String,
     description: Option<String>,
+    favorite: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -99,15 +118,353 @@ struct NamedMidiPort {
     name: String,
 }
 
+#[derive(Debug)]
+enum RuntimeCommand {
+    Note(NoteEvent),
+    Controller(ControllerEvent),
+    LoadPatch(PatchFileV1),
+    RequestSnapshot(mpsc::Sender<EngineSnapshot>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum RuntimeUiCommand {
+    Noop,
+    Help,
+    Status,
+    Patches,
+    Patch(String),
+    Macro(MacroId, f32),
+    AudioList,
+    AudioSelect(String),
+    MidiList,
+    MidiSelect(String),
+    Demo,
+    Quit,
+}
+
+struct AudioRuntime {
+    tx: mpsc::Sender<RuntimeCommand>,
+    stream: Stream,
+    audio_device_name: String,
+    sample_rate_hz: u32,
+    channels: usize,
+    bend_range: f32,
+    patch_name: String,
+}
+
+enum PerformanceDriver {
+    Demo { stop: Arc<AtomicBool> },
+    Midi(OpenedMidiConnection),
+    Idle,
+}
+
+impl PerformanceDriver {
+    fn is_demo(&self) -> bool {
+        matches!(self, Self::Demo { .. })
+    }
+
+    fn detail(&self) -> String {
+        match self {
+            Self::Demo { .. } => "demo performer active".to_string(),
+            Self::Midi(connection) => format!("connected ({})", connection.port_name),
+            Self::Idle => "no active input".to_string(),
+        }
+    }
+
+    fn stop(&mut self) {
+        let previous = std::mem::replace(self, Self::Idle);
+        match previous {
+            Self::Demo { stop } => {
+                stop.store(true, Ordering::Relaxed);
+            }
+            Self::Midi(_) | Self::Idle => {}
+        }
+    }
+}
+
+struct RuntimeSession {
+    patch_path: PathBuf,
+    patch_name: String,
+    audio_selector: Option<String>,
+    midi_selector: Option<String>,
+    bend_range: f32,
+    tx: mpsc::Sender<RuntimeCommand>,
+    stream: Stream,
+    driver: PerformanceDriver,
+    audio_device_name: String,
+    sample_rate_hz: u32,
+    channels: usize,
+}
+
+impl RuntimeSession {
+    fn new(options: &PlayOptions) -> Result<Self> {
+        let runtime = build_audio_runtime(&options.patch_path, options.audio_selector.as_deref())?;
+        let mut session = Self {
+            patch_path: options.patch_path.clone(),
+            patch_name: runtime.patch_name,
+            audio_selector: options.audio_selector.clone(),
+            midi_selector: options.midi_selector.clone(),
+            bend_range: runtime.bend_range,
+            tx: runtime.tx,
+            stream: runtime.stream,
+            driver: PerformanceDriver::Idle,
+            audio_device_name: runtime.audio_device_name,
+            sample_rate_hz: runtime.sample_rate_hz,
+            channels: runtime.channels,
+        };
+        session.stream.play().context("failed to start output stream")?;
+        session.driver = session.open_startup_driver(options.force_demo)?;
+        Ok(session)
+    }
+
+    fn open_startup_driver(&self, force_demo: bool) -> Result<PerformanceDriver> {
+        if force_demo {
+            return Ok(PerformanceDriver::Demo {
+                stop: spawn_demo_performance(self.tx.clone()),
+            });
+        }
+
+        if let Some(connection) =
+            open_midi_input(self.tx.clone(), self.bend_range, self.midi_selector.as_deref())?
+        {
+            Ok(PerformanceDriver::Midi(connection))
+        } else {
+            Ok(PerformanceDriver::Demo {
+                stop: spawn_demo_performance(self.tx.clone()),
+            })
+        }
+    }
+
+    fn print_startup_summary(&self) {
+        println!(
+            "play patch: {} ({})",
+            self.patch_name,
+            self.patch_path.display()
+        );
+        println!(
+            "audio: {} @ {} Hz, {} channels",
+            self.audio_device_name, self.sample_rate_hz, self.channels
+        );
+        println!("mode: {}", self.driver.detail());
+        println!(
+            "cc map: 1=mod wheel, 64=sustain, 71=heat, 73=bloom, 74=gravitacija, 75=ruin, 76=swarm"
+        );
+        println!("interactive controls active; type `help` for commands");
+    }
+
+    fn command_loop(&mut self) -> Result<()> {
+        self.print_startup_summary();
+        self.print_status()?;
+
+        let stdin = io::stdin();
+        let mut lines = stdin.lock().lines();
+
+        loop {
+            print!("epm1> ");
+            io::stdout().flush().context("failed to flush prompt")?;
+
+            let Some(line_result) = lines.next() else {
+                println!();
+                println!("stdin closed; stopping session");
+                break;
+            };
+
+            let line = line_result.context("failed to read command input")?;
+            match parse_runtime_ui_command(&line) {
+                Ok(RuntimeUiCommand::Noop) => continue,
+                Ok(RuntimeUiCommand::Help) => print_runtime_help(),
+                Ok(RuntimeUiCommand::Status) => self.print_status()?,
+                Ok(RuntimeUiCommand::Patches) => list_factory_patches()?,
+                Ok(RuntimeUiCommand::Patch(argument)) => {
+                    let path = resolve_patch_argument(Some(argument.as_str()))?;
+                    self.switch_patch(path)?;
+                    self.print_status()?;
+                }
+                Ok(RuntimeUiCommand::Macro(id, value)) => {
+                    self.set_macro(id, value)?;
+                    println!("macro {} -> {:.3}", macro_display_name(id), value);
+                }
+                Ok(RuntimeUiCommand::AudioList) => list_audio_devices()?,
+                Ok(RuntimeUiCommand::AudioSelect(selector)) => {
+                    self.switch_audio(selector)?;
+                    self.print_status()?;
+                }
+                Ok(RuntimeUiCommand::MidiList) => list_midi_devices()?,
+                Ok(RuntimeUiCommand::MidiSelect(selector)) => {
+                    self.switch_midi(selector)?;
+                    self.print_status()?;
+                }
+                Ok(RuntimeUiCommand::Demo) => {
+                    self.enable_demo();
+                    self.print_status()?;
+                }
+                Ok(RuntimeUiCommand::Quit) => break,
+                Err(error) => eprintln!("command error: {error}"),
+            }
+        }
+
+        Ok(())
+    }
+
+    fn block_forever(&self) {
+        loop {
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
+
+    fn switch_patch(&mut self, path: PathBuf) -> Result<()> {
+        let patch = load_patch_from_path(&path)?;
+        validate_patch_v1(&patch).context("patch validation failed")?;
+        self.patch_name = patch.meta.patch_name.clone();
+        self.bend_range = patch.performance_response.bend_range_semitones as f32;
+        self.tx
+            .send(RuntimeCommand::LoadPatch(patch))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
+        self.patch_path = path.clone();
+        println!("loaded patch: {} ({})", self.patch_name, path.display());
+        Ok(())
+    }
+
+    fn set_macro(&self, id: MacroId, value: f32) -> Result<()> {
+        self.tx
+            .send(RuntimeCommand::Controller(ControllerEvent::Macro {
+                id,
+                value: value.clamp(0.0, 1.0),
+            }))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))
+    }
+
+    fn print_status(&self) -> Result<()> {
+        let snapshot = self.request_snapshot()?;
+        let description = snapshot
+            .patch_description
+            .as_deref()
+            .unwrap_or("no description");
+        let tags = if snapshot.patch_tags.is_empty() {
+            "none".to_string()
+        } else {
+            snapshot.patch_tags.join(", ")
+        };
+
+        println!("patch: {} - {}", snapshot.patch_name, description);
+        println!(
+            "audio: {} @ {} Hz, {} channels",
+            self.audio_device_name, self.sample_rate_hz, self.channels
+        );
+        println!("mode: {}", self.driver.detail());
+        println!("tags: {tags}");
+        println!(
+            "voices: active={} sustain={} held={:?} peak={:.3}",
+            snapshot.active_voice_count,
+            snapshot.sustain_down,
+            snapshot.held_notes,
+            snapshot.peak_output
+        );
+        println!(
+            "macros: gravitacija={:.3} bloom={:.3} heat={:.3} ruin={:.3} swarm={:.3}",
+            snapshot.effective_macros.gravitacija,
+            snapshot.effective_macros.bloom,
+            snapshot.effective_macros.heat,
+            snapshot.effective_macros.ruin,
+            snapshot.effective_macros.swarm
+        );
+        println!(
+            "identity: horizont_open={:.3} pec_mass={:.3} baklja_ready={:.3} grav_pull={:.3}",
+            snapshot.identity.horizont_open,
+            snapshot.identity.pec_mass,
+            snapshot.identity.baklja_ready,
+            snapshot.identity.grav_pull
+        );
+        println!(
+            "derived: mass={:.3} strain={:.3} headroom={:.3} threshold={:.3}",
+            snapshot.derived.mass,
+            snapshot.derived.strain,
+            snapshot.derived.headroom,
+            snapshot.derived.rupture_threshold
+        );
+        Ok(())
+    }
+
+    fn request_snapshot(&self) -> Result<EngineSnapshot> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.tx
+            .send(RuntimeCommand::RequestSnapshot(reply_tx))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
+        reply_rx
+            .recv_timeout(Duration::from_millis(500))
+            .map_err(|_| anyhow!("timed out waiting for engine snapshot"))
+    }
+
+    fn switch_audio(&mut self, selector: String) -> Result<()> {
+        let keep_demo = self.driver.is_demo();
+        let runtime = build_audio_runtime(&self.patch_path, Some(selector.as_str()))?;
+        let replacement_driver = if keep_demo {
+            PerformanceDriver::Demo {
+                stop: spawn_demo_performance(runtime.tx.clone()),
+            }
+        } else if let Some(connection) =
+            open_midi_input(runtime.tx.clone(), runtime.bend_range, self.midi_selector.as_deref())?
+        {
+            PerformanceDriver::Midi(connection)
+        } else {
+            PerformanceDriver::Demo {
+                stop: spawn_demo_performance(runtime.tx.clone()),
+            }
+        };
+
+        runtime
+            .stream
+            .play()
+            .context("failed to start replacement audio stream")?;
+
+        let mut old_driver = std::mem::replace(&mut self.driver, replacement_driver);
+        old_driver.stop();
+        let old_stream = std::mem::replace(&mut self.stream, runtime.stream);
+        drop(old_stream);
+
+        self.tx = runtime.tx;
+        self.audio_device_name = runtime.audio_device_name;
+        self.sample_rate_hz = runtime.sample_rate_hz;
+        self.channels = runtime.channels;
+        self.bend_range = runtime.bend_range;
+        self.patch_name = runtime.patch_name;
+        self.audio_selector = Some(selector.clone());
+
+        println!("audio switched to `{selector}`");
+        Ok(())
+    }
+
+    fn switch_midi(&mut self, selector: String) -> Result<()> {
+        let connection = open_midi_input(self.tx.clone(), self.bend_range, Some(selector.as_str()))?
+            .ok_or_else(|| anyhow!("no MIDI input devices available"))?;
+        let mut old_driver =
+            std::mem::replace(&mut self.driver, PerformanceDriver::Midi(connection));
+        old_driver.stop();
+        self.midi_selector = Some(selector.clone());
+        println!("midi switched to `{selector}`");
+        Ok(())
+    }
+
+    fn enable_demo(&mut self) {
+        let demo = PerformanceDriver::Demo {
+            stop: spawn_demo_performance(self.tx.clone()),
+        };
+        let mut old_driver = std::mem::replace(&mut self.driver, demo);
+        old_driver.stop();
+        println!("demo performer enabled");
+    }
+}
+
 fn list_factory_patches() -> Result<()> {
     for entry in factory_patch_entries()? {
+        let favorite = if entry.favorite { "*" } else { " " };
         let description = entry
             .description
             .as_deref()
             .unwrap_or("no description")
             .trim();
         println!(
-            "{:<18} {:<20} {}",
+            "{favorite} {:<18} {:<20} {}",
             entry.stem, entry.patch_name, description
         );
     }
@@ -203,7 +560,8 @@ fn dry_run(path: &Path) -> Result<()> {
     });
 
     let snapshot = engine.snapshot();
-    println!("patch: {}", path.display());
+    println!("patch: {} ({})", snapshot.patch_name, path.display());
+    println!("description: {}", snapshot.patch_description.unwrap_or_default());
     println!("active voices: {}", snapshot.active_voice_count);
     println!("held notes: {:?}", snapshot.held_notes);
     println!(
@@ -241,12 +599,25 @@ fn dry_run(path: &Path) -> Result<()> {
 }
 
 fn play(options: &PlayOptions) -> Result<()> {
-    let patch = load_patch_from_path(&options.patch_path)?;
+    let mut session = RuntimeSession::new(options)?;
+    if io::stdin().is_terminal() {
+        session.command_loop()
+    } else {
+        session.print_startup_summary();
+        println!("stdin is not a terminal; running without interactive controls");
+        session.block_forever();
+        #[allow(unreachable_code)]
+        Ok(())
+    }
+}
+
+fn build_audio_runtime(patch_path: &Path, audio_selector: Option<&str>) -> Result<AudioRuntime> {
+    let patch = load_patch_from_path(patch_path)?;
     validate_patch_v1(&patch).context("patch validation failed")?;
 
     let host = cpal::default_host();
-    let device = select_output_device(&host, options.audio_selector.as_deref())?;
-    let device_name = device
+    let device = select_output_device(&host, audio_selector)?;
+    let audio_device_name = device
         .name()
         .unwrap_or_else(|_| "unknown-device".to_string());
     let supported_config = device
@@ -257,6 +628,7 @@ fn play(options: &PlayOptions) -> Result<()> {
     let sample_rate_hz = stream_config.sample_rate.0 as f32;
     let channels = usize::from(stream_config.channels);
     let bend_range = patch.performance_response.bend_range_semitones as f32;
+    let patch_name = patch.meta.patch_name.clone();
 
     let (tx, rx) = mpsc::channel::<RuntimeCommand>();
     let engine = Engine::new(
@@ -265,7 +637,7 @@ fn play(options: &PlayOptions) -> Result<()> {
             max_block_frames: 2_048,
             voice_count: 6,
         },
-        patch.clone(),
+        patch,
     )?;
 
     let audio_state = AudioThreadState::new(engine, rx);
@@ -282,46 +654,30 @@ fn play(options: &PlayOptions) -> Result<()> {
         other => return Err(anyhow!("unsupported output sample format: {other:?}")),
     };
 
-    let midi_connection = if options.force_demo {
-        None
-    } else {
-        open_midi_input(tx.clone(), bend_range, options.midi_selector.as_deref())?
-    };
-    let using_demo = options.force_demo || midi_connection.is_none();
-    if using_demo {
-        spawn_demo_performance(tx.clone());
-    }
-
-    println!(
-        "play patch: {} ({})",
-        patch.meta.patch_name,
-        options.patch_path.display()
-    );
-    println!(
-        "audio: {} @ {} Hz, {} channels",
-        device_name, stream_config.sample_rate.0, channels
-    );
-    if options.force_demo {
-        println!("midi: demo performer forced by --demo");
-    } else if let Some(connection) = midi_connection.as_ref() {
-        println!("midi: connected ({})", connection.port_name);
-    } else {
-        println!("midi: no input connected, running demo performer");
-    }
-    println!(
-        "cc map: 1=mod wheel, 64=sustain, 71=heat, 73=bloom, 74=gravitacija, 75=ruin, 76=swarm"
-    );
-    println!("press Ctrl+C to stop");
-
-    stream.play().context("failed to start output stream")?;
-    keep_running_forever(stream, midi_connection);
-    Ok(())
+    Ok(AudioRuntime {
+        tx,
+        stream,
+        audio_device_name,
+        sample_rate_hz: stream_config.sample_rate.0,
+        channels,
+        bend_range,
+        patch_name,
+    })
 }
 
-fn keep_running_forever(_stream: Stream, _midi: Option<OpenedMidiConnection>) {
-    loop {
-        thread::sleep(Duration::from_secs(1));
-    }
+fn print_runtime_help() {
+    println!("runtime commands:");
+    println!("  help                     show this command list");
+    println!("  status                   show current patch, mode, macros, and activity");
+    println!("  patches                  list factory patches");
+    println!("  patch <name-or-path>     load a factory patch or explicit TOML path");
+    println!("  macro <name> <0..1>      set one public macro");
+    println!("  audio                    list available audio outputs");
+    println!("  audio <name-or-index>    switch audio output (resets live performance state)");
+    println!("  midi                     list available MIDI inputs");
+    println!("  midi <name-or-index>     switch to a MIDI input");
+    println!("  demo                     switch the session to the demo performer");
+    println!("  quit                     stop playback and exit");
 }
 
 fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
@@ -372,6 +728,84 @@ fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
         audio_selector,
         midi_selector,
     })
+}
+
+fn parse_runtime_ui_command(input: &str) -> Result<RuntimeUiCommand> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Ok(RuntimeUiCommand::Noop);
+    }
+
+    let mut parts = trimmed.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+
+    match command {
+        "help" | "h" => Ok(RuntimeUiCommand::Help),
+        "status" | "s" => Ok(RuntimeUiCommand::Status),
+        "patches" | "list-patches" => Ok(RuntimeUiCommand::Patches),
+        "patch" => {
+            let argument = parts.collect::<Vec<_>>().join(" ");
+            if argument.trim().is_empty() {
+                Err(anyhow!("patch command requires a factory name or path"))
+            } else {
+                Ok(RuntimeUiCommand::Patch(argument))
+            }
+        }
+        "macro" => {
+            let macro_name = parts.next().context("macro command requires a macro name")?;
+            let value = parts.next().context("macro command requires a value")?;
+            if parts.next().is_some() {
+                return Err(anyhow!("macro command accepts exactly two arguments"));
+            }
+            let macro_id = parse_macro_id(macro_name)?;
+            let value = value
+                .parse::<f32>()
+                .with_context(|| format!("invalid macro value `{value}`"))?;
+            Ok(RuntimeUiCommand::Macro(macro_id, value.clamp(0.0, 1.0)))
+        }
+        "audio" => {
+            let selector = parts.collect::<Vec<_>>().join(" ");
+            if selector.trim().is_empty() {
+                Ok(RuntimeUiCommand::AudioList)
+            } else {
+                Ok(RuntimeUiCommand::AudioSelect(selector))
+            }
+        }
+        "midi" => {
+            let selector = parts.collect::<Vec<_>>().join(" ");
+            if selector.trim().is_empty() {
+                Ok(RuntimeUiCommand::MidiList)
+            } else {
+                Ok(RuntimeUiCommand::MidiSelect(selector))
+            }
+        }
+        "demo" => Ok(RuntimeUiCommand::Demo),
+        "quit" | "exit" => Ok(RuntimeUiCommand::Quit),
+        other => Err(anyhow!("unknown runtime command `{other}`")),
+    }
+}
+
+fn parse_macro_id(value: &str) -> Result<MacroId> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "gravitacija" => Ok(MacroId::Gravitacija),
+        "bloom" => Ok(MacroId::Bloom),
+        "heat" => Ok(MacroId::Heat),
+        "ruin" => Ok(MacroId::Ruin),
+        "swarm" => Ok(MacroId::Swarm),
+        _ => Err(anyhow!(
+            "unknown macro `{value}`; expected gravitacija, bloom, heat, ruin, or swarm"
+        )),
+    }
+}
+
+fn macro_display_name(id: MacroId) -> &'static str {
+    match id {
+        MacroId::Gravitacija => "Gravitacija",
+        MacroId::Bloom => "Bloom",
+        MacroId::Heat => "Heat",
+        MacroId::Ruin => "Ruin",
+        MacroId::Swarm => "Swarm",
+    }
 }
 
 fn load_patch_from_path(path: &Path) -> Result<PatchFileV1> {
@@ -439,12 +873,18 @@ fn factory_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
             .and_then(|value| value.to_str())
             .ok_or_else(|| anyhow!("invalid factory patch filename {}", path.display()))?
             .to_string();
+        let favorite = patch
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.favorite)
+            .unwrap_or(false);
         entries.push(FactoryPatchEntry {
             stem: stem.clone(),
             slug: slugify(&patch.meta.patch_name),
             path,
             patch_name: patch.meta.patch_name,
             description: patch.meta.description,
+            favorite,
         });
     }
 
@@ -639,12 +1079,6 @@ fn default_patch_path() -> PathBuf {
     workspace_root().join("patches/factory/molten-horizon.toml")
 }
 
-#[derive(Debug, Clone, Copy)]
-enum RuntimeCommand {
-    Note(NoteEvent),
-    Controller(ControllerEvent),
-}
-
 struct AudioThreadState {
     engine: Engine,
     rx: mpsc::Receiver<RuntimeCommand>,
@@ -685,6 +1119,14 @@ impl AudioThreadState {
                     frame_offset: 0,
                     event,
                 }),
+                RuntimeCommand::LoadPatch(patch) => {
+                    if let Err(error) = self.engine.load_patch(patch) {
+                        eprintln!("patch load failed in audio runtime: {error}");
+                    }
+                }
+                RuntimeCommand::RequestSnapshot(reply) => {
+                    let _ = reply.send(self.engine.snapshot());
+                }
             }
         }
 
@@ -811,7 +1253,9 @@ fn parse_midi_message(message: &[u8], bend_range: f32) -> Option<RuntimeCommand>
     }
 }
 
-fn spawn_demo_performance(tx: mpsc::Sender<RuntimeCommand>) {
+fn spawn_demo_performance(tx: mpsc::Sender<RuntimeCommand>) -> Arc<AtomicBool> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&stop);
     thread::spawn(move || {
         let notes = [36_u8, 43, 48, 55, 60, 67];
         let macro_cycle = [
@@ -826,30 +1270,79 @@ fn spawn_demo_performance(tx: mpsc::Sender<RuntimeCommand>) {
 
         let mut step = 0_usize;
         loop {
+            if thread_stop.load(Ordering::Relaxed) {
+                break;
+            }
+
             let note = notes[step % notes.len()];
             let (macro_id, macro_value) = macro_cycle[step % macro_cycle.len()];
             let velocity = 0.62 + (step % 3) as f32 * 0.10;
 
-            let _ = tx.send(RuntimeCommand::Controller(ControllerEvent::Macro {
-                id: macro_id,
-                value: macro_value,
-            }));
-            let _ = tx.send(RuntimeCommand::Controller(ControllerEvent::ModWheel {
-                amount: ((step % 5) as f32) / 5.0,
-            }));
-            let _ = tx.send(RuntimeCommand::Note(NoteEvent::NoteOn { note, velocity }));
-            thread::sleep(Duration::from_millis(420));
-            let _ = tx.send(RuntimeCommand::Controller(
-                ControllerEvent::ChannelAftertouch {
-                    pressure: 0.20 + ((step % 4) as f32) * 0.12,
-                },
-            ));
-            thread::sleep(Duration::from_millis(360));
-            let _ = tx.send(RuntimeCommand::Note(NoteEvent::NoteOff { note }));
-            thread::sleep(Duration::from_millis(140));
+            if tx
+                .send(RuntimeCommand::Controller(ControllerEvent::Macro {
+                    id: macro_id,
+                    value: macro_value,
+                }))
+                .is_err()
+            {
+                break;
+            }
+            if tx
+                .send(RuntimeCommand::Controller(ControllerEvent::ModWheel {
+                    amount: ((step % 5) as f32) / 5.0,
+                }))
+                .is_err()
+            {
+                break;
+            }
+            if tx
+                .send(RuntimeCommand::Note(NoteEvent::NoteOn { note, velocity }))
+                .is_err()
+            {
+                break;
+            }
+            if sleep_interruptibly(&thread_stop, Duration::from_millis(420)) {
+                break;
+            }
+            if tx
+                .send(RuntimeCommand::Controller(
+                    ControllerEvent::ChannelAftertouch {
+                        pressure: 0.20 + ((step % 4) as f32) * 0.12,
+                    },
+                ))
+                .is_err()
+            {
+                break;
+            }
+            if sleep_interruptibly(&thread_stop, Duration::from_millis(360)) {
+                break;
+            }
+            if tx
+                .send(RuntimeCommand::Note(NoteEvent::NoteOff { note }))
+                .is_err()
+            {
+                break;
+            }
+            if sleep_interruptibly(&thread_stop, Duration::from_millis(140)) {
+                break;
+            }
             step = step.wrapping_add(1);
         }
     });
+    stop
+}
+
+fn sleep_interruptibly(stop: &AtomicBool, duration: Duration) -> bool {
+    let mut remaining = duration;
+    while remaining > Duration::ZERO {
+        if stop.load(Ordering::Relaxed) {
+            return true;
+        }
+        let slice = remaining.min(Duration::from_millis(50));
+        thread::sleep(slice);
+        remaining = remaining.saturating_sub(slice);
+    }
+    stop.load(Ordering::Relaxed)
 }
 
 #[cfg(test)]
@@ -888,5 +1381,32 @@ mod tests {
                 .patch_path
                 .ends_with("patches/factory/razor-thaw.toml")
         );
+    }
+
+    #[test]
+    fn parse_runtime_ui_command_supports_patch_and_macro_commands() {
+        assert_eq!(
+            parse_runtime_ui_command("patch Cathedral Bloom").expect("patch command parses"),
+            RuntimeUiCommand::Patch("Cathedral Bloom".to_string())
+        );
+        assert_eq!(
+            parse_runtime_ui_command("macro gravitacija 0.74").expect("macro command parses"),
+            RuntimeUiCommand::Macro(MacroId::Gravitacija, 0.74)
+        );
+        assert_eq!(
+            parse_runtime_ui_command("audio Scarlett").expect("audio command parses"),
+            RuntimeUiCommand::AudioSelect("Scarlett".to_string())
+        );
+        assert_eq!(
+            parse_runtime_ui_command("midi 1").expect("midi command parses"),
+            RuntimeUiCommand::MidiSelect("1".to_string())
+        );
+    }
+
+    #[test]
+    fn factory_bank_has_productized_patch_set() {
+        let entries = factory_patch_entries().expect("factory entries load");
+        assert!(entries.len() >= 8);
+        assert!(entries.iter().any(|entry| entry.favorite));
     }
 }

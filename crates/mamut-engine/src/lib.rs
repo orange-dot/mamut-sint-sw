@@ -112,6 +112,9 @@ pub struct DirectParameters {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EngineSnapshot {
+    pub patch_name: String,
+    pub patch_description: Option<String>,
+    pub patch_tags: Vec<String>,
     pub sample_rate_hz: f32,
     pub last_block_frames: usize,
     pub events_processed: usize,
@@ -367,6 +370,7 @@ impl Engine {
         validate_patch_v1(&patch)?;
         self.patch = patch;
         self.live_macros = MacroState::from_defaults(&self.patch.macros);
+        self.reset_runtime_state();
         self.refresh_resolved_state();
         Ok(())
     }
@@ -446,6 +450,9 @@ impl Engine {
             .collect();
 
         EngineSnapshot {
+            patch_name: self.patch.meta.patch_name.clone(),
+            patch_description: self.patch.meta.description.clone(),
+            patch_tags: self.patch.meta.tags.clone().unwrap_or_default(),
             sample_rate_hz: self.config.sample_rate_hz,
             last_block_frames: self.last_block_frames,
             events_processed: self.last_events_processed,
@@ -464,6 +471,21 @@ impl Engine {
             held_notes,
             peak_output: self.last_peak_output,
         }
+    }
+
+    fn reset_runtime_state(&mut self) {
+        self.control = ControlState::default();
+        self.age_counter = 0;
+        self.last_block_frames = 0;
+        self.last_events_processed = 0;
+        self.last_peak_output = 0.0;
+        self.final_body_left = 0.0;
+        self.final_body_right = 0.0;
+        self.chorus = SimpleChorus::new(self.config.sample_rate_hz);
+        self.reverb = SimpleReverb::new(self.config.sample_rate_hz);
+        self.voices = (0..self.config.voice_count)
+            .map(|slot| VoiceState::idle(self.config.sample_rate_hz, slot))
+            .collect();
     }
 
     fn refresh_resolved_state(&mut self) {
@@ -1281,5 +1303,52 @@ mod tests {
                 .fold(0.0, f32::max)
                 > 0.0001
         );
+    }
+
+    #[test]
+    fn snapshot_exposes_patch_metadata() {
+        let engine = fixture_engine();
+        let snapshot = engine.snapshot();
+        assert_eq!(snapshot.patch_name, "Molten Horizon");
+        assert!(snapshot.patch_description.is_some());
+        assert!(snapshot.patch_tags.iter().any(|tag| tag == "monster"));
+    }
+
+    #[test]
+    fn load_patch_resets_runtime_state() {
+        let mut engine = fixture_engine();
+        let mut left = [0.0_f32; 128];
+        let mut right = [0.0_f32; 128];
+
+        engine.process_block(ProcessBlock {
+            frame_count: 128,
+            note_events: &[Scheduled {
+                frame_offset: 0,
+                event: NoteEvent::NoteOn {
+                    note: 60,
+                    velocity: 0.9,
+                },
+            }],
+            controller_events: &[Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::Macro {
+                    id: MacroId::Gravitacija,
+                    value: 0.92,
+                },
+            }],
+            macro_state: None,
+            output: Some(StereoBlockMut::new(&mut left, &mut right)),
+        });
+        assert!(engine.snapshot().active_voice_count > 0);
+
+        let replacement = load_patch_toml(include_str!("../../../patches/factory/ember-vault.toml"))
+            .expect("replacement patch parses");
+        engine.load_patch(replacement).expect("replacement patch loads");
+
+        let snapshot = engine.snapshot();
+        assert_eq!(snapshot.patch_name, "Ember Vault");
+        assert_eq!(snapshot.active_voice_count, 0);
+        assert!(!snapshot.sustain_down);
+        assert!(snapshot.peak_output.abs() <= f32::EPSILON);
     }
 }

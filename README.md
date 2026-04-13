@@ -38,7 +38,8 @@ Current status:
 - Sprint 1 core workspace is implemented
 - patch/schema/identity/engine contracts are live in code
 - Sprint 2 standalone audio milestone is implemented
-- Sprint 3 standalone hardening is in progress
+- Sprint 3 standalone hardening is implemented
+- Sprint 4 playable productization is in progress
 - plugin/editor work is intentionally deferred
 
 Workspace crates:
@@ -69,11 +70,15 @@ cargo run -p mamut-standalone -- play --audio-device 0 --midi-device 1 gravity-w
 Runtime notes:
 
 - `play` accepts either a patch path or a factory patch name like `molten-horizon`
+- when `play` is started from a terminal, it opens a tiny runtime control surface
+  with `status`, `patches`, `patch`, `macro`, `audio`, `midi`, `demo`, and `quit`
 - `list-factory` shows the curated factory bank with display names and descriptions
 - `list-audio` and `list-midi` enumerate selectable devices by index
 - `play` opens the default audio output unless `--audio-device` is provided
 - if no MIDI input is available, or `--demo` is passed, a built-in demo performer
   drives the synth
+- switching audio from the runtime surface restarts the live session and resets
+  current held notes and live macro state
 - MIDI CC mapping:
   - `1` -> mod wheel
   - `64` -> sustain
@@ -91,11 +96,14 @@ Factory bank:
 - `cathedral-bloom` - stable wide `Horizont` pad
 - `ember-vault` - dry playable `Pec` bass
 - `gravity-wake` - performance arc around `Gravitacija`
+- `granite-plain` - dry poly anchor with restrained body
+- `glass-tide` - wide animated pad around `Bloom` and `Swarm`
 
 ## Docs
 
 - `docs/mamut-epm-program-map.md` - umbrella map for `Mamut EPM`, `EPM1`, and `EPM2`
 - `docs/README.md` - local `EPM1` doc ownership and cross-repo references
+- `docs/factory-bank-listening-checklist.md` - locked roles and listening pass for the shipped bank
 
 ## Review Gates
 
