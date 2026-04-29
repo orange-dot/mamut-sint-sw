@@ -5,17 +5,22 @@ not part of the `mamut-engine` runtime contract.
 
 ## AudioNoise
 
-- Source: `https://github.com/orange-dot/AudioNoise`
-- Owner: `orange-dot`
+- Upstream source: `https://github.com/torvalds/AudioNoise`
+- Upstream owner: `torvalds`
+- Upstream description: `Random digital audio effects`
+- Upstream license: GPL-2.0
+- Reference fork/mirror: `https://github.com/orange-dot/AudioNoise`
 - Default branch: `main`
 - Local checkout: `/home/dev/work-base-20260421/workspace/systems/AudioNoise`
 - Local spike branch: `mamut-svf-stability-alsa-spikes`
 
-`AudioNoise` is a guitar-pedal-oriented DSP reference. Its README describes a
-single-sample-in, single-sample-out direction with basic IIR filters and delay
-loops. For Mamut, this is most relevant as a small comparison point for
-zero-latency pedal-style effects, post-voice tone shaping, and simple delay or
-filter experiments.
+`AudioNoise` is an upstream Linus Torvalds guitar-pedal-oriented DSP reference,
+not a Mamut or orange-dot-originated project. The `orange-dot/AudioNoise` repo is
+only the fork used for local reference and spike notes. The upstream README
+describes a single-sample-in, single-sample-out direction with basic IIR filters
+and delay loops. For Mamut, this is most relevant as a small comparison point
+for zero-latency pedal-style effects, post-voice tone shaping, and simple delay
+or filter experiments.
 
 Do not treat it as canonical Mamut DSP. Use it as a readable reference when
 thinking about immediate sample-by-sample effects and simple control surfaces.
