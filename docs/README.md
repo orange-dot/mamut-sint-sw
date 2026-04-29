@@ -20,6 +20,9 @@ Start here:
 - `EPM1_SPRINT_6A_HOST_UNDERRUN_STABILITY.md` - next work item for real-host underrun diagnosis and performance stabilization
 - `EPM1_PC4_LIVE_PROFILE.md` - locked Sprint 6 `PC4` control map, live slot policy, and performance-window truth model
 - `EPM1_FIRST_PERFORMANCE_PLAYBOOK.md` - shortest trustworthy path for the first real `PC4` performance session
+- `dsp/primitives-math.md` - formula companion for the low-level Rust DSP primitives
+- `dsp/render-path-math.md` - frame-level math for voice allocation, mixing, filtering, and final render stages
+- `dsp/control-identity-math.md` - macro, identity, and direct-parameter resolution math
 - `live-sessions/` - lab evidence from real hardware runs; exact device names,
   ALSA selectors, and raw MIDI snippets are preserved as evidence, not portable
   defaults
@@ -28,6 +31,7 @@ Start here:
 - `live-sessions/2026-04-29-pc4-ag03-clean-idle-noteoff-fix.md` - clean-idle Global MIDI follow-up and repeated-pitch note-off engine fix
 - `live-sessions/2026-04-29-pc4-ag03-noteoff-fix-validated.md` - hardware validation that the repeated-pitch note-off fix clears the stuck-note failure
 - `live-sessions/2026-04-29-pc4-ag03-full-controller-map.md` - full one-way `PC4` sustain/K/S/SW/wheels/aftertouch hardware map validation into Mamut
+- `live-sessions/2026-04-29-pc4-ag03-windowed-gui-redesign-live-take.md` - windowed GUI redesign live take, layout regression/fix, and real PC4 control evidence
 - `EXTERNAL_DSP_REFERENCES.md` - local notes on external DSP references such as
   `AudioNoise` and `dspc`
 
@@ -45,10 +49,13 @@ Current source-doc posture:
 
 Current `EPM1` source anchors:
 
-- `../mamut-sint-hw/docs/software-clone-architecture.md`
-- `../mamut-sint-hw/docs/rust-workspace-architecture.md`
-- `../mamut-sint-hw/docs/dsp-subsystem-spec.md`
-- `../mamut-sint-hw/docs/patch-schema-v1.md`
+- sibling `mamut-sint-hw`: `docs/software-clone-architecture.md`
+- sibling `mamut-sint-hw`: `docs/rust-workspace-architecture.md`
+- sibling `mamut-sint-hw`: `docs/dsp-subsystem-spec.md`
+- `dsp/primitives-math.md`
+- `dsp/render-path-math.md`
+- `dsp/control-identity-math.md`
+- sibling `mamut-sint-hw`: `docs/patch-schema-v1.md`
 - `../mamut-platform/docs/LINUX_AUDIO_PLATFORM_THESIS.md`
 - `../mamut-platform/docs/LINUX_AUDIO_STACK_DECISION.md`
 - `../mamut-platform/docs/C_RUST_BOUNDARY.md`

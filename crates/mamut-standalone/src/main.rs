@@ -43,6 +43,7 @@ const ALSA_BUFFER_FRAMES_DEFAULT: usize = 1_024;
 const ALSA_START_THRESHOLD_FRAMES_DEFAULT: usize = ALSA_BUFFER_FRAMES_DEFAULT;
 const PERFORMANCE_UI_REFRESH: Duration = Duration::from_millis(75);
 const MIDI_ACTIVITY_FLASH: Duration = Duration::from_millis(700);
+const MIDI_STARTUP_GUARD: Duration = MIDI_ACTIVITY_FLASH;
 const MIDI_INPUT_QUEUE_CAPACITY: usize = 512;
 const RUNTIME_CONTROL_QUEUE_CAPACITY: usize = 64;
 const LIVE_SET_STEMS: [&str; 8] = [
@@ -385,6 +386,7 @@ enum LastControlKind {
 enum LastControlVerdict {
     Accepted,
     Filtered,
+    StartupSuppressed,
     Reserved,
     ReleaseIgnored,
     Ignored,
@@ -858,6 +860,7 @@ impl RuntimeSession {
                 "disabled"
             }
         );
+        println!("midi startup guard: {} ms", MIDI_STARTUP_GUARD.as_millis());
         println!("interactive controls active; type `help` for commands");
     }
 
@@ -2006,6 +2009,172 @@ fn display_available() -> bool {
     env::var_os("DISPLAY").is_some() || env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
+fn epm_bg() -> egui::Color32 {
+    egui::Color32::from_rgb(12, 14, 16)
+}
+
+fn epm_panel() -> egui::Color32 {
+    egui::Color32::from_rgb(17, 21, 25)
+}
+
+fn epm_panel_deep() -> egui::Color32 {
+    egui::Color32::from_rgb(13, 16, 19)
+}
+
+fn epm_tile() -> egui::Color32 {
+    egui::Color32::from_rgb(18, 23, 28)
+}
+
+fn epm_tile_hot() -> egui::Color32 {
+    egui::Color32::from_rgb(54, 29, 15)
+}
+
+fn epm_stroke() -> egui::Stroke {
+    egui::Stroke::new(1.0, egui::Color32::from_rgb(45, 52, 60))
+}
+
+fn epm_accent_stroke() -> egui::Stroke {
+    egui::Stroke::new(1.0, epm_orange())
+}
+
+fn epm_orange() -> egui::Color32 {
+    egui::Color32::from_rgb(255, 106, 24)
+}
+
+fn epm_orange_dim() -> egui::Color32 {
+    egui::Color32::from_rgb(156, 69, 24)
+}
+
+fn epm_text() -> egui::Color32 {
+    egui::Color32::from_rgb(244, 247, 250)
+}
+
+fn epm_muted() -> egui::Color32 {
+    egui::Color32::from_rgb(143, 158, 171)
+}
+
+fn epm_cyan() -> egui::Color32 {
+    egui::Color32::from_rgb(189, 222, 244)
+}
+
+fn epm_ok() -> egui::Color32 {
+    egui::Color32::from_rgb(84, 220, 135)
+}
+
+fn epm_bad() -> egui::Color32 {
+    egui::Color32::from_rgb(232, 83, 75)
+}
+
+fn epm_frame(fill: egui::Color32) -> egui::Frame {
+    egui::Frame::NONE
+        .fill(fill)
+        .stroke(epm_stroke())
+        .corner_radius(egui::CornerRadius::same(4))
+        .inner_margin(egui::Margin::symmetric(14, 12))
+}
+
+fn epm_tile_frame(highlighted: bool) -> egui::Frame {
+    egui::Frame::NONE
+        .fill(if highlighted {
+            epm_tile_hot()
+        } else {
+            epm_tile()
+        })
+        .stroke(if highlighted {
+            epm_accent_stroke()
+        } else {
+            epm_stroke()
+        })
+        .corner_radius(egui::CornerRadius::same(4))
+        .inner_margin(egui::Margin::symmetric(12, 10))
+}
+
+fn epm_eyebrow(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text.into())
+        .monospace()
+        .size(11.0)
+        .strong()
+        .color(epm_orange())
+}
+
+fn epm_heading(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text.into())
+        .size(28.0)
+        .strong()
+        .color(epm_text())
+}
+
+fn epm_subheading(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text.into())
+        .size(16.0)
+        .strong()
+        .color(epm_text())
+}
+
+fn epm_body(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text.into())
+        .size(14.0)
+        .color(epm_cyan())
+}
+
+fn epm_small(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text.into())
+        .monospace()
+        .size(11.0)
+        .color(epm_muted())
+}
+
+fn epm_value(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text.into())
+        .size(17.0)
+        .strong()
+        .color(epm_text())
+}
+
+fn apply_epm_gui_style(ctx: &egui::Context) {
+    let mut style = (*ctx.style()).clone();
+    style.visuals = egui::Visuals::dark();
+    style.visuals.window_fill = epm_bg();
+    style.visuals.panel_fill = epm_bg();
+    style.visuals.faint_bg_color = epm_panel_deep();
+    style.visuals.extreme_bg_color = epm_panel_deep();
+    style.visuals.override_text_color = Some(epm_text());
+    style.visuals.hyperlink_color = epm_orange();
+    style.visuals.selection.bg_fill = epm_orange_dim();
+    style.visuals.selection.stroke = epm_accent_stroke();
+    style.visuals.widgets.noninteractive.bg_fill = epm_panel();
+    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, epm_text());
+    style.visuals.widgets.inactive.bg_fill = epm_tile();
+    style.visuals.widgets.inactive.bg_stroke = epm_stroke();
+    style.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(4);
+    style.visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(39, 31, 25);
+    style.visuals.widgets.hovered.bg_stroke = epm_accent_stroke();
+    style.visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(4);
+    style.visuals.widgets.active.bg_fill = epm_tile_hot();
+    style.visuals.widgets.active.bg_stroke = epm_accent_stroke();
+    style.visuals.widgets.active.corner_radius = egui::CornerRadius::same(4);
+    style.visuals.widgets.open.bg_fill = epm_tile_hot();
+    style.visuals.widgets.open.bg_stroke = epm_accent_stroke();
+    style.visuals.widgets.open.corner_radius = egui::CornerRadius::same(4);
+    style.visuals.window_corner_radius = egui::CornerRadius::same(4);
+    style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+    style.spacing.button_padding = egui::vec2(13.0, 9.0);
+    style.spacing.window_margin = egui::Margin::symmetric(18, 16);
+    style.text_styles.insert(
+        egui::TextStyle::Heading,
+        egui::FontId::new(28.0, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Body,
+        egui::FontId::new(14.0, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Monospace,
+        egui::FontId::new(12.0, egui::FontFamily::Monospace),
+    );
+    ctx.set_style(style);
+}
+
 struct PerformanceApp {
     session: RuntimeSession,
     snapshot: Option<EngineSnapshot>,
@@ -2137,186 +2306,286 @@ impl PerformanceApp {
     }
 
     fn render_header(&mut self, ui: &mut egui::Ui) {
-        if let Some(snapshot) = &self.snapshot {
-            ui.heading(&snapshot.patch_name);
-            if let Some(description) = &snapshot.patch_description {
-                ui.label(description);
-            }
-        } else {
-            ui.heading("EPM1 Performance");
-        }
-
+        let (patch_name, description, favorite) = self
+            .snapshot
+            .as_ref()
+            .map(|snapshot| {
+                (
+                    snapshot.patch_name.clone(),
+                    snapshot
+                        .patch_description
+                        .clone()
+                        .unwrap_or_else(|| "no description".to_string()),
+                    snapshot.patch_favorite,
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    "EPM1 Performance".to_string(),
+                    "waiting for engine snapshot".to_string(),
+                    false,
+                )
+            });
         let current_slot = self
             .session
             .current_live_slot()
             .map(|slot| slot.to_string())
             .unwrap_or_else(|| "-".to_string());
-        ui.label(format!(
-            "Live slot: {current_slot} / {}",
-            LIVE_SET_STEMS.len().saturating_sub(1)
-        ));
-        ui.label(format!(
-            "Audio: {} @ {} Hz / {} ch",
-            self.session.audio_device_name, self.session.sample_rate_hz, self.session.channels
-        ));
-        ui.label(format!("MIDI: {}", self.session.driver.detail()));
-
         let midi_color = if Instant::now() <= self.midi_hot_until {
-            egui::Color32::from_rgb(64, 220, 120)
+            epm_ok()
         } else {
-            egui::Color32::from_rgb(90, 90, 90)
+            epm_muted()
         };
-        ui.colored_label(
-            midi_color,
-            format!(
-                "MIDI activity {}",
-                self.session.input_metrics_snapshot().midi_messages
-            ),
-        );
-
         let transport = self.session.transport_metrics_snapshot();
-        ui.label(format!(
-            "Queued {} / Target {} / Write {}  Underruns {}  XRuns {}  Overflows {}",
-            transport.queued_frames,
-            transport.queue_target_frames,
-            transport.write_frames_hint,
-            transport.underrun_batches,
-            transport.xrun_recoveries,
-            transport.overflow_batches
-        ));
 
-        if let Some(message) = &self.last_status_message {
-            ui.separator();
-            ui.label(message);
-        }
-        if let Some(error) = &self.last_snapshot_error {
-            ui.colored_label(egui::Color32::from_rgb(220, 90, 90), error);
-        }
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(epm_eyebrow("CURRENT PATCH"));
+                    ui.label(epm_heading(patch_name));
+                    ui.label(epm_body(description));
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    render_metric_tile(
+                        ui,
+                        false,
+                        "TRANSPORT",
+                        &format!("{}", transport.queued_frames),
+                        &format!(
+                            "target {} / xruns {}",
+                            transport.queue_target_frames, transport.xrun_recoveries
+                        ),
+                    );
+                    render_metric_tile(
+                        ui,
+                        Instant::now() <= self.midi_hot_until,
+                        "MIDI",
+                        &format!("{}", self.session.input_metrics_snapshot().midi_messages),
+                        &self.session.driver.detail(),
+                    );
+                    render_metric_tile(
+                        ui,
+                        favorite,
+                        "LIVE SLOT",
+                        &current_slot,
+                        &format!("0..{}", LIVE_SET_STEMS.len().saturating_sub(1)),
+                    );
+                });
+            });
+
+            ui.add_space(10.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(
+                    epm_muted(),
+                    format!(
+                        "Audio: {} @ {} Hz / {} ch",
+                        self.session.audio_device_name,
+                        self.session.sample_rate_hz,
+                        self.session.channels
+                    ),
+                );
+                if let Some(message) = &self.last_status_message {
+                    ui.colored_label(epm_orange(), message);
+                }
+                if let Some(error) = &self.last_snapshot_error {
+                    ui.colored_label(epm_bad(), error);
+                }
+                ui.colored_label(midi_color, "midi");
+            });
+        });
     }
 
     fn render_slot_buttons(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            for (slot, stem) in LIVE_SET_STEMS.iter().enumerate() {
-                let selected = self.session.current_live_slot() == Some(slot);
-                let label = format!("{slot}:{stem}");
-                if ui.selectable_label(selected, label).clicked() {
-                    self.run_action(
-                        |session| session.load_favorite_slot(slot),
-                        &format!("live slot {slot}"),
-                    );
-                }
-            }
+        epm_frame(epm_panel_deep()).show(ui, |ui| {
+            ui.label(epm_eyebrow("LIVE SET"));
+            ui.add_space(4.0);
+            egui::Grid::new("live-set-slots")
+                .num_columns(4)
+                .spacing([8.0, 8.0])
+                .show(ui, |ui| {
+                    for (slot, stem) in LIVE_SET_STEMS.iter().enumerate() {
+                        let selected = self.session.current_live_slot() == Some(slot);
+                        let label = egui::RichText::new(format!("{slot:02}\n{stem}"))
+                            .monospace()
+                            .size(12.0)
+                            .strong()
+                            .color(if selected { epm_text() } else { epm_muted() });
+                        let button = egui::Button::new(label)
+                            .fill(if selected { epm_tile_hot() } else { epm_tile() })
+                            .stroke(if selected {
+                                epm_accent_stroke()
+                            } else {
+                                epm_stroke()
+                            })
+                            .corner_radius(egui::CornerRadius::same(4));
+                        if ui.add_sized([118.0, 46.0], button).clicked() {
+                            self.run_action(
+                                |session| session.load_favorite_slot(slot),
+                                &format!("live slot {slot}"),
+                            );
+                        }
+                        if slot % 4 == 3 {
+                            ui.end_row();
+                        }
+                    }
+                });
+        });
+    }
+
+    fn render_macro_meter(ui: &mut egui::Ui, label: &str, live_value: f32, effective_value: f32) {
+        epm_tile_frame(false).show(ui, |ui| {
+            ui.set_min_width(150.0);
+            ui.label(epm_eyebrow(label.to_ascii_uppercase()));
+            ui.add(
+                egui::ProgressBar::new(live_value.clamp(0.0, 1.0))
+                    .desired_width(132.0)
+                    .fill(epm_orange())
+                    .text(format!("{live_value:.2}")),
+            );
+            ui.label(epm_small(format!("effective {effective_value:.2}")));
         });
     }
 
     fn render_macro_controls(&mut self, ui: &mut egui::Ui) {
         let Some(snapshot) = self.snapshot.as_ref() else {
-            ui.label("waiting for engine snapshot...");
+            epm_frame(epm_panel()).show(ui, |ui| {
+                ui.label(epm_eyebrow("MACROS"));
+                ui.label(epm_body("waiting for engine snapshot"));
+            });
             return;
         };
 
         let macro_values = [
             (
-                MacroId::Gravitacija,
                 "Gravitacija",
                 snapshot.live_macros.gravitacija,
                 snapshot.effective_macros.gravitacija,
             ),
             (
-                MacroId::Bloom,
                 "Bloom",
                 snapshot.live_macros.bloom,
                 snapshot.effective_macros.bloom,
             ),
             (
-                MacroId::Heat,
                 "Heat",
                 snapshot.live_macros.heat,
                 snapshot.effective_macros.heat,
             ),
             (
-                MacroId::Ruin,
                 "Ruin",
                 snapshot.live_macros.ruin,
                 snapshot.effective_macros.ruin,
             ),
             (
-                MacroId::Swarm,
                 "Swarm",
                 snapshot.live_macros.swarm,
                 snapshot.effective_macros.swarm,
             ),
         ];
 
-        ui.horizontal(|ui| {
-            for (_id, label, live_value, effective_value) in macro_values {
-                ui.vertical(|ui| {
-                    ui.strong(label);
-                    let mut value = live_value;
-                    ui.add_enabled_ui(false, |ui| {
-                        ui.add_sized(
-                            [84.0, 220.0],
-                            egui::Slider::new(&mut value, 0.0..=1.0)
-                                .vertical()
-                                .show_value(false),
-                        );
-                    });
-                    ui.label(format!("live {:.2}", live_value));
-                    ui.small(format!("eff {:.2}", effective_value));
-                });
-            }
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.label(epm_eyebrow("MACROS"));
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                for (label, live_value, effective_value) in macro_values {
+                    Self::render_macro_meter(ui, label, live_value, effective_value);
+                }
+            });
         });
     }
 
     fn render_tabs(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            for tab in PerformanceTab::ALL {
-                if ui
-                    .selectable_label(self.selected_tab == tab, tab.label())
-                    .clicked()
-                {
-                    self.selected_tab = tab;
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 54.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                let logo = egui::Button::new(
+                    egui::RichText::new("M")
+                        .monospace()
+                        .size(18.0)
+                        .strong()
+                        .color(epm_orange()),
+                )
+                .fill(epm_panel_deep())
+                .stroke(epm_stroke())
+                .corner_radius(egui::CornerRadius::same(4));
+                ui.add_sized([34.0, 40.0], logo);
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(190.0, 42.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.label(epm_small("CURRENT BUILD"));
+                        ui.label(epm_subheading("Mamut EPM"));
+                    },
+                );
+
+                let tab_count = PerformanceTab::ALL.len() as f32;
+                let tab_width = tab_count * 76.0 + (tab_count - 1.0) * ui.spacing().item_spacing.x;
+                ui.add_space((ui.available_width() - tab_width).max(12.0));
+
+                for tab in PerformanceTab::ALL {
+                    let selected = self.selected_tab == tab;
+                    let button = egui::Button::new(
+                        egui::RichText::new(tab.label().to_ascii_uppercase())
+                            .monospace()
+                            .size(12.0)
+                            .strong()
+                            .color(if selected { epm_text() } else { epm_muted() }),
+                    )
+                    .fill(if selected { epm_tile_hot() } else { epm_bg() })
+                    .stroke(if selected {
+                        epm_accent_stroke()
+                    } else {
+                        epm_stroke()
+                    })
+                    .corner_radius(egui::CornerRadius::same(0));
+                    if ui.add_sized([76.0, 38.0], button).clicked() {
+                        self.selected_tab = tab;
+                    }
                 }
-            }
-        });
+            },
+        );
     }
 
     fn render_live_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.render_header(ui);
-        ui.separator();
-        self.render_slot_buttons(ui);
-        ui.separator();
-        self.render_macro_controls(ui);
-        ui.separator();
+        ui.add_space(12.0);
+        ui.columns(2, |columns| {
+            self.render_slot_buttons(&mut columns[0]);
+            self.render_macro_controls(&mut columns[1]);
+        });
+        ui.add_space(12.0);
         self.render_footer(ui, ctx);
     }
 
     fn render_pc4_tab(&mut self, ui: &mut egui::Ui) {
         let input = self.session.input_metrics_snapshot();
-        if let Some(event) = &input.last_control {
-            ui.label(format!(
-                "Latest: {} -> {} ({})",
-                event.label,
-                event.action,
-                verdict_label(event.verdict)
-            ));
-        } else {
-            ui.label("Latest: none");
-        }
-        ui.separator();
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.label(epm_eyebrow("PC4 CONTROL MAP"));
+            if let Some(event) = &input.last_control {
+                ui.label(epm_value(format!("{} -> {}", event.label, event.action)));
+                ui.label(epm_small(verdict_label(event.verdict)));
+            } else {
+                ui.label(epm_value("Latest: none"));
+            }
+        });
+        ui.add_space(12.0);
 
         let Some(snapshot) = self.snapshot.as_ref() else {
-            ui.label("waiting for engine snapshot...");
+            epm_frame(epm_panel()).show(ui, |ui| {
+                ui.label(epm_body("waiting for engine snapshot"));
+            });
             return;
         };
 
         if let Some(profile) = self.session.controller_profile.clone() {
-            ui.label(format!(
-                "Profile: {} ({})",
-                profile.name,
-                profile.path.display()
-            ));
-            ui.separator();
+            epm_frame(epm_panel_deep()).show(ui, |ui| {
+                ui.label(epm_eyebrow("PROFILE"));
+                ui.label(epm_value(&profile.name));
+                ui.label(epm_small(profile.path.display().to_string()));
+            });
+            ui.add_space(12.0);
             self.render_controller_section(
                 ui,
                 "Knobs",
@@ -2325,7 +2594,7 @@ impl PerformanceApp {
                 snapshot,
                 input.last_control.as_ref(),
             );
-            ui.separator();
+            ui.add_space(12.0);
             self.render_controller_section(
                 ui,
                 "Sliders",
@@ -2334,7 +2603,7 @@ impl PerformanceApp {
                 snapshot,
                 input.last_control.as_ref(),
             );
-            ui.separator();
+            ui.add_space(12.0);
             self.render_controller_section(
                 ui,
                 "Switches",
@@ -2345,7 +2614,7 @@ impl PerformanceApp {
             );
             let other = sorted_bindings_for_section(&profile, ControllerBindingSection::Other);
             if !other.is_empty() {
-                ui.separator();
+                ui.add_space(12.0);
                 self.render_binding_grid(
                     ui,
                     "Other",
@@ -2358,7 +2627,7 @@ impl PerformanceApp {
             self.render_legacy_pc4_tab(ui, snapshot, input.last_control.as_ref());
         }
 
-        ui.separator();
+        ui.add_space(12.0);
         self.render_program_change_map(ui, input.last_control.as_ref());
     }
 
@@ -2383,18 +2652,21 @@ impl PerformanceApp {
         snapshot: &EngineSnapshot,
         last_control: Option<&LastControlEvent>,
     ) {
-        ui.strong(title);
-        egui::Grid::new(format!("pc4-{title}"))
-            .num_columns(3)
-            .spacing([12.0, 8.0])
-            .show(ui, |ui| {
-                for (index, binding) in bindings.iter().enumerate() {
-                    render_binding_tile(ui, binding, snapshot, last_control);
-                    if index % 3 == 2 {
-                        ui.end_row();
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.label(epm_eyebrow(title.to_ascii_uppercase()));
+            ui.add_space(6.0);
+            egui::Grid::new(format!("pc4-{title}"))
+                .num_columns(3)
+                .spacing([10.0, 10.0])
+                .show(ui, |ui| {
+                    for (index, binding) in bindings.iter().enumerate() {
+                        render_binding_tile(ui, binding, snapshot, last_control);
+                        if index % 3 == 2 {
+                            ui.end_row();
+                        }
                     }
-                }
-            });
+                });
+        });
     }
 
     fn render_legacy_pc4_tab(
@@ -2403,10 +2675,13 @@ impl PerformanceApp {
         snapshot: &EngineSnapshot,
         last_control: Option<&LastControlEvent>,
     ) {
-        ui.colored_label(
-            egui::Color32::from_rgb(230, 190, 80),
-            "Full PC4 profile not loaded; showing legacy live map.",
-        );
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.label(epm_eyebrow("LEGACY PC4"));
+            ui.label(epm_body(
+                "Full PC4 profile not loaded; showing legacy live map.",
+            ));
+        });
+        ui.add_space(12.0);
         let legacy = [
             (
                 16,
@@ -2419,25 +2694,29 @@ impl PerformanceApp {
             (19, "Legacy CC19", "macro Ruin", snapshot.live_macros.ruin),
             (20, "Legacy CC20", "macro Swarm", snapshot.live_macros.swarm),
         ];
-        egui::Grid::new("pc4-legacy-macros")
-            .num_columns(5)
-            .spacing([12.0, 8.0])
-            .show(ui, |ui| {
-                for (cc, label, action, value) in legacy {
-                    let highlighted =
-                        last_control.is_some_and(|event| event_matches_legacy_cc(event, cc));
-                    render_small_status_tile(
-                        ui,
-                        highlighted,
-                        label,
-                        &format!("CC{cc}"),
-                        action,
-                        &format!("{value:.2}"),
-                    );
-                }
-            });
-        ui.separator();
-        ui.label("Also active: CC1 mod wheel, CC64 sustain, channel aftertouch, pitch bend.");
+        epm_frame(epm_panel()).show(ui, |ui| {
+            egui::Grid::new("pc4-legacy-macros")
+                .num_columns(5)
+                .spacing([10.0, 10.0])
+                .show(ui, |ui| {
+                    for (cc, label, action, value) in legacy {
+                        let highlighted =
+                            last_control.is_some_and(|event| event_matches_legacy_cc(event, cc));
+                        render_small_status_tile(
+                            ui,
+                            highlighted,
+                            label,
+                            &format!("CC{cc}"),
+                            action,
+                            &format!("{value:.2}"),
+                        );
+                    }
+                });
+            ui.add_space(6.0);
+            ui.label(epm_small(
+                "CC1 mod wheel / CC64 sustain / channel aftertouch / pitch bend",
+            ));
+        });
     }
 
     fn render_program_change_map(
@@ -2445,138 +2724,197 @@ impl PerformanceApp {
         ui: &mut egui::Ui,
         last_control: Option<&LastControlEvent>,
     ) {
-        ui.strong("Program Change");
-        egui::Grid::new("pc4-program-change")
-            .num_columns(4)
-            .spacing([12.0, 8.0])
-            .show(ui, |ui| {
-                for (slot, stem) in LIVE_SET_STEMS.iter().enumerate() {
-                    let highlighted = last_control
-                        .is_some_and(|event| event_matches_program_change(event, slot as u8));
-                    render_small_status_tile(
-                        ui,
-                        highlighted,
-                        &format!("PC {slot}"),
-                        "program",
-                        stem,
-                        if self.session.current_live_slot() == Some(slot) {
-                            "current"
-                        } else {
-                            ""
-                        },
-                    );
-                    if slot % 4 == 3 {
-                        ui.end_row();
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.label(epm_eyebrow("PROGRAM CHANGE"));
+            ui.add_space(6.0);
+            egui::Grid::new("pc4-program-change")
+                .num_columns(4)
+                .spacing([10.0, 10.0])
+                .show(ui, |ui| {
+                    for (slot, stem) in LIVE_SET_STEMS.iter().enumerate() {
+                        let highlighted = last_control
+                            .is_some_and(|event| event_matches_program_change(event, slot as u8));
+                        render_small_status_tile(
+                            ui,
+                            highlighted,
+                            &format!("PC {slot}"),
+                            "program",
+                            stem,
+                            if self.session.current_live_slot() == Some(slot) {
+                                "current"
+                            } else {
+                                ""
+                            },
+                        );
+                        if slot % 4 == 3 {
+                            ui.end_row();
+                        }
                     }
-                }
-            });
+                });
+        });
     }
 
     fn render_debug_tab(&mut self, ui: &mut egui::Ui) {
         let input = self.session.input_metrics_snapshot();
-        ui.label(format!("Driver: {}", self.session.driver.detail()));
-        match self.session.midi_channel {
-            Some(channel) => ui.label(format!("MIDI channel filter: channel {channel}")),
-            None => ui.label("MIDI channel filter: all channels"),
-        };
-        if let Some(profile) = &self.session.controller_profile {
-            ui.label(format!(
-                "Profile: {} ({})",
-                profile.name,
-                profile.path.display()
-            ));
-        } else {
-            ui.label("Profile: none (legacy live map)");
-        }
-        ui.label(format!("MIDI messages: {}", input.midi_messages));
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.label(epm_eyebrow("DEBUG"));
+            ui.add_space(6.0);
+            egui::Grid::new("debug-runtime-grid")
+                .num_columns(2)
+                .spacing([18.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(epm_small("DRIVER"));
+                    ui.label(epm_body(self.session.driver.detail()));
+                    ui.end_row();
+
+                    ui.label(epm_small("CHANNEL"));
+                    match self.session.midi_channel {
+                        Some(channel) => ui.label(epm_body(format!("channel {channel}"))),
+                        None => ui.label(epm_body("all channels")),
+                    };
+                    ui.end_row();
+
+                    ui.label(epm_small("PROFILE"));
+                    if let Some(profile) = &self.session.controller_profile {
+                        ui.label(epm_body(format!(
+                            "{} ({})",
+                            profile.name,
+                            profile.path.display()
+                        )));
+                    } else {
+                        ui.label(epm_body("legacy live map"));
+                    }
+                    ui.end_row();
+
+                    ui.label(epm_small("MESSAGES"));
+                    ui.label(epm_value(input.midi_messages.to_string()));
+                    ui.end_row();
+                });
+        });
+
+        ui.add_space(12.0);
         if let Some(event) = &input.last_control {
-            ui.separator();
-            ui.label(format!("Latest event: {} -> {}", event.label, event.action));
-            ui.label(format!(
-                "Raw status: 0x{:02X}  Channel: {}  Verdict: {}",
-                event.raw_status,
-                event
-                    .channel
-                    .map(|channel| channel.to_string())
-                    .unwrap_or_else(|| "system".to_string()),
-                verdict_label(event.verdict)
-            ));
-            if let Some(value) = event.raw_value {
-                ui.label(format!("Raw value: {:.3}", value));
-            }
-            if let Some(program) = event.program {
-                ui.label(format!("Program: {program}"));
-            }
+            epm_frame(epm_panel_deep()).show(ui, |ui| {
+                ui.label(epm_eyebrow("LATEST MIDI"));
+                ui.label(epm_value(format!("{} -> {}", event.label, event.action)));
+                ui.label(epm_small(format!(
+                    "status 0x{:02X} / channel {} / {}",
+                    event.raw_status,
+                    event
+                        .channel
+                        .map(|channel| channel.to_string())
+                        .unwrap_or_else(|| "system".to_string()),
+                    verdict_label(event.verdict)
+                )));
+                if let Some(value) = event.raw_value {
+                    ui.label(epm_body(format!("raw value {value:.3}")));
+                }
+                if let Some(program) = event.program {
+                    ui.label(epm_body(format!("program {program}")));
+                }
+            });
         }
 
-        ui.separator();
-        let transport = self.session.transport_metrics_snapshot();
-        ui.label(format!(
-            "ALSA queue: queued={} target={} write_hint={}",
-            transport.queued_frames, transport.queue_target_frames, transport.write_frames_hint
-        ));
-        ui.label(format!(
-            "Underruns: batches={} frames={}  XRuns={}  Overflows: batches={} frames={}",
-            transport.underrun_batches,
-            transport.underrun_frames,
-            transport.xrun_recoveries,
-            transport.overflow_batches,
-            transport.overflow_frames
-        ));
-        if let Some(message) = &self.last_status_message {
-            ui.separator();
-            ui.label(format!("Runtime status: {message}"));
-        }
-        if let Some(error) = &self.last_snapshot_error {
-            ui.colored_label(egui::Color32::from_rgb(220, 90, 90), error);
-        }
+        ui.add_space(12.0);
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.label(epm_eyebrow("RUNTIME"));
+            let transport = self.session.transport_metrics_snapshot();
+            egui::Grid::new("debug-transport-grid")
+                .num_columns(2)
+                .spacing([18.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(epm_small("ALSA QUEUE"));
+                    ui.label(epm_body(format!(
+                        "queued {} / target {} / write {}",
+                        transport.queued_frames,
+                        transport.queue_target_frames,
+                        transport.write_frames_hint
+                    )));
+                    ui.end_row();
+
+                    ui.label(epm_small("UNDERRUNS"));
+                    ui.label(epm_body(format!(
+                        "batches {} / frames {}",
+                        transport.underrun_batches, transport.underrun_frames
+                    )));
+                    ui.end_row();
+
+                    ui.label(epm_small("XRUNS"));
+                    ui.label(epm_body(transport.xrun_recoveries.to_string()));
+                    ui.end_row();
+
+                    ui.label(epm_small("OVERFLOWS"));
+                    ui.label(epm_body(format!(
+                        "batches {} / frames {}",
+                        transport.overflow_batches, transport.overflow_frames
+                    )));
+                    ui.end_row();
+                });
+            if let Some(message) = &self.last_status_message {
+                ui.add_space(6.0);
+                ui.label(epm_body(format!("runtime status: {message}")));
+            }
+            if let Some(error) = &self.last_snapshot_error {
+                ui.add_space(6.0);
+                ui.colored_label(epm_bad(), error);
+            }
+        });
     }
 
     fn render_footer(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.horizontal(|ui| {
-            if ui.button("Prev").clicked() {
-                self.run_action(|session| session.switch_favorite(-1), "previous live slot");
-            }
-            if ui.button("Next").clicked() {
-                self.run_action(|session| session.switch_favorite(1), "next live slot");
-            }
-            if ui
-                .add(
-                    egui::Button::new("PANIC")
-                        .fill(egui::Color32::from_rgb(180, 40, 40))
-                        .stroke(egui::Stroke::new(1.0, egui::Color32::WHITE)),
-                )
-                .clicked()
-            {
-                self.run_action(|session| session.panic(), "panic");
-            }
-            if ui.button("Reset Ctrls").clicked() {
-                self.run_action(|session| session.reset_controllers(), "reset controllers");
-            }
-            if ui.button("Quit").clicked() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        epm_frame(epm_panel_deep()).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui.add(epm_command_button("PREV", false, false)).clicked() {
+                    self.run_action(|session| session.switch_favorite(-1), "previous live slot");
+                }
+                if ui.add(epm_command_button("NEXT", false, false)).clicked() {
+                    self.run_action(|session| session.switch_favorite(1), "next live slot");
+                }
+                if ui.add(epm_command_button("PANIC", true, false)).clicked() {
+                    self.run_action(|session| session.panic(), "panic");
+                }
+                if ui
+                    .add(epm_command_button("RESET CTRLS", false, false))
+                    .clicked()
+                {
+                    self.run_action(|session| session.reset_controllers(), "reset controllers");
+                }
+                if ui.add(epm_command_button("QUIT", false, false)).clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            });
+
+            if let Some(snapshot) = &self.snapshot {
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    render_metric_tile(
+                        ui,
+                        snapshot.active_voice_count > 0,
+                        "VOICES",
+                        &snapshot.active_voice_count.to_string(),
+                        &format!("held {:?}", snapshot.held_notes),
+                    );
+                    render_metric_tile(
+                        ui,
+                        snapshot.sustain_down,
+                        "SUSTAIN",
+                        if snapshot.sustain_down { "down" } else { "up" },
+                        "",
+                    );
+                    render_metric_tile(
+                        ui,
+                        snapshot.clip_detected,
+                        "PEAK",
+                        &format!("{:.3}", snapshot.peak_output),
+                        if snapshot.clip_detected {
+                            "clip"
+                        } else {
+                            "clean"
+                        },
+                    );
+                });
             }
         });
-
-        if let Some(snapshot) = &self.snapshot {
-            ui.separator();
-            ui.label(format!(
-                "Voices {}  Sustain {}  Held {:?}",
-                snapshot.active_voice_count, snapshot.sustain_down, snapshot.held_notes
-            ));
-            let peak_color = if snapshot.clip_detected {
-                egui::Color32::from_rgb(220, 80, 80)
-            } else {
-                egui::Color32::from_rgb(110, 190, 255)
-            };
-            ui.colored_label(
-                peak_color,
-                format!(
-                    "Peak {:.3}  Clip {}",
-                    snapshot.peak_output, snapshot.clip_detected
-                ),
-            );
-        }
     }
 }
 
@@ -2585,17 +2923,23 @@ impl eframe::App for PerformanceApp {
         self.handle_shortcuts(ctx);
         self.poll_runtime();
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("EPM1 PC4 Performance Rig");
-            ui.separator();
-            self.render_tabs(ui);
-            ui.separator();
-            match self.selected_tab {
-                PerformanceTab::Live => self.render_live_tab(ui, ctx),
-                PerformanceTab::Pc4 => self.render_pc4_tab(ui),
-                PerformanceTab::Debug => self.render_debug_tab(ui),
-            }
-        });
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::NONE
+                    .fill(epm_bg())
+                    .inner_margin(egui::Margin::symmetric(18, 14)),
+            )
+            .show(ctx, |ui| {
+                self.render_tabs(ui);
+                ui.add_space(14.0);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| match self.selected_tab {
+                        PerformanceTab::Live => self.render_live_tab(ui, ctx),
+                        PerformanceTab::Pc4 => self.render_pc4_tab(ui),
+                        PerformanceTab::Debug => self.render_debug_tab(ui),
+                    });
+            });
 
         ctx.request_repaint_after(Duration::from_millis(16));
     }
@@ -2649,20 +2993,58 @@ fn render_small_status_tile(
     action: &str,
     value: &str,
 ) {
-    let fill = if highlighted {
-        egui::Color32::from_rgb(56, 84, 48)
-    } else {
-        egui::Color32::from_rgb(32, 32, 32)
-    };
-    egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
-        ui.set_min_width(150.0);
-        ui.strong(title);
-        ui.small(subtitle);
-        ui.label(action);
+    epm_tile_frame(highlighted).show(ui, |ui| {
+        ui.set_min_size(egui::vec2(170.0, 88.0));
+        ui.label(epm_eyebrow(title.to_ascii_uppercase()));
+        ui.label(epm_small(subtitle));
+        ui.label(epm_body(action));
         if !value.is_empty() {
-            ui.label(value);
+            ui.label(epm_value(value));
         }
     });
+}
+
+fn render_metric_tile(
+    ui: &mut egui::Ui,
+    highlighted: bool,
+    title: &str,
+    value: &str,
+    detail: &str,
+) {
+    epm_tile_frame(highlighted).show(ui, |ui| {
+        ui.set_min_width(112.0);
+        ui.label(epm_eyebrow(title));
+        ui.label(epm_value(value));
+        if !detail.is_empty() {
+            ui.label(epm_small(detail));
+        }
+    });
+}
+
+fn epm_command_button(label: &str, danger: bool, selected: bool) -> egui::Button<'static> {
+    let fill = if danger {
+        egui::Color32::from_rgb(115, 25, 22)
+    } else if selected {
+        epm_tile_hot()
+    } else {
+        epm_tile()
+    };
+    let stroke = if danger || selected {
+        epm_accent_stroke()
+    } else {
+        epm_stroke()
+    };
+    egui::Button::new(
+        egui::RichText::new(label.to_string())
+            .monospace()
+            .size(12.0)
+            .strong()
+            .color(epm_text()),
+    )
+    .fill(fill)
+    .stroke(stroke)
+    .corner_radius(egui::CornerRadius::same(4))
+    .min_size(egui::vec2(92.0, 34.0))
 }
 
 fn binding_display_value(
@@ -2814,6 +3196,7 @@ fn verdict_label(verdict: LastControlVerdict) -> &'static str {
     match verdict {
         LastControlVerdict::Accepted => "accepted",
         LastControlVerdict::Filtered => "filtered",
+        LastControlVerdict::StartupSuppressed => "startup suppressed",
         LastControlVerdict::Reserved => "reserved",
         LastControlVerdict::ReleaseIgnored => "release ignored",
         LastControlVerdict::Ignored => "ignored",
@@ -2832,7 +3215,10 @@ fn run_performance_window(session: RuntimeSession) -> Result<()> {
     eframe::run_native(
         "EPM1 Performance Rig",
         options,
-        Box::new(move |_cc| Ok(Box::new(PerformanceApp::new(session)))),
+        Box::new(move |cc| {
+            apply_epm_gui_style(&cc.egui_ctx);
+            Ok(Box::new(PerformanceApp::new(session)))
+        }),
     )
     .map_err(|error| anyhow!("failed to launch performance window: {error}"))
 }
@@ -3624,35 +4010,52 @@ fn open_midi_input(
         .nth(port_index)
         .ok_or_else(|| anyhow!("MIDI input device index {port_index} is out of range"))?;
     let port_name = selected.name.clone();
+    let startup_guard_until = Instant::now()
+        .checked_add(MIDI_STARTUP_GUARD)
+        .unwrap_or_else(Instant::now);
     let connection = midi_input
         .connect(
             &selected.port,
             "mamut-midi-in",
             move |_stamp, message, _| {
+                let received_at = Instant::now();
                 let parsed = parse_midi_message(
                     message,
                     bend_range,
                     midi_channel,
                     controller_profile.as_deref(),
                 );
+                let startup_suppressed =
+                    startup_guard_suppresses_message(parsed, received_at, startup_guard_until);
+                let routed = if startup_suppressed { None } else { parsed };
                 if let Some(event) = last_control_event(
                     message,
                     midi_channel,
                     controller_profile.as_deref(),
-                    parsed,
-                    Instant::now(),
+                    routed,
+                    received_at,
+                    startup_suppressed,
                 ) {
                     input_metrics.record_last_control(event);
                 }
                 if trace_midi {
-                    trace_midi_message(
-                        message,
-                        midi_channel,
-                        controller_profile.as_deref(),
-                        parsed,
-                    );
+                    if startup_suppressed {
+                        trace_midi_startup_suppressed(
+                            message,
+                            midi_channel,
+                            controller_profile.as_deref(),
+                            parsed,
+                        );
+                    } else {
+                        trace_midi_message(
+                            message,
+                            midi_channel,
+                            controller_profile.as_deref(),
+                            parsed,
+                        );
+                    }
                 }
-                if let Some(parsed) = parsed {
+                if let Some(parsed) = routed {
                     input_metrics.record_midi_message();
                     match parsed {
                         ParsedMidiMessage::Realtime(message) => {
@@ -3675,7 +4078,47 @@ fn open_midi_input(
     }))
 }
 
+fn startup_guard_suppresses_message(
+    parsed: Option<ParsedMidiMessage>,
+    received_at: Instant,
+    guard_until: Instant,
+) -> bool {
+    if received_at >= guard_until {
+        return false;
+    }
+
+    matches!(
+        parsed,
+        Some(ParsedMidiMessage::Realtime(_)) | Some(ParsedMidiMessage::Runtime(_))
+    )
+}
+
+fn trace_midi_startup_suppressed(
+    message: &[u8],
+    midi_channel: Option<u8>,
+    controller_profile: Option<&ControllerProfile>,
+    parsed: Option<ParsedMidiMessage>,
+) {
+    trace_midi_message_with_prefix(
+        "startup suppressed ",
+        message,
+        midi_channel,
+        controller_profile,
+        parsed,
+    );
+}
+
 fn trace_midi_message(
+    message: &[u8],
+    midi_channel: Option<u8>,
+    controller_profile: Option<&ControllerProfile>,
+    parsed: Option<ParsedMidiMessage>,
+) {
+    trace_midi_message_with_prefix("", message, midi_channel, controller_profile, parsed);
+}
+
+fn trace_midi_message_with_prefix(
+    verdict_prefix: &str,
     message: &[u8],
     midi_channel: Option<u8>,
     controller_profile: Option<&ControllerProfile>,
@@ -3704,6 +4147,7 @@ fn trace_midi_message(
     } else {
         describe_unparsed_midi_message(message)
     };
+    let verdict = format!("{verdict_prefix}{verdict}");
 
     if status < 0xF0 {
         eprintln!("midi trace: ch={channel} raw=[{raw}] {verdict}");
@@ -3718,6 +4162,7 @@ fn last_control_event(
     controller_profile: Option<&ControllerProfile>,
     parsed: Option<ParsedMidiMessage>,
     received_at: Instant,
+    startup_suppressed: bool,
 ) -> Option<LastControlEvent> {
     let raw_status = *message.first()?;
     let status = raw_status & 0xF0;
@@ -3742,15 +4187,19 @@ fn last_control_event(
             let raw_value = message[2] as f32 / 127.0;
             if let Some(binding) = controller_profile.and_then(|profile| profile.binding_for_cc(cc))
             {
-                let verdict = match (binding.action, parsed) {
-                    (ControllerBindingAction::Reserved, _)
-                    | (_, Some(ParsedMidiMessage::Reserved)) => LastControlVerdict::Reserved,
-                    (ControllerBindingAction::Runtime(_), None)
-                    | (ControllerBindingAction::ToggleParam(_), None) => {
-                        LastControlVerdict::ReleaseIgnored
+                let verdict = if startup_suppressed {
+                    LastControlVerdict::StartupSuppressed
+                } else {
+                    match (binding.action, parsed) {
+                        (ControllerBindingAction::Reserved, _)
+                        | (_, Some(ParsedMidiMessage::Reserved)) => LastControlVerdict::Reserved,
+                        (ControllerBindingAction::Runtime(_), None)
+                        | (ControllerBindingAction::ToggleParam(_), None) => {
+                            LastControlVerdict::ReleaseIgnored
+                        }
+                        (_, Some(_)) => LastControlVerdict::Accepted,
+                        (_, None) => LastControlVerdict::Ignored,
                     }
-                    (_, Some(_)) => LastControlVerdict::Accepted,
-                    (_, None) => LastControlVerdict::Ignored,
                 };
                 return Some(LastControlEvent {
                     kind: LastControlKind::ProfileCc(cc),
@@ -3783,7 +4232,9 @@ fn last_control_event(
                 channel: Some(channel),
                 raw_value: Some(raw_value),
                 program: None,
-                verdict: if parsed.is_some() {
+                verdict: if startup_suppressed {
+                    LastControlVerdict::StartupSuppressed
+                } else if parsed.is_some() {
                     LastControlVerdict::Accepted
                 } else {
                     LastControlVerdict::Ignored
@@ -3799,7 +4250,9 @@ fn last_control_event(
             channel: Some(channel),
             raw_value: None,
             program: Some(message[1]),
-            verdict: if parsed.is_some() {
+            verdict: if startup_suppressed {
+                LastControlVerdict::StartupSuppressed
+            } else if parsed.is_some() {
                 LastControlVerdict::Accepted
             } else {
                 LastControlVerdict::Ignored
@@ -3814,7 +4267,11 @@ fn last_control_event(
             channel: Some(channel),
             raw_value: Some(message[1] as f32 / 127.0),
             program: None,
-            verdict: LastControlVerdict::Accepted,
+            verdict: if startup_suppressed {
+                LastControlVerdict::StartupSuppressed
+            } else {
+                LastControlVerdict::Accepted
+            },
             received_at,
         }),
         0xE0 if message.len() >= 3 => Some(LastControlEvent {
@@ -3825,7 +4282,11 @@ fn last_control_event(
             channel: Some(channel),
             raw_value: None,
             program: None,
-            verdict: LastControlVerdict::Accepted,
+            verdict: if startup_suppressed {
+                LastControlVerdict::StartupSuppressed
+            } else {
+                LastControlVerdict::Accepted
+            },
             received_at,
         }),
         _ => None,
@@ -5227,16 +5688,65 @@ kind = "reserved"
             Some(&profile),
             reserved,
             Instant::now(),
+            false,
         )
         .expect("reserved event");
         assert_eq!(event.kind, LastControlKind::ProfileCc(3));
         assert_eq!(event.verdict, LastControlVerdict::Reserved);
 
         let parsed = parse_midi_message(&[0xC0, 4], 2.0, None, Some(&profile));
-        let event = last_control_event(&[0xC0, 4], None, Some(&profile), parsed, Instant::now())
-            .expect("program change event");
+        let event = last_control_event(
+            &[0xC0, 4],
+            None,
+            Some(&profile),
+            parsed,
+            Instant::now(),
+            false,
+        )
+        .expect("program change event");
         assert_eq!(event.kind, LastControlKind::ProgramChange(4));
         assert_eq!(event.program, Some(4));
+    }
+
+    #[test]
+    fn midi_startup_guard_suppresses_realtime_and_runtime_messages() {
+        let now = Instant::now();
+        let guard_until = now + MIDI_STARTUP_GUARD;
+        let note = parse_midi_message(&[0x90, 48, 92], 2.0, Some(1), None);
+        let cc = parse_midi_message(&[0xB0, 1, 64], 2.0, Some(1), None);
+        let program = parse_midi_message(&[0xC0, 2], 2.0, Some(1), None);
+
+        assert!(startup_guard_suppresses_message(note, now, guard_until));
+        assert!(startup_guard_suppresses_message(cc, now, guard_until));
+        assert!(startup_guard_suppresses_message(program, now, guard_until));
+        assert!(!startup_guard_suppresses_message(
+            note,
+            guard_until,
+            guard_until
+        ));
+        assert!(!startup_guard_suppresses_message(None, now, guard_until));
+    }
+
+    #[test]
+    fn last_control_event_marks_startup_suppressed_profile_cc() {
+        let profile = pc4_full_profile();
+        let parsed = parse_midi_message(&[0xB0, 71, 127], 2.0, None, Some(&profile));
+        let event = last_control_event(
+            &[0xB0, 71, 127],
+            None,
+            Some(&profile),
+            None,
+            Instant::now(),
+            startup_guard_suppresses_message(
+                parsed,
+                Instant::now(),
+                Instant::now() + MIDI_STARTUP_GUARD,
+            ),
+        )
+        .expect("profile cc event");
+
+        assert_eq!(event.kind, LastControlKind::ProfileCc(71));
+        assert_eq!(event.verdict, LastControlVerdict::StartupSuppressed);
     }
 
     #[test]
