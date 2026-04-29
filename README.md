@@ -31,7 +31,7 @@ Shared identity language stays aligned across both lines:
 Program map and repo split:
 
 - `docs/mamut-epm-program-map.md`
-- sibling `EPM2` hardware repo: `/home/dev/sel4/mamut-sint-hw`
+- sibling `EPM2` hardware repo: `mamut-sint-hw`
 
 Current status:
 
@@ -72,7 +72,7 @@ cargo run -p mamut-standalone -- list-midi
 tools/run-pc4-ag03.sh molten-horizon
 tools/run-pc4-ag03.sh --midi-channel 1 molten-horizon
 tools/run-pc4-ag03.sh --trace-midi molten-horizon
-tools/run-pc4gen-consumer-smoke.sh --audio-device hw:<card>,<device>
+PC4GEN_ROOT=/path/to/pc4gen PC4GEN_PROFILE=/path/to/profile.json tools/run-pc4gen-consumer-smoke.sh --audio-device hw:<card>,<device>
 cargo run -p mamut-standalone -- validate patches/factory/molten-horizon.toml
 cargo run -p mamut-standalone -- dry-run patches/factory/furnace-choir.toml
 cargo run -p mamut-standalone -- dry-run molten-horizon
@@ -110,7 +110,9 @@ Runtime notes:
   by default
 - `tools/run-pc4gen-consumer-smoke.sh` is the local live ALSA smoke for
   `pc4gen -> Mamut`, using the `mamut-epm1-smoke` generator scenario and
-  `--trace-midi` as the contract oracle
+  `--trace-midi` as the contract oracle; it is a lab integration helper and
+  requires explicit `PC4GEN_ROOT` plus either `PC4GEN_PROFILE` or
+  `PC4GEN_DERIVED`
 - headless controls include `status`, `patches`, `favorites`, `favorite`,
   `patch`, `next`, `prev`, `demo-patch`, `macro`, `panic`,
   `reset-controllers`, `audio`, `midi`, `demo`, and `quit`
@@ -165,13 +167,16 @@ Live set slots:
 - `docs/EPM1_PC4_LIVE_PROFILE.md` - locked Sprint 6 `PC4` mapping, patch-switch, and controller policy
 - `docs/EPM1_FIRST_PERFORMANCE_PLAYBOOK.md` - practical first-performance startup, smoke-pass, and live fallback runbook
 - `docs/factory-bank-listening-checklist.md` - locked roles and listening pass for the shipped bank
-- `/home/dev/sel4/mamut-platform/docs/` - shared Linux audio platform thesis, boundary, open questions, and ADR track
+- shared `mamut-platform` docs - Linux audio platform thesis, boundary, open
+  questions, and ADR track
 
 ## Review Gates
 
 Strict Claude `seL4` review agents are vendored in:
 
 - `.claude/agents/`
+
+These are development-time review prompts, not runtime dependencies.
 
 Repo-local workflow docs and helpers:
 

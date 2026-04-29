@@ -9,8 +9,8 @@ Ownership split:
 - sibling repo `mamut-sint-hw` is the canonical implementation repo for `EPM2`
 - shared `Mamut EPM` identity framing still remains anchored across the broader
   umbrella docs corpus
-- shared Linux audio platform planning is now anchored in
-  `/home/dev/sel4/mamut-platform/docs/`
+- shared Linux audio platform planning is now anchored in the separate
+  `mamut-platform` docs track
 
 Start here:
 
@@ -20,6 +20,9 @@ Start here:
 - `EPM1_SPRINT_6A_HOST_UNDERRUN_STABILITY.md` - next work item for real-host underrun diagnosis and performance stabilization
 - `EPM1_PC4_LIVE_PROFILE.md` - locked Sprint 6 `PC4` control map, live slot policy, and performance-window truth model
 - `EPM1_FIRST_PERFORMANCE_PLAYBOOK.md` - shortest trustworthy path for the first real `PC4` performance session
+- `live-sessions/` - lab evidence from real hardware runs; exact device names,
+  ALSA selectors, and raw MIDI snippets are preserved as evidence, not portable
+  defaults
 - `live-sessions/2026-04-29-pc4-ag03-headless.md` - first documented real `PC4 -> mioXM DIN 1 -> EPM1 -> AG03` headless hardware session
 - `live-sessions/2026-04-29-pc4-ag03-headless-performance-mode.md` - follow-up PC4 Performance mode run with startup entry events and stuck-held-note finding
 - `live-sessions/2026-04-29-pc4-ag03-clean-idle-noteoff-fix.md` - clean-idle Global MIDI follow-up and repeated-pitch note-off engine fix
@@ -36,9 +39,9 @@ Current source-doc posture:
   future transport evolution is expected to move into the shared Linux audio
   platform documentation track
 - the current shared software/source architecture docs that shaped `EPM1`
-  still live in `/home/dev/sel4/mamut-sint-hw/docs/`
+  still live in the sibling `mamut-sint-hw` docs track
 - the current shared Linux audio platform direction now lives in
-  `/home/dev/sel4/mamut-platform/docs/`
+  the sibling `mamut-platform` docs track
 
 Current `EPM1` source anchors:
 

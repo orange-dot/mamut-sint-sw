@@ -2,8 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-pc4gen_root="${PC4GEN_ROOT:-/home/dev/work-base-20260421/workspace/systems/audio-runtime-lab/topics/37_pc4_synthetic_midi_capture/rust/pc4gen}"
-derived_root="${PC4GEN_DERIVED:-/home/dev/work-base-20260421/synthetic-pc4-capture/derived}"
+pc4gen_root="${PC4GEN_ROOT:-}"
+derived_root="${PC4GEN_DERIVED:-}"
 profile_path="${PC4GEN_PROFILE:-}"
 scenario="${MAMUT_PC4GEN_SCENARIO:-mamut-epm1-smoke}"
 seed="${MAMUT_PC4GEN_SEED:-20260426}"
@@ -23,7 +23,7 @@ Run the local live ALSA consumer smoke:
   pc4gen live -> virtual ALSA MIDI source -> mamut-standalone --trace-midi
 
 options:
-  --pc4gen-root <path>       pc4gen crate root
+  --pc4gen-root <path>       pc4gen crate root, or set PC4GEN_ROOT
   --derived <path>           derived capture root used to build a pc4gen profile
   --profile <path>           use an existing pc4gen profile instead of building one
   --scenario <name>          pc4gen scenario (default: mamut-epm1-smoke)
@@ -146,6 +146,26 @@ fi
 
 if [[ -z "$audio_device" ]]; then
   echo "error: no ALSA playback device selected; pass --audio-device hw:<card>,<device> or set MAMUT_AUDIO_DEVICE" >&2
+  exit 1
+fi
+
+if [[ -z "$pc4gen_root" ]]; then
+  echo "error: pc4gen root is required; pass --pc4gen-root or set PC4GEN_ROOT" >&2
+  exit 1
+fi
+
+if [[ ! -d "$pc4gen_root" ]]; then
+  echo "error: pc4gen root does not exist: $pc4gen_root" >&2
+  exit 1
+fi
+
+if [[ -z "$profile_path" && -z "$derived_root" ]]; then
+  echo "error: --profile/PC4GEN_PROFILE or --derived/PC4GEN_DERIVED is required" >&2
+  exit 1
+fi
+
+if [[ -n "$derived_root" && ! -d "$derived_root" ]]; then
+  echo "error: derived capture root does not exist: $derived_root" >&2
   exit 1
 fi
 

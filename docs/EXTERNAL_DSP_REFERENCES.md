@@ -11,8 +11,8 @@ not part of the `mamut-engine` runtime contract.
 - Upstream license: GPL-2.0
 - Reference fork/mirror: `https://github.com/orange-dot/AudioNoise`
 - Default branch: `main`
-- Local checkout: `/home/dev/work-base-20260421/workspace/systems/AudioNoise`
-- Local spike branch: `mamut-svf-stability-alsa-spikes`
+- Lab-only local checkout: not vendored in this repo
+- Lab-only spike branch: `mamut-svf-stability-alsa-spikes`
 
 `AudioNoise` is an upstream Linus Torvalds guitar-pedal-oriented DSP reference,
 not a Mamut or orange-dot-originated project. The `orange-dot/AudioNoise` repo is
@@ -30,8 +30,7 @@ SVF/filter-drive, effect stability harness, and an ALSA live runner.
 ## dspc
 
 - Source: `https://codeberg.org/catseyechandra/dspc.git`
-- Lab archive: `/home/dev/work-base-20260421/archives/dspc-master.tar.gz`
-- Lab snapshot: `/home/dev/work-base-20260421/forks/systems/dspc-master`
+- Lab archive/snapshot: not vendored in this repo
 - Version in `CMakeLists.txt`: `1.2.0`
 - Language/runtime: C library, optional JACK-facing helpers
 - License: LGPLv3, per `README.md` and `LGPL-v3.0.txt`

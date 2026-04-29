@@ -14,7 +14,7 @@ Ovaj dokument sabira jednu ozbiljnu radnu analizu pitanja:
 
 Dokument je pisan iz ugla trenutnog `EPM1` softverskog engine-a u
 `mamut-sint-sw`, ali namerno ga cita u paru sa `EPM2` hardverskom linijom u
-`/home/dev/sel4/mamut-sint-hw`.
+sibling `mamut-sint-hw` repo-u.
 
 ## Kratak Zakljucak
 
@@ -489,4 +489,3 @@ Najveci sledeci dobitak je:
 
 To je mesto gde ce `EPM1` najvise profitirati od znanja koje `EPM2` vec sada
 skuplja kroz `P1`.
-

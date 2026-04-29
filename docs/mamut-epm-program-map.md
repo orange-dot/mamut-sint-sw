@@ -31,8 +31,8 @@ Current posture:
 
 Current umbrella/source-doc posture:
 
-- shared `Mamut EPM` identity and program framing is currently curated in
-  `/home/dev/sel4/mamut-sint-hw/docs/`
+- shared `Mamut EPM` identity and program framing is currently curated in the
+  sibling `mamut-sint-hw` docs track
 - this does not change software implementation ownership: `EPM1` runtime code
   and execution truth live in `mamut-sint-sw`
 

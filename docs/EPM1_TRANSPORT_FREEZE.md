@@ -81,17 +81,18 @@ The expected resume order is:
 
 ## Relationship To Platform Docs
 
-The canonical next-step documents are expected to live in:
+The canonical next-step documents are expected to live in the sibling
+`mamut-platform` docs track:
 
-- `/home/dev/sel4/mamut-platform/docs/LINUX_AUDIO_PLATFORM_THESIS.md`
-- `/home/dev/sel4/mamut-platform/docs/LINUX_AUDIO_STACK_DECISION.md`
-- `/home/dev/sel4/mamut-platform/docs/C_RUST_BOUNDARY.md`
-- `/home/dev/sel4/mamut-platform/docs/LINUX_AUDIO_OPEN_QUESTIONS.md`
-- `/home/dev/sel4/mamut-platform/docs/ADR_WORKFLOW.md`
-- `/home/dev/sel4/mamut-platform/docs/LINUX_AUDIO_TRANSPORT_ARCHITECTURE.md`
-- `/home/dev/sel4/mamut-platform/docs/LINUX_AUDIO_TRANSPORT_BACKLOG.md`
-- `/home/dev/sel4/mamut-platform/docs/EPM1_FREEZE_AND_RESUME.md`
-- `/home/dev/sel4/mamut-platform/docs/adrs/`
+- `docs/LINUX_AUDIO_PLATFORM_THESIS.md`
+- `docs/LINUX_AUDIO_STACK_DECISION.md`
+- `docs/C_RUST_BOUNDARY.md`
+- `docs/LINUX_AUDIO_OPEN_QUESTIONS.md`
+- `docs/ADR_WORKFLOW.md`
+- `docs/LINUX_AUDIO_TRANSPORT_ARCHITECTURE.md`
+- `docs/LINUX_AUDIO_TRANSPORT_BACKLOG.md`
+- `docs/EPM1_FREEZE_AND_RESUME.md`
+- `docs/adrs/`
 
 This file is intentionally local and short. It exists so an engineer entering
 through `mamut-sint-sw` can see immediately that transport work is paused here
