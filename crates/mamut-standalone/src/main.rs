@@ -2178,6 +2178,8 @@ fn apply_epm_gui_style(ctx: &egui::Context) {
 struct PerformanceApp {
     session: RuntimeSession,
     snapshot: Option<EngineSnapshot>,
+    factory_patches: Vec<FactoryPatchEntry>,
+    factory_patch_error: Option<String>,
     selected_tab: PerformanceTab,
     last_snapshot_error: Option<String>,
     last_status_message: Option<String>,
@@ -2209,9 +2211,23 @@ impl PerformanceApp {
     fn new(session: RuntimeSession) -> Self {
         let snapshot = session.request_snapshot().ok();
         let last_midi_message_count = session.input_metrics_snapshot().midi_messages;
+        let (factory_patches, factory_patch_error) = match factory_patch_entries() {
+            Ok(mut entries) => {
+                entries.sort_by_key(|entry| {
+                    (
+                        LIVE_SET_STEMS.contains(&entry.stem.as_str()),
+                        entry.stem.clone(),
+                    )
+                });
+                (entries, None)
+            }
+            Err(error) => (Vec::new(), Some(error.to_string())),
+        };
         Self {
             session,
             snapshot,
+            factory_patches,
+            factory_patch_error,
             selected_tab: PerformanceTab::Live,
             last_snapshot_error: None,
             last_status_message: None,
@@ -2432,6 +2448,62 @@ impl PerformanceApp {
         });
     }
 
+    fn render_factory_bank(&mut self, ui: &mut egui::Ui) {
+        epm_frame(epm_panel_deep()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(epm_eyebrow("FACTORY BANK"));
+                ui.colored_label(epm_muted(), "manual patch selection");
+            });
+            ui.add_space(6.0);
+
+            if let Some(error) = &self.factory_patch_error {
+                ui.colored_label(epm_bad(), error);
+                return;
+            }
+
+            let current_stem = self
+                .session
+                .patch_path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_string);
+            let entries = self.factory_patches.clone();
+
+            egui::Grid::new("factory-bank-patches")
+                .num_columns(3)
+                .spacing([8.0, 8.0])
+                .show(ui, |ui| {
+                    for (index, entry) in entries.iter().enumerate() {
+                        let selected = current_stem.as_deref() == Some(entry.stem.as_str());
+                        let label =
+                            egui::RichText::new(format!("{}\n{}", entry.patch_name, entry.stem))
+                                .monospace()
+                                .size(12.0)
+                                .strong()
+                                .color(if selected { epm_text() } else { epm_muted() });
+                        let button = egui::Button::new(label)
+                            .fill(if selected { epm_tile_hot() } else { epm_tile() })
+                            .stroke(if selected {
+                                epm_accent_stroke()
+                            } else {
+                                epm_stroke()
+                            })
+                            .corner_radius(egui::CornerRadius::same(4));
+                        if ui.add_sized([190.0, 50.0], button).clicked() {
+                            let path = entry.path.clone();
+                            self.run_action(
+                                |session| session.switch_patch(path),
+                                &format!("factory patch {}", entry.stem),
+                            );
+                        }
+                        if index % 3 == 2 {
+                            ui.end_row();
+                        }
+                    }
+                });
+        });
+    }
+
     fn render_macro_meter(ui: &mut egui::Ui, label: &str, live_value: f32, effective_value: f32) {
         epm_tile_frame(false).show(ui, |ui| {
             ui.set_min_width(150.0);
@@ -2550,6 +2622,8 @@ impl PerformanceApp {
 
     fn render_live_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.render_header(ui);
+        ui.add_space(12.0);
+        self.render_factory_bank(ui);
         ui.add_space(12.0);
         ui.columns(2, |columns| {
             self.render_slot_buttons(&mut columns[0]);

@@ -13,6 +13,7 @@ controller_profile="${MAMUT_CONTROLLER_PROFILE:-$repo_root/profiles/pc4-full.tom
 headless=1
 demo=0
 trace_midi=0
+cargo_profile="${MAMUT_CARGO_PROFILE:-debug}"
 
 usage() {
   cat <<'EOF'
@@ -34,6 +35,8 @@ options:
   --demo                          Start with the built-in demo performer
   --windowed                      Prefer the egui performance window
   --headless                      Force the terminal runtime surface (default)
+  --debug                         Run the debug cargo target (default)
+  --release                       Run the release cargo target
   -h, --help                      Show this help
 
 environment overrides:
@@ -46,6 +49,7 @@ environment overrides:
   MAMUT_MIDI_CHANNEL              Default: 1
   MAMUT_CONTROLLER_PROFILE        Default: profiles/pc4-full.toml
   MAMUT_TRACE_MIDI                Set to 1 to enable MIDI tracing
+  MAMUT_CARGO_PROFILE             debug or release (default: debug)
   MAMUT_AG_CARD_PATTERN           Regex used to find AG06/AG03 in /proc/asound/cards
 
 examples:
@@ -54,6 +58,7 @@ examples:
   tools/run-pc4-ag03.sh --windowed gravity-wake
   tools/run-pc4-ag03.sh --midi-channel 1 molten-horizon
   tools/run-pc4-ag03.sh --trace-midi molten-horizon
+  tools/run-pc4-ag03.sh --release --windowed --trace-midi molten-horizon
   tools/run-pc4-ag03.sh --audio-device hw:<card>,<device> molten-horizon
   tools/run-pc4-ag03.sh --audio-device 3 --alsa-period-frames 256 molten-horizon
 EOF
@@ -163,6 +168,14 @@ while (($#)); do
       headless=1
       shift
       ;;
+    --debug)
+      cargo_profile="debug"
+      shift
+      ;;
+    --release)
+      cargo_profile="release"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -193,9 +206,23 @@ if [[ -z "$audio_device" ]]; then
   exit 1
 fi
 
+case "$cargo_profile" in
+  debug|release)
+    ;;
+  *)
+    echo "error: MAMUT_CARGO_PROFILE must be debug or release, got: $cargo_profile" >&2
+    exit 1
+    ;;
+esac
+
 mode_label="headless"
-cmd=(
-  cargo run
+cmd=(cargo run)
+
+if [[ "$cargo_profile" == "release" ]]; then
+  cmd+=(--release)
+fi
+
+cmd+=(
   --locked
   --manifest-path "$repo_root/Cargo.toml" \
   -p mamut-standalone \
@@ -253,6 +280,7 @@ fi
 printf '  midi: %s\n' "$midi_device"
 printf '  midi channel: %s\n' "$midi_channel"
 printf '  controller profile: %s\n' "${controller_profile:-none}"
+printf '  cargo profile: %s\n' "$cargo_profile"
 if ((trace_midi)); then
   printf '  midi trace: enabled\n'
 else
