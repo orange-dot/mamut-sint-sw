@@ -1,0 +1,16 @@
+[package]
+name = "mamut-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+mamut-dsp.workspace = true
+mamut-identity.workspace = true
+mamut-params.workspace = true
+mamut-patch.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

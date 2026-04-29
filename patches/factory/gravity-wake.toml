@@ -1,0 +1,125 @@
+[meta]
+schema_version = 1
+patch_name = "Gravity Wake"
+author = "Mamut"
+description = "Performance patch that folds inward as Gravitacija rises"
+tags = ["performance", "gravitacija", "arc"]
+
+[engine.osc1]
+saw_level = 0.64
+pulse_level = 0.18
+triangle_level = 0.12
+noise_level = 0.02
+
+[engine.osc2]
+saw_level = 0.42
+pulse_level = 0.20
+triangle_level = 0.06
+interval_semitones = 7
+fine_tune_cents = 6.0
+sync_amount = 0.24
+crossmod_amount = 0.18
+
+[engine.sub]
+level = 0.38
+octave_offset = -1
+
+[engine.mixer]
+pre_filter_drive = 0.34
+body_mix = 0.46
+
+[engine.filter]
+cutoff_hz = 3600.0
+resonance = 0.26
+drive = 0.22
+keytrack = 0.42
+
+[engine.amp_env]
+attack_ms = 18.0
+decay_ms = 280.0
+sustain = 0.80
+release_ms = 640.0
+
+[engine.filter_env]
+attack_ms = 16.0
+decay_ms = 320.0
+sustain = 0.28
+release_ms = 560.0
+depth = 0.56
+
+[engine.voice]
+stereo_width = 0.58
+detune_spread_cents = 9.0
+velocity_to_level = 0.30
+velocity_to_filter = 0.24
+
+[engine.final_stage]
+body_drive = 0.36
+asymmetry = 0.22
+low_mid_emphasis = 0.46
+output_trim_db = -4.5
+
+[engine.fx.chorus]
+enabled = true
+mix = 0.12
+depth = 0.20
+rate_hz = 0.22
+
+[engine.fx.reverb]
+enabled = true
+mix = 0.14
+size = 0.38
+damping = 0.48
+
+[macros]
+gravitacija = 0.56
+bloom = 0.36
+heat = 0.44
+ruin = 0.32
+swarm = 0.34
+
+[macro_response.gravitacija]
+sensitivity = 1.22
+curve = "late_rise"
+softness = 0.48
+
+[macro_response.bloom]
+sensitivity = 0.92
+curve = "soft_plus"
+softness = 0.46
+
+[macro_response.heat]
+sensitivity = 1.00
+curve = "linear"
+softness = 0.30
+
+[macro_response.ruin]
+sensitivity = 0.94
+curve = "early_rise"
+softness = 0.22
+
+[macro_response.swarm]
+sensitivity = 0.90
+curve = "soft_plus"
+softness = 0.38
+
+[identity_bias]
+horizont_bias = 0.04
+pec_bias = 0.18
+baklja_bias = 0.10
+gravitacija_pressure_bias = 0.30
+rupture_threshold_bias = -0.08
+body_focus_bias = 0.16
+
+[performance_response]
+velocity_to_level = 0.28
+velocity_to_filter = 0.26
+aftertouch_to_gravitacija = 0.36
+aftertouch_to_baklja = 0.24
+mod_wheel_to_bloom = 0.22
+mod_wheel_to_swarm = 0.20
+bend_range_semitones = 2
+
+[ui]
+preferred_page = "macros"
+favorite = true

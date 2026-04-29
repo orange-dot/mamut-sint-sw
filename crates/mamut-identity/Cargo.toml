@@ -1,0 +1,13 @@
+[package]
+name = "mamut-identity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+mamut-patch.workspace = true
+mamut-params.workspace = true
+
+[lints]
+workspace = true

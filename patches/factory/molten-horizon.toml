@@ -1,0 +1,125 @@
+[meta]
+schema_version = 1
+patch_name = "Molten Horizon"
+author = "Mamut"
+description = "Open mass with late rupture"
+tags = ["pad", "performance", "monster"]
+
+[engine.osc1]
+saw_level = 0.70
+pulse_level = 0.25
+triangle_level = 0.10
+noise_level = 0.02
+
+[engine.osc2]
+saw_level = 0.45
+pulse_level = 0.20
+triangle_level = 0.00
+interval_semitones = 0
+fine_tune_cents = 5.0
+sync_amount = 0.20
+crossmod_amount = 0.15
+
+[engine.sub]
+level = 0.35
+octave_offset = -1
+
+[engine.mixer]
+pre_filter_drive = 0.28
+body_mix = 0.40
+
+[engine.filter]
+cutoff_hz = 4200.0
+resonance = 0.22
+drive = 0.18
+keytrack = 0.45
+
+[engine.amp_env]
+attack_ms = 25.0
+decay_ms = 380.0
+sustain = 0.82
+release_ms = 760.0
+
+[engine.filter_env]
+attack_ms = 40.0
+decay_ms = 420.0
+sustain = 0.45
+release_ms = 820.0
+depth = 0.52
+
+[engine.voice]
+stereo_width = 0.68
+detune_spread_cents = 10.0
+velocity_to_level = 0.35
+velocity_to_filter = 0.25
+
+[engine.final_stage]
+body_drive = 0.30
+asymmetry = 0.12
+low_mid_emphasis = 0.42
+output_trim_db = -3.0
+
+[engine.fx.chorus]
+enabled = true
+mix = 0.20
+depth = 0.35
+rate_hz = 0.25
+
+[engine.fx.reverb]
+enabled = true
+mix = 0.16
+size = 0.52
+damping = 0.40
+
+[macros]
+gravitacija = 0.34
+bloom = 0.62
+heat = 0.38
+ruin = 0.18
+swarm = 0.44
+
+[macro_response.gravitacija]
+sensitivity = 1.10
+curve = "late_rise"
+softness = 0.55
+
+[macro_response.bloom]
+sensitivity = 1.00
+curve = "soft_plus"
+softness = 0.60
+
+[macro_response.heat]
+sensitivity = 0.95
+curve = "linear"
+softness = 0.45
+
+[macro_response.ruin]
+sensitivity = 0.85
+curve = "early_rise"
+softness = 0.25
+
+[macro_response.swarm]
+sensitivity = 1.05
+curve = "soft_plus"
+softness = 0.50
+
+[identity_bias]
+horizont_bias = 0.20
+pec_bias = 0.08
+baklja_bias = -0.12
+gravitacija_pressure_bias = 0.05
+rupture_threshold_bias = 0.10
+body_focus_bias = -0.08
+
+[performance_response]
+velocity_to_level = 0.35
+velocity_to_filter = 0.25
+aftertouch_to_gravitacija = 0.30
+aftertouch_to_baklja = 0.20
+mod_wheel_to_bloom = 0.40
+mod_wheel_to_swarm = 0.35
+bend_range_semitones = 2
+
+[ui]
+preferred_page = "macros"
+favorite = true

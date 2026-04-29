@@ -1,0 +1,125 @@
+[meta]
+schema_version = 1
+patch_name = "Glass Tide"
+author = "Mamut"
+description = "Wide animated pad with motion in Bloom and Swarm"
+tags = ["pad", "wide", "animated"]
+
+[engine.osc1]
+saw_level = 0.50
+pulse_level = 0.12
+triangle_level = 0.22
+noise_level = 0.01
+
+[engine.osc2]
+saw_level = 0.28
+pulse_level = 0.10
+triangle_level = 0.30
+interval_semitones = 7
+fine_tune_cents = 5.0
+sync_amount = 0.10
+crossmod_amount = 0.06
+
+[engine.sub]
+level = 0.20
+octave_offset = -1
+
+[engine.mixer]
+pre_filter_drive = 0.22
+body_mix = 0.28
+
+[engine.filter]
+cutoff_hz = 4800.0
+resonance = 0.18
+drive = 0.12
+keytrack = 0.42
+
+[engine.amp_env]
+attack_ms = 42.0
+decay_ms = 360.0
+sustain = 0.82
+release_ms = 860.0
+
+[engine.filter_env]
+attack_ms = 34.0
+decay_ms = 420.0
+sustain = 0.42
+release_ms = 760.0
+depth = 0.44
+
+[engine.voice]
+stereo_width = 0.88
+detune_spread_cents = 15.0
+velocity_to_level = 0.22
+velocity_to_filter = 0.16
+
+[engine.final_stage]
+body_drive = 0.24
+asymmetry = 0.10
+low_mid_emphasis = 0.26
+output_trim_db = -4.0
+
+[engine.fx.chorus]
+enabled = true
+mix = 0.26
+depth = 0.42
+rate_hz = 0.24
+
+[engine.fx.reverb]
+enabled = true
+mix = 0.20
+size = 0.60
+damping = 0.36
+
+[macros]
+gravitacija = 0.24
+bloom = 0.76
+heat = 0.26
+ruin = 0.10
+swarm = 0.70
+
+[macro_response.gravitacija]
+sensitivity = 0.94
+curve = "late_rise"
+softness = 0.44
+
+[macro_response.bloom]
+sensitivity = 1.12
+curve = "soft_plus"
+softness = 0.66
+
+[macro_response.heat]
+sensitivity = 0.84
+curve = "linear"
+softness = 0.24
+
+[macro_response.ruin]
+sensitivity = 0.70
+curve = "linear"
+softness = 0.18
+
+[macro_response.swarm]
+sensitivity = 1.18
+curve = "soft_plus"
+softness = 0.68
+
+[identity_bias]
+horizont_bias = 0.22
+pec_bias = -0.08
+baklja_bias = -0.18
+gravitacija_pressure_bias = -0.04
+rupture_threshold_bias = 0.16
+body_focus_bias = -0.22
+
+[performance_response]
+velocity_to_level = 0.22
+velocity_to_filter = 0.16
+aftertouch_to_gravitacija = 0.20
+aftertouch_to_baklja = 0.08
+mod_wheel_to_bloom = 0.30
+mod_wheel_to_swarm = 0.40
+bend_range_semitones = 2
+
+[ui]
+preferred_page = "macros"
+favorite = true

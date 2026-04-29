@@ -1,0 +1,125 @@
+[meta]
+schema_version = 1
+patch_name = "Cathedral Bloom"
+author = "Mamut"
+description = "Stable Horizont pad with wide Bloom and slow air"
+tags = ["pad", "horizont", "wide"]
+
+[engine.osc1]
+saw_level = 0.56
+pulse_level = 0.14
+triangle_level = 0.26
+noise_level = 0.01
+
+[engine.osc2]
+saw_level = 0.32
+pulse_level = 0.08
+triangle_level = 0.22
+interval_semitones = 0
+fine_tune_cents = 4.0
+sync_amount = 0.08
+crossmod_amount = 0.04
+
+[engine.sub]
+level = 0.24
+octave_offset = -1
+
+[engine.mixer]
+pre_filter_drive = 0.18
+body_mix = 0.30
+
+[engine.filter]
+cutoff_hz = 5200.0
+resonance = 0.16
+drive = 0.12
+keytrack = 0.38
+
+[engine.amp_env]
+attack_ms = 80.0
+decay_ms = 420.0
+sustain = 0.84
+release_ms = 1120.0
+
+[engine.filter_env]
+attack_ms = 70.0
+decay_ms = 520.0
+sustain = 0.54
+release_ms = 980.0
+depth = 0.38
+
+[engine.voice]
+stereo_width = 0.82
+detune_spread_cents = 13.0
+velocity_to_level = 0.24
+velocity_to_filter = 0.18
+
+[engine.final_stage]
+body_drive = 0.18
+asymmetry = 0.08
+low_mid_emphasis = 0.28
+output_trim_db = -4.5
+
+[engine.fx.chorus]
+enabled = true
+mix = 0.22
+depth = 0.34
+rate_hz = 0.18
+
+[engine.fx.reverb]
+enabled = true
+mix = 0.18
+size = 0.58
+damping = 0.34
+
+[macros]
+gravitacija = 0.22
+bloom = 0.84
+heat = 0.22
+ruin = 0.08
+swarm = 0.58
+
+[macro_response.gravitacija]
+sensitivity = 0.96
+curve = "late_rise"
+softness = 0.54
+
+[macro_response.bloom]
+sensitivity = 1.10
+curve = "soft_plus"
+softness = 0.66
+
+[macro_response.heat]
+sensitivity = 0.88
+curve = "linear"
+softness = 0.30
+
+[macro_response.ruin]
+sensitivity = 0.72
+curve = "linear"
+softness = 0.20
+
+[macro_response.swarm]
+sensitivity = 1.08
+curve = "soft_plus"
+softness = 0.58
+
+[identity_bias]
+horizont_bias = 0.28
+pec_bias = -0.06
+baklja_bias = -0.20
+gravitacija_pressure_bias = -0.04
+rupture_threshold_bias = 0.18
+body_focus_bias = -0.18
+
+[performance_response]
+velocity_to_level = 0.26
+velocity_to_filter = 0.20
+aftertouch_to_gravitacija = 0.22
+aftertouch_to_baklja = 0.08
+mod_wheel_to_bloom = 0.34
+mod_wheel_to_swarm = 0.28
+bend_range_semitones = 2
+
+[ui]
+preferred_page = "macros"
+favorite = true

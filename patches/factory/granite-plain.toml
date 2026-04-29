@@ -1,0 +1,126 @@
+[meta]
+schema_version = 1
+patch_name = "Granite Plain"
+author = "Mamut"
+description = "Dry poly anchor with restrained body and clean macro travel"
+tags = ["poly", "dry", "plain"]
+
+[engine.osc1]
+saw_level = 0.44
+pulse_level = 0.18
+triangle_level = 0.32
+noise_level = 0.00
+fine_tune_cents = -1.0
+
+[engine.osc2]
+saw_level = 0.24
+pulse_level = 0.12
+triangle_level = 0.24
+interval_semitones = 0
+fine_tune_cents = 2.0
+sync_amount = 0.06
+crossmod_amount = 0.03
+
+[engine.sub]
+level = 0.26
+octave_offset = -1
+
+[engine.mixer]
+pre_filter_drive = 0.16
+body_mix = 0.26
+
+[engine.filter]
+cutoff_hz = 2800.0
+resonance = 0.14
+drive = 0.10
+keytrack = 0.36
+
+[engine.amp_env]
+attack_ms = 14.0
+decay_ms = 220.0
+sustain = 0.86
+release_ms = 340.0
+
+[engine.filter_env]
+attack_ms = 10.0
+decay_ms = 180.0
+sustain = 0.28
+release_ms = 280.0
+depth = 0.32
+
+[engine.voice]
+stereo_width = 0.34
+detune_spread_cents = 5.0
+velocity_to_level = 0.26
+velocity_to_filter = 0.18
+
+[engine.final_stage]
+body_drive = 0.22
+asymmetry = 0.08
+low_mid_emphasis = 0.30
+output_trim_db = -3.5
+
+[engine.fx.chorus]
+enabled = false
+mix = 0.00
+depth = 0.00
+rate_hz = 0.18
+
+[engine.fx.reverb]
+enabled = false
+mix = 0.00
+size = 0.20
+damping = 0.58
+
+[macros]
+gravitacija = 0.26
+bloom = 0.28
+heat = 0.24
+ruin = 0.08
+swarm = 0.18
+
+[macro_response.gravitacija]
+sensitivity = 0.96
+curve = "linear"
+softness = 0.34
+
+[macro_response.bloom]
+sensitivity = 0.86
+curve = "soft_plus"
+softness = 0.42
+
+[macro_response.heat]
+sensitivity = 0.90
+curve = "linear"
+softness = 0.28
+
+[macro_response.ruin]
+sensitivity = 0.66
+curve = "linear"
+softness = 0.18
+
+[macro_response.swarm]
+sensitivity = 0.72
+curve = "soft_plus"
+softness = 0.34
+
+[identity_bias]
+horizont_bias = -0.02
+pec_bias = 0.04
+baklja_bias = -0.22
+gravitacija_pressure_bias = 0.02
+rupture_threshold_bias = 0.18
+body_focus_bias = 0.08
+
+[performance_response]
+velocity_to_level = 0.28
+velocity_to_filter = 0.18
+aftertouch_to_gravitacija = 0.18
+aftertouch_to_baklja = 0.08
+mod_wheel_to_bloom = 0.16
+mod_wheel_to_swarm = 0.14
+bend_range_semitones = 2
+
+[ui]
+preferred_page = "advanced"
+favorite = true

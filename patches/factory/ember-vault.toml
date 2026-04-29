@@ -1,0 +1,126 @@
+[meta]
+schema_version = 1
+patch_name = "Ember Vault"
+author = "Mamut"
+description = "Playable Pec bass with a dry furnace core"
+tags = ["bass", "pec", "dry"]
+
+[engine.osc1]
+saw_level = 0.48
+pulse_level = 0.36
+triangle_level = 0.10
+noise_level = 0.00
+fine_tune_cents = -3.0
+
+[engine.osc2]
+saw_level = 0.34
+pulse_level = 0.18
+triangle_level = 0.00
+interval_semitones = -12
+fine_tune_cents = 2.0
+sync_amount = 0.10
+crossmod_amount = 0.06
+
+[engine.sub]
+level = 0.62
+octave_offset = -2
+
+[engine.mixer]
+pre_filter_drive = 0.48
+body_mix = 0.74
+
+[engine.filter]
+cutoff_hz = 1800.0
+resonance = 0.20
+drive = 0.24
+keytrack = 0.24
+
+[engine.amp_env]
+attack_ms = 6.0
+decay_ms = 180.0
+sustain = 0.76
+release_ms = 240.0
+
+[engine.filter_env]
+attack_ms = 4.0
+decay_ms = 150.0
+sustain = 0.14
+release_ms = 200.0
+depth = 0.44
+
+[engine.voice]
+stereo_width = 0.26
+detune_spread_cents = 4.0
+velocity_to_level = 0.30
+velocity_to_filter = 0.18
+
+[engine.final_stage]
+body_drive = 0.52
+asymmetry = 0.18
+low_mid_emphasis = 0.74
+output_trim_db = -5.5
+
+[engine.fx.chorus]
+enabled = false
+mix = 0.00
+depth = 0.00
+rate_hz = 0.16
+
+[engine.fx.reverb]
+enabled = true
+mix = 0.06
+size = 0.18
+damping = 0.62
+
+[macros]
+gravitacija = 0.42
+bloom = 0.12
+heat = 0.78
+ruin = 0.12
+swarm = 0.10
+
+[macro_response.gravitacija]
+sensitivity = 1.04
+curve = "linear"
+softness = 0.30
+
+[macro_response.bloom]
+sensitivity = 0.72
+curve = "linear"
+softness = 0.22
+
+[macro_response.heat]
+sensitivity = 1.18
+curve = "early_rise"
+softness = 0.34
+
+[macro_response.ruin]
+sensitivity = 0.74
+curve = "linear"
+softness = 0.18
+
+[macro_response.swarm]
+sensitivity = 0.62
+curve = "linear"
+softness = 0.16
+
+[identity_bias]
+horizont_bias = -0.26
+pec_bias = 0.46
+baklja_bias = -0.12
+gravitacija_pressure_bias = 0.20
+rupture_threshold_bias = 0.12
+body_focus_bias = 0.44
+
+[performance_response]
+velocity_to_level = 0.32
+velocity_to_filter = 0.20
+aftertouch_to_gravitacija = 0.14
+aftertouch_to_baklja = 0.10
+mod_wheel_to_bloom = 0.10
+mod_wheel_to_swarm = 0.08
+bend_range_semitones = 2
+
+[ui]
+preferred_page = "advanced"
+favorite = true

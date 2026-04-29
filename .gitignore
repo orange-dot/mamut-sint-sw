@@ -1,0 +1,5 @@
+/target
+/.pdf-extract/
+.codex/
+.playwright-mcp/
+**/__pycache__/
