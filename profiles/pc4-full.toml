@@ -1,0 +1,221 @@
+name = "pc4-full"
+version = 1
+
+[[binding]]
+control = "K1 Filter 1"
+cc = 71
+section = "knob"
+index = 1
+kind = "macro"
+target = "gravitacija"
+
+[[binding]]
+control = "K2 Filter 2"
+cc = 73
+section = "knob"
+index = 2
+kind = "macro"
+target = "bloom"
+
+[[binding]]
+control = "K3 Attack"
+cc = 72
+section = "knob"
+index = 3
+kind = "direct_param"
+target = "amp_env_attack_ms"
+scale = "log"
+
+[[binding]]
+control = "K4 Release"
+cc = 79
+section = "knob"
+index = 4
+kind = "direct_param"
+target = "amp_env_release_ms"
+scale = "log"
+
+[[binding]]
+control = "K5 Motion"
+cc = 14
+section = "knob"
+index = 5
+kind = "macro"
+target = "swarm"
+
+[[binding]]
+control = "K6 FX 1"
+cc = 17
+section = "knob"
+index = 6
+kind = "macro"
+target = "heat"
+
+[[binding]]
+control = "K7 FX 2"
+cc = 18
+section = "knob"
+index = 7
+kind = "macro"
+target = "ruin"
+
+[[binding]]
+control = "K8 Delay"
+cc = 3
+section = "knob"
+index = 8
+kind = "reserved"
+
+[[binding]]
+control = "K9 Reverb"
+cc = 9
+section = "knob"
+index = 9
+kind = "direct_param"
+target = "reverb_mix"
+
+[[binding]]
+control = "S1"
+cc = 12
+section = "slider"
+index = 1
+kind = "direct_param"
+target = "osc1_saw_level"
+
+[[binding]]
+control = "S2"
+cc = 13
+section = "slider"
+index = 2
+kind = "direct_param"
+target = "osc1_pulse_level"
+
+[[binding]]
+control = "S3"
+cc = 22
+section = "slider"
+index = 3
+kind = "direct_param"
+target = "osc2_saw_level"
+
+[[binding]]
+control = "S4"
+cc = 23
+section = "slider"
+index = 4
+kind = "direct_param"
+target = "sub_level"
+
+[[binding]]
+control = "S5"
+cc = 24
+section = "slider"
+index = 5
+kind = "direct_param"
+target = "mixer_pre_filter_drive"
+
+[[binding]]
+control = "S6"
+cc = 25
+section = "slider"
+index = 6
+kind = "direct_param"
+target = "mixer_body_mix"
+
+[[binding]]
+control = "S7"
+cc = 26
+section = "slider"
+index = 7
+kind = "direct_param"
+target = "filter_cutoff_hz"
+scale = "log"
+
+[[binding]]
+control = "S8"
+cc = 27
+section = "slider"
+index = 8
+kind = "direct_param"
+target = "chorus_mix"
+
+[[binding]]
+control = "S9"
+cc = 28
+section = "slider"
+index = 9
+kind = "direct_param"
+target = "final_stage_body_drive"
+
+[[binding]]
+control = "SW1"
+cc = 80
+section = "switch"
+index = 1
+kind = "runtime_action"
+action = "panic"
+
+[[binding]]
+control = "SW2"
+cc = 81
+section = "switch"
+index = 2
+kind = "runtime_action"
+action = "reset_controllers"
+
+[[binding]]
+control = "SW3"
+cc = 82
+section = "switch"
+index = 3
+kind = "runtime_action"
+action = "prev_favorite"
+
+[[binding]]
+control = "SW4"
+cc = 83
+section = "switch"
+index = 4
+kind = "runtime_action"
+action = "next_favorite"
+
+[[binding]]
+control = "SW5"
+cc = 85
+section = "switch"
+index = 5
+kind = "toggle_param"
+target = "chorus_enabled"
+
+[[binding]]
+control = "SW6"
+cc = 86
+section = "switch"
+index = 6
+kind = "toggle_param"
+target = "reverb_enabled"
+
+[[binding]]
+control = "SW7"
+cc = 87
+section = "switch"
+index = 7
+kind = "runtime_action"
+action = "favorite_slot"
+slot = 0
+
+[[binding]]
+control = "SW8"
+cc = 89
+section = "switch"
+index = 8
+kind = "runtime_action"
+action = "favorite_slot"
+slot = 4
+
+[[binding]]
+control = "SW9"
+cc = 90
+section = "switch"
+index = 9
+kind = "reserved"

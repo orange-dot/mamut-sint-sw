@@ -16,9 +16,12 @@ rust-version = "1.85"
 version = "0.1.0"
 
 [workspace.dependencies]
+alsa = "0.9.1"
 anyhow = "1.0.100"
-cpal = "0.16.0"
+crossbeam-queue = "0.3.12"
+eframe = "0.31.1"
 midir = "0.10.3"
+rtrb = "0.3.3"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
 toml = "0.8.23"

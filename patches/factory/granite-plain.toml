@@ -123,4 +123,4 @@ bend_range_semitones = 2
 
 [ui]
 preferred_page = "advanced"
-
+favorite = true
