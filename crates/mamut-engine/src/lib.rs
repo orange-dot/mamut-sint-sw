@@ -53,9 +53,13 @@ pub type ScheduledControllerEvent = Scheduled<ControllerEvent>;
 #[derive(Debug)]
 pub struct ProcessBlock<'a> {
     pub frame_count: usize,
+    /// Scheduled note events must be sorted by nondecreasing `frame_offset`.
     pub note_events: &'a [ScheduledNoteEvent],
+    /// Scheduled controller events must be sorted by nondecreasing `frame_offset`.
     pub controller_events: &'a [ScheduledControllerEvent],
     pub macro_state: Option<MacroState>,
+    /// Audio beyond the available output capacity is discarded, but control and voice state still
+    /// advance across `frame_count`.
     pub output: Option<StereoBlockMut<'a>>,
 }
 
@@ -81,6 +85,8 @@ pub struct DirectParameters {
     pub osc1_wave_mix: [f32; 4],
     pub osc2_wave_mix: [f32; 3],
     pub sub_level: f32,
+    pub mixer_pre_filter_drive: f32,
+    pub mixer_body_mix: f32,
     pub osc2_interval_semitones: f32,
     pub sync_amount: f32,
     pub crossmod_amount: f32,
@@ -129,6 +135,7 @@ pub struct EngineSnapshot {
     pub voices: Vec<VoiceSnapshot>,
     pub held_notes: Vec<u8>,
     pub peak_output: f32,
+    pub clip_detected: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -381,9 +388,44 @@ impl Engine {
         Ok(())
     }
 
+    pub fn panic(&mut self) {
+        self.live_macros = MacroState::from_defaults(&self.patch.macros);
+        self.reset_runtime_state();
+        self.patch_switch_mute_frames = 0;
+        self.refresh_resolved_state();
+    }
+
+    pub fn reset_controllers(&mut self) {
+        let sustain_was_down = self.control.sustain_down;
+        self.control.pitch_bend_semitones = 0.0;
+        self.control.mod_wheel = 0.0;
+        self.control.aftertouch = 0.0;
+        self.control.sustain_down = false;
+        self.live_macros = MacroState::from_defaults(&self.patch.macros);
+
+        if sustain_was_down {
+            for voice in &mut self.voices {
+                if voice.phase == VoicePhase::SustainedReleased {
+                    voice.start_release();
+                }
+            }
+        }
+
+        self.refresh_resolved_state();
+    }
+
     pub fn process_block(&mut self, block: ProcessBlock<'_>) {
-        let frame_count = block.frame_count.min(self.config.max_block_frames);
+        let note_events = block.note_events;
+        let controller_events = block.controller_events;
+        debug_assert!(is_sorted_by_frame(note_events));
+        debug_assert!(is_sorted_by_frame(controller_events));
+
+        let requested_frames = block.frame_count.min(self.config.max_block_frames);
         let mut output = block.output;
+        let rendered_frames = output
+            .as_ref()
+            .map(|buffer| requested_frames.min(buffer.frames()))
+            .unwrap_or(0);
         if let Some(buffer) = output.as_mut() {
             buffer.clear();
         }
@@ -398,20 +440,18 @@ impl Engine {
         let mut events_processed = 0;
         let mut peak_output: f32 = 0.0;
 
-        for frame in 0..frame_count {
-            while controller_index < block.controller_events.len()
-                && block.controller_events[controller_index].frame_offset <= frame
+        for frame in 0..requested_frames {
+            while controller_index < controller_events.len()
+                && controller_events[controller_index].frame_offset <= frame
             {
-                self.handle_controller_event(block.controller_events[controller_index].event);
+                self.handle_controller_event(controller_events[controller_index].event);
                 controller_index += 1;
                 events_processed += 1;
                 self.refresh_resolved_state();
             }
 
-            while note_index < block.note_events.len()
-                && block.note_events[note_index].frame_offset <= frame
-            {
-                self.handle_note_event(block.note_events[note_index].event);
+            while note_index < note_events.len() && note_events[note_index].frame_offset <= frame {
+                self.handle_note_event(note_events[note_index].event);
                 note_index += 1;
                 events_processed += 1;
             }
@@ -419,13 +459,16 @@ impl Engine {
             let (left, right) = self.render_frame();
             peak_output = peak_output.max(left.abs().max(right.abs()));
 
-            if let Some(buffer) = output.as_mut() {
+            if frame < rendered_frames {
+                let Some(buffer) = output.as_mut() else {
+                    continue;
+                };
                 buffer.left[frame] = sanitize_sample(left);
                 buffer.right[frame] = sanitize_sample(right);
             }
         }
 
-        self.last_block_frames = frame_count;
+        self.last_block_frames = requested_frames;
         self.last_events_processed = events_processed;
         self.last_peak_output = peak_output;
     }
@@ -482,6 +525,7 @@ impl Engine {
             voices,
             held_notes,
             peak_output: self.last_peak_output,
+            clip_detected: self.last_peak_output >= 0.98,
         }
     }
 
@@ -566,7 +610,7 @@ impl Engine {
             .voices
             .iter()
             .enumerate()
-            .filter(|(_, voice)| voice.note == Some(note) && voice.phase != VoicePhase::Idle)
+            .filter(|(_, voice)| voice.note == Some(note) && voice.phase == VoicePhase::Held)
             .min_by_key(|(_, voice)| voice.age)
             .map(|(index, _)| index)
         {
@@ -881,9 +925,14 @@ impl Engine {
     }
 }
 
+fn is_sorted_by_frame<T>(events: &[Scheduled<T>]) -> bool {
+    events
+        .windows(2)
+        .all(|pair| pair[0].frame_offset <= pair[1].frame_offset)
+}
+
 fn compare_voice_reuse(left: &VoiceState, right: &VoiceState) -> std::cmp::Ordering {
-    left
-        .amp_env
+    left.amp_env
         .current_level()
         .partial_cmp(&right.amp_env.current_level())
         .unwrap_or(std::cmp::Ordering::Equal)
@@ -967,6 +1016,8 @@ fn resolve_direct_parameters(
             engine.osc2.triangle_level,
         ],
         sub_level: (engine.sub.level * (0.70 + derived.mass * 0.30)).clamp(0.0, 1.0),
+        mixer_pre_filter_drive: engine.mixer.pre_filter_drive,
+        mixer_body_mix: engine.mixer.body_mix,
         osc2_interval_semitones: engine.osc2.interval_semitones as f32
             + control.pitch_bend_semitones.clamp(
                 -(patch.performance_response.bend_range_semitones as f32),
@@ -1121,6 +1172,51 @@ mod tests {
     }
 
     #[test]
+    fn note_off_prefers_held_voice_for_repeated_pitch() {
+        let mut engine = fixture_engine();
+
+        engine.process_block(ProcessBlock {
+            frame_count: 64,
+            note_events: &[
+                Scheduled {
+                    frame_offset: 0,
+                    event: NoteEvent::NoteOn {
+                        note: 60,
+                        velocity: 0.8,
+                    },
+                },
+                Scheduled {
+                    frame_offset: 1,
+                    event: NoteEvent::NoteOff { note: 60 },
+                },
+                Scheduled {
+                    frame_offset: 2,
+                    event: NoteEvent::NoteOn {
+                        note: 60,
+                        velocity: 0.7,
+                    },
+                },
+                Scheduled {
+                    frame_offset: 3,
+                    event: NoteEvent::NoteOff { note: 60 },
+                },
+            ],
+            controller_events: &[],
+            macro_state: None,
+            output: None,
+        });
+
+        let snapshot = engine.snapshot();
+        assert!(
+            snapshot
+                .voices
+                .iter()
+                .filter(|voice| voice.note == Some(60))
+                .all(|voice| voice.phase != VoicePhase::Held)
+        );
+    }
+
+    #[test]
     fn sustain_state_transitions_are_stable() {
         let mut engine = fixture_engine();
 
@@ -1194,6 +1290,31 @@ mod tests {
             .fold(0.0, f32::max);
         assert!(peak > 0.0001);
         assert!(left.iter().all(|sample| sample.is_finite()));
+        assert!(right.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn process_block_clamps_to_output_capacity() {
+        let mut engine = fixture_engine();
+        let mut left = [0.0_f32; 64];
+        let mut right = [0.0_f32; 32];
+
+        engine.process_block(ProcessBlock {
+            frame_count: 128,
+            note_events: &[Scheduled {
+                frame_offset: 0,
+                event: NoteEvent::NoteOn {
+                    note: 60,
+                    velocity: 0.9,
+                },
+            }],
+            controller_events: &[],
+            macro_state: None,
+            output: Some(StereoBlockMut::new(&mut left, &mut right)),
+        });
+
+        assert_eq!(engine.snapshot().last_block_frames, 128);
+        assert!(left[..32].iter().all(|sample| sample.is_finite()));
         assert!(right.iter().all(|sample| sample.is_finite()));
     }
 
@@ -1399,14 +1520,124 @@ mod tests {
         });
         assert!(engine.snapshot().active_voice_count > 0);
 
-        let replacement = load_patch_toml(include_str!("../../../patches/factory/ember-vault.toml"))
-            .expect("replacement patch parses");
-        engine.load_patch(replacement).expect("replacement patch loads");
+        let replacement =
+            load_patch_toml(include_str!("../../../patches/factory/ember-vault.toml"))
+                .expect("replacement patch parses");
+        engine
+            .load_patch(replacement)
+            .expect("replacement patch loads");
 
         let snapshot = engine.snapshot();
         assert_eq!(snapshot.patch_name, "Ember Vault");
         assert_eq!(snapshot.active_voice_count, 0);
         assert!(!snapshot.sustain_down);
         assert!(snapshot.peak_output.abs() <= f32::EPSILON);
+    }
+
+    #[test]
+    fn panic_clears_notes_and_controller_state() {
+        let mut engine = fixture_engine();
+
+        engine.process_block(ProcessBlock {
+            frame_count: 64,
+            note_events: &[Scheduled {
+                frame_offset: 0,
+                event: NoteEvent::NoteOn {
+                    note: 60,
+                    velocity: 0.95,
+                },
+            }],
+            controller_events: &[
+                Scheduled {
+                    frame_offset: 0,
+                    event: ControllerEvent::Sustain { down: true },
+                },
+                Scheduled {
+                    frame_offset: 1,
+                    event: ControllerEvent::ModWheel { amount: 0.8 },
+                },
+                Scheduled {
+                    frame_offset: 2,
+                    event: ControllerEvent::ChannelAftertouch { pressure: 0.7 },
+                },
+            ],
+            macro_state: None,
+            output: None,
+        });
+
+        engine.panic();
+
+        let snapshot = engine.snapshot();
+        assert_eq!(snapshot.active_voice_count, 0);
+        assert!(snapshot.held_notes.is_empty());
+        assert!(!snapshot.sustain_down);
+        assert!(snapshot.live_macros == MacroState::from_defaults(&engine.patch.macros));
+        assert!(!snapshot.clip_detected);
+    }
+
+    #[test]
+    fn panic_clears_patch_switch_mute_window() {
+        let mut engine = fixture_engine();
+        let replacement =
+            load_patch_toml(include_str!("../../../patches/factory/ember-vault.toml"))
+                .expect("replacement patch parses");
+        engine
+            .load_patch(replacement)
+            .expect("replacement patch loads");
+
+        let (left_before, right_before) = engine.render_frame();
+        assert_eq!((left_before, right_before), (0.0, 0.0));
+
+        engine.panic();
+
+        let (left_after, right_after) = engine.render_frame();
+        assert!(left_after.is_finite());
+        assert!(right_after.is_finite());
+    }
+
+    #[test]
+    fn reset_controllers_releases_sustain_state_but_keeps_held_voice() {
+        let mut engine = fixture_engine();
+
+        engine.process_block(ProcessBlock {
+            frame_count: 64,
+            note_events: &[Scheduled {
+                frame_offset: 0,
+                event: NoteEvent::NoteOn {
+                    note: 60,
+                    velocity: 0.9,
+                },
+            }],
+            controller_events: &[Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::Sustain { down: true },
+            }],
+            macro_state: None,
+            output: None,
+        });
+        engine.process_block(ProcessBlock {
+            frame_count: 64,
+            note_events: &[Scheduled {
+                frame_offset: 0,
+                event: NoteEvent::NoteOff { note: 60 },
+            }],
+            controller_events: &[Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::Macro {
+                    id: MacroId::Ruin,
+                    value: 0.85,
+                },
+            }],
+            macro_state: None,
+            output: None,
+        });
+
+        assert!(engine.snapshot().sustain_down);
+        engine.reset_controllers();
+
+        let snapshot = engine.snapshot();
+        assert!(!snapshot.sustain_down);
+        assert!(snapshot.held_notes.contains(&60));
+        assert!(snapshot.live_macros == MacroState::from_defaults(&engine.patch.macros));
     }
 }

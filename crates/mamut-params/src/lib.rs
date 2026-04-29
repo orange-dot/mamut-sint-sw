@@ -771,6 +771,13 @@ pub fn param_spec(id: ParamId) -> &'static ParamSpec {
     &PARAM_SPECS[id as usize]
 }
 
+pub fn param_by_key(key: &str) -> Option<ParamId> {
+    PARAM_SPECS
+        .iter()
+        .find(|spec| spec.key == key)
+        .map(|spec| spec.id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -789,5 +796,14 @@ mod tests {
         for (index, spec) in all_params().iter().enumerate() {
             assert_eq!(spec.id as usize, index);
         }
+    }
+
+    #[test]
+    fn param_lookup_by_key() {
+        assert_eq!(
+            param_by_key("filter_cutoff_hz"),
+            Some(ParamId::FilterCutoffHz)
+        );
+        assert_eq!(param_by_key("not_a_param"), None);
     }
 }
