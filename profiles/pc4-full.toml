@@ -60,11 +60,11 @@ kind = "macro"
 target = "ruin"
 
 [[binding]]
-control = "K8 Delay"
+control = "K8 GFM Gate"
 cc = 3
 section = "knob"
 index = 8
-kind = "reserved"
+kind = "gfm_layer_amount"
 
 [[binding]]
 control = "K9 Reverb"
@@ -140,12 +140,11 @@ kind = "direct_param"
 target = "chorus_mix"
 
 [[binding]]
-control = "S9"
+control = "S9 BCS Amount"
 cc = 28
 section = "slider"
 index = 9
-kind = "direct_param"
-target = "final_stage_body_drive"
+kind = "bcs_layer_amount"
 
 [[binding]]
 control = "SW1"
@@ -214,8 +213,8 @@ action = "favorite_slot"
 slot = 4
 
 [[binding]]
-control = "SW9"
+control = "SW9 BCS Enable"
 cc = 90
 section = "switch"
 index = 9
-kind = "reserved"
+kind = "bcs_layer_enabled"

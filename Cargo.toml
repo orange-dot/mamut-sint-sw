@@ -4,6 +4,7 @@ members = [
     "crates/mamut-patch",
     "crates/mamut-identity",
     "crates/mamut-dsp",
+    "crates/mamut-field",
     "crates/mamut-engine",
     "crates/mamut-standalone",
 ]
@@ -28,6 +29,7 @@ toml = "0.8.23"
 
 mamut-dsp = { path = "crates/mamut-dsp" }
 mamut-engine = { path = "crates/mamut-engine" }
+mamut-field = { path = "crates/mamut-field" }
 mamut-identity = { path = "crates/mamut-identity" }
 mamut-params = { path = "crates/mamut-params" }
 mamut-patch = { path = "crates/mamut-patch" }

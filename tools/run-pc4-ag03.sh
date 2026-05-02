@@ -10,6 +10,7 @@ alsa_start_threshold_frames="${MAMUT_ALSA_START_THRESHOLD_FRAMES:-}"
 midi_device="${MAMUT_MIDI_DEVICE:-mioXM DIN 1}"
 midi_channel="${MAMUT_MIDI_CHANNEL:-1}"
 controller_profile="${MAMUT_CONTROLLER_PROFILE:-$repo_root/profiles/pc4-full.toml}"
+capture_dir="${MAMUT_CAPTURE_DIR:-$(cd "$repo_root/../../.." && pwd)/audio-captures}"
 headless=1
 demo=0
 trace_midi=0
@@ -48,6 +49,7 @@ environment overrides:
   MAMUT_MIDI_DEVICE               Default: mioXM DIN 1
   MAMUT_MIDI_CHANNEL              Default: 1
   MAMUT_CONTROLLER_PROFILE        Default: profiles/pc4-full.toml
+  MAMUT_CAPTURE_DIR               Default: <lab-root>/audio-captures
   MAMUT_TRACE_MIDI                Set to 1 to enable MIDI tracing
   MAMUT_CARGO_PROFILE             debug or release (default: debug)
   MAMUT_AG_CARD_PATTERN           Regex used to find AG06/AG03 in /proc/asound/cards
@@ -266,6 +268,8 @@ if [[ -n "$controller_profile" ]]; then
   cmd+=(--controller-profile "$controller_profile")
 fi
 
+export MAMUT_CAPTURE_DIR="$capture_dir"
+
 cmd+=("$patch_name")
 
 printf 'Launching EPM1 standalone\n'
@@ -280,6 +284,7 @@ fi
 printf '  midi: %s\n' "$midi_device"
 printf '  midi channel: %s\n' "$midi_channel"
 printf '  controller profile: %s\n' "${controller_profile:-none}"
+printf '  capture dir: %s\n' "$capture_dir"
 printf '  cargo profile: %s\n' "$cargo_profile"
 if ((trace_midi)); then
   printf '  midi trace: enabled\n'

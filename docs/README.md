@@ -32,8 +32,65 @@ Start here:
 - `live-sessions/2026-04-29-pc4-ag03-noteoff-fix-validated.md` - hardware validation that the repeated-pitch note-off fix clears the stuck-note failure
 - `live-sessions/2026-04-29-pc4-ag03-full-controller-map.md` - full one-way `PC4` sustain/K/S/SW/wheels/aftertouch hardware map validation into Mamut
 - `live-sessions/2026-04-29-pc4-ag03-windowed-gui-redesign-live-take.md` - windowed GUI redesign live take, layout regression/fix, and real PC4 control evidence
+- `live-sessions/2026-04-30-direct-output-capture-analysis.md` - first direct-output f32 WAV analysis, including valid recorder evidence and the DC-offset follow-up
+- `live-sessions/2026-04-30-direct-output-dc-blocker-validation.md` - direct-output f32 WAV validation after the master DC blocker, with the remaining headroom and denormal follow-ups
 - `EXTERNAL_DSP_REFERENCES.md` - local notes on external DSP references such as
   `AudioNoise` and `dspc`
+- `dsp/next-generation-dsp-research-tracks.md` - index for non-contract
+  next-generation DSP research directions
+- `dsp/implementation-language-strategy.md` - Rust plus narrow C strategy for
+  next-generation DSP implementation
+- `dsp/dsp-core-polish-v0.1-output-safety-evidence.md` - core output safety
+  polish evidence for headroom limiter and denormal flush
+- `dsp/dsp-core-polish-v0.2-output-safety-sweep-evidence.md` - output safety
+  telemetry and factory sweep evidence
+- `dsp/material-core-idea.md` - exploratory material-memory stage idea
+- `dsp/gravitational-phase-lattice-idea.md` - `GFM` radical alternate voice
+  engine idea
+- `dsp/gfm-v0.1-baseline.md` - first accepted audible `mamut-field` evidence
+  baseline
+- `dsp/gfm-v0.2-gesture-evidence.md` - attack-hold-release `mamut-field`
+  gesture evidence
+- `dsp/gfm-v0.3-gesture-variants-evidence.md` - combined short-strike,
+  slow-press, and repeated-strike `mamut-field` evidence
+- `dsp/gfm-v0.4-recovery-performance-evidence.md` - recovery-safe offline
+  `mamut-field` performance evidence
+- `dsp/gfm-v0.5-performance-contract.md` - public `mamut-field`
+  performance program and gesture contract
+- `dsp/gfm-v0.6-engine-dry-run-evidence.md` - first one-way
+  `mamut-engine -> mamut-field` dry-run evidence
+- `dsp/gfm-v0.7-engine-block-evidence.md` - block-rendering
+  `mamut-engine -> mamut-field` evidence
+- `dsp/gfm-v0.8-patch-selection-evidence.md` - offline factory patch
+  identity-to-GFM program selection evidence
+- `dsp/gfm-v0.9-patch-voice-factory-evidence.md` - patch-to-GFM voice
+  factory contract evidence
+- `dsp/gfm-v1.0-engine-layer-evidence.md` - first offline-only engine voice
+  graph GFM layer evidence
+- `dsp/gfm-v1.1-layer-gate-evidence.md` - explicit engine-owned GFM layer gate
+  evidence
+- `dsp/gfm-v1.2-standalone-runtime-flag-evidence.md` - standalone launch-time
+  GFM layer flag evidence
+- `dsp/gfm-v1.3-gui-runtime-toggle-evidence.md` - windowed GUI GFM runtime
+  toggle evidence without full audio runtime rebuild
+- `dsp/gfm-v1.4-midi-performance-controls-evidence.md` - MIDI aftertouch and
+  K8/CC3 GFM amount control evidence
+- `dsp/gfm-v1.5-momentary-midi-gate-evidence.md` - armed GFM layer with
+  aftertouch momentary gate evidence
+- `dsp/gfm-v1.6-midi-auto-arm-evidence.md` - K8/CC3 GFM auto-arm evidence for
+  momentary MIDI performance without GUI pre-enable
+- `dsp/gfm-v1.7-smoothed-momentary-color-evidence.md` - smoothed GFM
+  aftertouch/K8 color entry and release evidence
+- `dsp/gfm-v1.8-swapped-k8-aftertouch-controls-evidence.md` - swapped K8 gate
+  and aftertouch amount control evidence
+- `dsp/bcs-v0.1-hopf-duffing-playground-evidence.md` - first offline
+  Hopf/Duffing BCS playground render evidence
+- `dsp/bcs-v1.0-engine-layer-smoke-evidence.md` - disabled-by-default BCS
+  engine layer smoke evidence
+- `dsp/bcs-v1.1-standalone-runtime-flag-evidence.md` - standalone dry-run/play
+  BCS scenario flag and interactive command evidence
+- `dsp/bcs-v1.2-playable-midi-layer-evidence.md` - playable BCS MIDI layer
+  evidence for PC4 `S9` amount and `SW9` enable
 
 Current source-doc posture:
 

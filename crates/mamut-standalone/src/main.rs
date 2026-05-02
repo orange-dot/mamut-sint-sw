@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
-    env, fs,
-    io::{self, BufRead, IsTerminal, Write},
+    env,
+    fs::{self, File},
+    io::{self, BufRead, BufWriter, IsTerminal, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -9,7 +10,7 @@ use std::{
         mpsc::{self, RecvTimeoutError, TryRecvError},
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use alsa::{
@@ -21,7 +22,9 @@ use crossbeam_queue::ArrayQueue;
 use eframe::{NativeOptions, egui};
 use mamut_dsp::StereoBlockMut;
 use mamut_engine::{
-    ControllerEvent, Engine, EngineConfig, EngineSnapshot, NoteEvent, ProcessBlock, Scheduled,
+    BcsLayerMode, BcsLayerSnapshot, BcsScenario, ControllerEvent, DEFAULT_GFM_LAYER_SEED, Engine,
+    EngineConfig, EngineSnapshot, GfmLayerMode, GfmVoiceProgramSelection, NoteEvent, ProcessBlock,
+    Scheduled,
 };
 use mamut_params::{MacroId, ParamId, ParamUnit, param_by_key, param_spec};
 use mamut_patch::{PatchFileV1, load_patch_toml, validate_patch_v1};
@@ -46,6 +49,14 @@ const MIDI_ACTIVITY_FLASH: Duration = Duration::from_millis(700);
 const MIDI_STARTUP_GUARD: Duration = MIDI_ACTIVITY_FLASH;
 const MIDI_INPUT_QUEUE_CAPACITY: usize = 512;
 const RUNTIME_CONTROL_QUEUE_CAPACITY: usize = 64;
+const RECORDING_QUEUE_CAPACITY_FRAMES: usize = 44_100 * 4;
+const RECORDING_REPLY_TIMEOUT: Duration = Duration::from_millis(500);
+const DEFAULT_LIVE_TAKE_SECONDS: u64 = 30;
+const DEFAULT_GFM_UI_SEED: u64 = DEFAULT_GFM_LAYER_SEED;
+const DEFAULT_LIVE_TAKE_TAG: &str = "gravitacija";
+const PC4_KNOB_START_ANGLE: f32 = 2.0 * std::f32::consts::PI / 3.0;
+const PC4_KNOB_SWEEP_ANGLE: f32 = 5.0 * std::f32::consts::PI / 3.0;
+const CAPTURE_DIR_ENV: &str = "MAMUT_CAPTURE_DIR";
 const LIVE_SET_STEMS: [&str; 8] = [
     "molten-horizon",
     "cathedral-bloom",
@@ -58,6 +69,12 @@ const LIVE_SET_STEMS: [&str; 8] = [
 ];
 
 type StereoFrame = [f32; 2];
+
+#[derive(Debug, Clone)]
+struct OutputRecordingRequest {
+    path: PathBuf,
+    max_frames: Option<usize>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AlsaPlaybackSampleFormat {
@@ -111,8 +128,8 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some("dry-run") => {
-            let path = resolve_patch_argument(args.get(1).map(String::as_str))?;
-            dry_run(&path)
+            let options = parse_dry_run_options(&args[1..])?;
+            dry_run(&options)
         }
         Some("play") => {
             let options = parse_play_options(&args[1..])?;
@@ -122,7 +139,11 @@ fn run() -> Result<()> {
             print_usage();
             Ok(())
         }
-        None => dry_run(&default_patch_path()),
+        None => dry_run(&DryRunOptions {
+            patch_path: default_patch_path(),
+            gfm_layer_seed: None,
+            bcs_layer_scenario: None,
+        }),
         Some(other) => Err(anyhow!("unknown command `{other}`")),
     }
 }
@@ -135,8 +156,8 @@ fn print_usage() {
   mamut-standalone list-audio
   mamut-standalone list-midi
   mamut-standalone validate [factory-name-or-path]
-  mamut-standalone dry-run [factory-name-or-path]
-  mamut-standalone play [--demo] [--headless] --audio-device <alsa-index-or-hw:card,device> [--alsa-period-frames <n>] [--alsa-buffer-frames <n>] [--alsa-start-threshold-frames <n>] [--midi-device <name-or-index>] [--midi-channel <1..16>] [--controller-profile <path>] [--trace-midi] [factory-name-or-path]
+  mamut-standalone dry-run [--gfm-layer-seed <u64-or-0xHEX>] [--bcs-layer-scenario <scenario>] [factory-name-or-path]
+  mamut-standalone play [--demo] [--headless] --audio-device <alsa-index-or-hw:card,device> [--alsa-period-frames <n>] [--alsa-buffer-frames <n>] [--alsa-start-threshold-frames <n>] [--midi-device <name-or-index>] [--midi-channel <1..16>] [--controller-profile <path>] [--trace-midi] [--gfm-layer-seed <u64-or-0xHEX>] [--bcs-layer-scenario <scenario>] [factory-name-or-path]
 
 interactive play controls:
   help
@@ -151,6 +172,8 @@ interactive play controls:
   macro <gravitacija|bloom|heat|ruin|swarm> <0..1>
   panic
   reset-controllers
+  record <seconds> [path]
+  record-stop
   audio [alsa-index-or-hw:card,device]
   midi [name-or-index]
   demo
@@ -181,6 +204,15 @@ struct PlayOptions {
     controller_profile_path: Option<PathBuf>,
     trace_midi: bool,
     headless: bool,
+    gfm_layer_seed: Option<u64>,
+    bcs_layer_scenario: Option<BcsScenario>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct DryRunOptions {
+    patch_path: PathBuf,
+    gfm_layer_seed: Option<u64>,
+    bcs_layer_scenario: Option<BcsScenario>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -226,6 +258,19 @@ enum EngineCommand {
     Note(NoteEvent),
     Controller(ControllerEvent),
     RequestSnapshot(mpsc::Sender<EngineSnapshot>),
+    SetGfmLayerMode(
+        GfmLayerMode,
+        mpsc::Sender<std::result::Result<GfmVoiceProgramSelection, String>>,
+    ),
+    SetBcsLayerMode(
+        BcsLayerMode,
+        mpsc::Sender<std::result::Result<BcsLayerSnapshot, String>>,
+    ),
+    StartOutputRecording(
+        OutputRecordingRequest,
+        mpsc::Sender<std::result::Result<PathBuf, String>>,
+    ),
+    StopOutputRecording(mpsc::Sender<std::result::Result<Option<PathBuf>, String>>),
     Shutdown,
 }
 
@@ -278,6 +323,9 @@ enum ControllerBindingAction {
         id: ParamId,
         scale: ControllerValueScale,
     },
+    GfmLayerAmount,
+    BcsLayerAmount,
+    BcsLayerEnabled,
     Runtime(RuntimeControlMessage),
     ToggleParam(ParamId),
     Reserved,
@@ -315,6 +363,9 @@ struct ControllerBindingFile {
 enum ControllerBindingKind {
     Macro,
     DirectParam,
+    GfmLayerAmount,
+    BcsLayerAmount,
+    BcsLayerEnabled,
     RuntimeAction,
     ToggleParam,
     Reserved,
@@ -335,6 +386,9 @@ enum RuntimeUiCommand {
     Macro(MacroId, f32),
     Panic,
     ResetControllers,
+    BcsLayer(Option<BcsScenario>),
+    Record { seconds: u64, path: Option<PathBuf> },
+    RecordStop,
     AudioList,
     AudioSelect(String),
     MidiList,
@@ -353,6 +407,53 @@ struct TransportMetricsSnapshot {
     xrun_recoveries: u64,
     overflow_batches: u64,
     overflow_frames: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordingState {
+    Idle,
+    Active,
+    Finished,
+    Error,
+}
+
+impl RecordingState {
+    fn from_usize(value: usize) -> Self {
+        match value {
+            1 => Self::Active,
+            2 => Self::Finished,
+            3 => Self::Error,
+            _ => Self::Idle,
+        }
+    }
+
+    fn as_usize(self) -> usize {
+        match self {
+            Self::Idle => 0,
+            Self::Active => 1,
+            Self::Finished => 2,
+            Self::Error => 3,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Active => "recording",
+            Self::Finished => "done",
+            Self::Error => "error",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RecordingMetricsSnapshot {
+    state: RecordingState,
+    path: Option<PathBuf>,
+    target_frames: Option<u64>,
+    frames_written: u64,
+    frames_dropped: u64,
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -465,6 +566,74 @@ impl TransportMetrics {
         self.overflow_batches.fetch_add(1, Ordering::Relaxed);
         self.overflow_frames
             .fetch_add(dropped_frames as u64, Ordering::Relaxed);
+    }
+}
+
+#[derive(Debug, Default)]
+struct RecordingMetrics {
+    state: AtomicUsize,
+    target_frames: AtomicU64,
+    frames_written: AtomicU64,
+    frames_dropped: AtomicU64,
+    path: Mutex<Option<PathBuf>>,
+    error: Mutex<Option<String>>,
+}
+
+impl RecordingMetrics {
+    fn snapshot(&self) -> RecordingMetricsSnapshot {
+        let target_frames = self.target_frames.load(Ordering::Relaxed);
+        RecordingMetricsSnapshot {
+            state: RecordingState::from_usize(self.state.load(Ordering::Relaxed)),
+            path: self.path.lock().ok().and_then(|path| path.clone()),
+            target_frames: (target_frames > 0).then_some(target_frames),
+            frames_written: self.frames_written.load(Ordering::Relaxed),
+            frames_dropped: self.frames_dropped.load(Ordering::Relaxed),
+            error: self.error.lock().ok().and_then(|error| error.clone()),
+        }
+    }
+
+    fn start(&self, path: PathBuf, target_frames: Option<usize>) {
+        if let Ok(mut current_path) = self.path.lock() {
+            *current_path = Some(path);
+        }
+        if let Ok(mut error) = self.error.lock() {
+            *error = None;
+        }
+        self.target_frames
+            .store(target_frames.unwrap_or(0) as u64, Ordering::Relaxed);
+        self.frames_written.store(0, Ordering::Relaxed);
+        self.frames_dropped.store(0, Ordering::Relaxed);
+        self.state
+            .store(RecordingState::Active.as_usize(), Ordering::Relaxed);
+    }
+
+    fn set_frames_written(&self, frames_written: u64) {
+        self.frames_written.store(frames_written, Ordering::Relaxed);
+    }
+
+    fn record_dropped(&self, dropped_frames: usize) {
+        if dropped_frames == 0 {
+            return;
+        }
+        self.frames_dropped
+            .fetch_add(dropped_frames as u64, Ordering::Relaxed);
+    }
+
+    fn finish_if_active(&self) {
+        let _ = self.state.compare_exchange(
+            RecordingState::Active.as_usize(),
+            RecordingState::Finished.as_usize(),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+    }
+
+    fn record_error(&self, error_message: String) {
+        if let Ok(mut error) = self.error.lock() {
+            *error = Some(error_message);
+        }
+        self.state
+            .store(RecordingState::Error.as_usize(), Ordering::Relaxed);
     }
 }
 
@@ -667,6 +836,8 @@ struct RuntimeSession {
     midi_channel: Option<u8>,
     controller_profile: Option<Arc<ControllerProfile>>,
     trace_midi: bool,
+    gfm_layer_seed: Option<u64>,
+    bcs_layer_scenario: Option<BcsScenario>,
     bend_range: f32,
     tx: mpsc::Sender<EngineCommand>,
     midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
@@ -680,6 +851,7 @@ struct RuntimeSession {
     channels: usize,
     transport_metrics: Arc<TransportMetrics>,
     input_metrics: Arc<InputMetrics>,
+    recording_metrics: Arc<RecordingMetrics>,
 }
 
 struct EngineWorker {
@@ -744,6 +916,7 @@ impl AlsaPlaybackStream {
 impl RuntimeSession {
     fn new(options: &PlayOptions) -> Result<Self> {
         let alsa_tuning = AlsaPlaybackTuning::from_play_options(options)?;
+        let recording_metrics = Arc::new(RecordingMetrics::default());
         let controller_profile = options
             .controller_profile_path
             .as_deref()
@@ -754,6 +927,9 @@ impl RuntimeSession {
             &options.patch_path,
             options.audio_selector.as_deref(),
             alsa_tuning,
+            options.gfm_layer_seed,
+            options.bcs_layer_scenario,
+            Arc::clone(&recording_metrics),
         )?;
         let runtime = start_prepared_audio_runtime(prepared_runtime)?;
         let input_metrics = Arc::new(InputMetrics::default());
@@ -767,6 +943,8 @@ impl RuntimeSession {
             midi_channel: options.midi_channel,
             controller_profile,
             trace_midi: options.trace_midi,
+            gfm_layer_seed: options.gfm_layer_seed,
+            bcs_layer_scenario: options.bcs_layer_scenario,
             bend_range: runtime.bend_range,
             tx: runtime.tx,
             midi_input_queue: runtime.midi_input_queue,
@@ -780,6 +958,7 @@ impl RuntimeSession {
             channels: runtime.channels,
             transport_metrics: runtime.transport_metrics,
             input_metrics,
+            recording_metrics,
         };
         session.driver = session.open_driver_for_tx(
             session.tx.clone(),
@@ -922,6 +1101,18 @@ impl RuntimeSession {
                     self.reset_controllers()?;
                     self.print_status()?;
                 }
+                Ok(RuntimeUiCommand::BcsLayer(scenario)) => {
+                    self.set_bcs_layer_scenario(scenario)?;
+                    self.print_status()?;
+                }
+                Ok(RuntimeUiCommand::Record { seconds, path }) => {
+                    let path = self.start_output_recording(seconds, path)?;
+                    println!("recording {seconds}s -> {}", path.display());
+                }
+                Ok(RuntimeUiCommand::RecordStop) => match self.stop_output_recording()? {
+                    Some(path) => println!("recording stop requested -> {}", path.display()),
+                    None => println!("no active output recording"),
+                },
                 Ok(RuntimeUiCommand::AudioList) => list_audio_devices()?,
                 Ok(RuntimeUiCommand::AudioSelect(selector)) => {
                     self.switch_audio(selector)?;
@@ -953,7 +1144,14 @@ impl RuntimeSession {
 
     fn switch_patch(&mut self, path: PathBuf) -> Result<()> {
         let keep_demo = self.driver.is_demo();
-        let runtime = build_audio_runtime(&path, self.audio_selector.as_deref(), self.alsa_tuning)?;
+        let runtime = build_audio_runtime(
+            &path,
+            self.audio_selector.as_deref(),
+            self.alsa_tuning,
+            self.gfm_layer_seed,
+            self.bcs_layer_scenario,
+            Arc::clone(&self.recording_metrics),
+        )?;
         self.install_runtime(path.clone(), runtime, keep_demo)?;
         println!("loaded patch: {} ({})", self.patch_name, path.display());
         Ok(())
@@ -1034,6 +1232,8 @@ impl RuntimeSession {
             self.alsa_tuning.start_threshold_frames
         );
         println!("mode: {}", self.driver.detail());
+        println!("{}", gfm_layer_status_line(&snapshot));
+        println!("{}", bcs_layer_status_line(&snapshot));
         println!("tags: {tags}");
         let transport = self.transport_metrics.snapshot();
         let input = self.input_metrics.snapshot();
@@ -1056,6 +1256,27 @@ impl RuntimeSession {
             transport.xrun_recoveries,
             transport.overflow_batches,
             transport.overflow_frames
+        );
+        let recording = self.recording_metrics_snapshot();
+        println!(
+            "recording: {} path={} written_frames={} dropped_frames={} target_frames={}{}",
+            recording.state.label(),
+            recording
+                .path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            recording.frames_written,
+            recording.frames_dropped,
+            recording
+                .target_frames
+                .map(|frames| frames.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            recording
+                .error
+                .as_ref()
+                .map(|error| format!(" error={error}"))
+                .unwrap_or_default()
         );
         println!(
             "macros: gravitacija={:.3} bloom={:.3} heat={:.3} ruin={:.3} swarm={:.3}",
@@ -1092,10 +1313,109 @@ impl RuntimeSession {
             .map_err(|_| anyhow!("timed out waiting for engine snapshot"))
     }
 
+    fn start_output_recording(&self, seconds: u64, path: Option<PathBuf>) -> Result<PathBuf> {
+        if seconds == 0 {
+            return Err(anyhow!("record duration must be greater than zero seconds"));
+        }
+        let sample_rate = u64::from(self.sample_rate_hz);
+        let target_frames = seconds
+            .checked_mul(sample_rate)
+            .and_then(|frames| usize::try_from(frames).ok())
+            .ok_or_else(|| anyhow!("record duration is too large"))?;
+        let path = match path {
+            Some(path) => path,
+            None => default_output_capture_path()?,
+        };
+        let request = OutputRecordingRequest {
+            path,
+            max_frames: Some(target_frames),
+        };
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.tx
+            .send(EngineCommand::StartOutputRecording(request, reply_tx))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
+        reply_rx
+            .recv_timeout(RECORDING_REPLY_TIMEOUT)
+            .map_err(|_| anyhow!("timed out starting output recording"))?
+            .map_err(|error| anyhow!(error))
+    }
+
+    fn start_tagged_output_recording(&self, seconds: u64, tag: &str) -> Result<PathBuf> {
+        let path = tagged_output_capture_path(&self.patch_path, tag, seconds)?;
+        self.start_output_recording(seconds, Some(path))
+    }
+
+    fn stop_output_recording(&self) -> Result<Option<PathBuf>> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.tx
+            .send(EngineCommand::StopOutputRecording(reply_tx))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
+        reply_rx
+            .recv_timeout(RECORDING_REPLY_TIMEOUT)
+            .map_err(|_| anyhow!("timed out stopping output recording"))?
+            .map_err(|error| anyhow!(error))
+    }
+
+    fn set_gfm_layer_seed(&mut self, seed: Option<u64>) -> Result<GfmVoiceProgramSelection> {
+        if self.gfm_layer_seed == seed {
+            return Ok(self.request_snapshot()?.gfm_layer.selection);
+        }
+
+        let mode = gfm_layer_mode_from_seed(seed);
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.tx
+            .send(EngineCommand::SetGfmLayerMode(mode, reply_tx))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
+        let selection = reply_rx
+            .recv_timeout(Duration::from_millis(500))
+            .map_err(|_| anyhow!("timed out applying GFM layer mode"))?
+            .map_err(|error| anyhow!(error))?;
+
+        self.gfm_layer_seed = seed;
+        println!(
+            "gfm layer {}",
+            seed.map(format_gfm_seed)
+                .unwrap_or_else(|| "disabled".to_string())
+        );
+        Ok(selection)
+    }
+
+    fn set_bcs_layer_scenario(
+        &mut self,
+        scenario: Option<BcsScenario>,
+    ) -> Result<BcsLayerSnapshot> {
+        if self.bcs_layer_scenario == scenario {
+            return Ok(self.request_snapshot()?.bcs_layer);
+        }
+
+        let mode = bcs_layer_mode_from_scenario(scenario);
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.tx
+            .send(EngineCommand::SetBcsLayerMode(mode, reply_tx))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
+        let snapshot = reply_rx
+            .recv_timeout(Duration::from_millis(500))
+            .map_err(|_| anyhow!("timed out applying BCS layer mode"))?
+            .map_err(|error| anyhow!(error))?;
+
+        self.bcs_layer_scenario = scenario;
+        println!(
+            "bcs layer {}",
+            scenario.map(format_bcs_scenario).unwrap_or("disabled")
+        );
+        Ok(snapshot)
+    }
+
     fn switch_audio(&mut self, selector: String) -> Result<()> {
         let keep_demo = self.driver.is_demo();
-        let runtime =
-            build_audio_runtime(&self.patch_path, Some(selector.as_str()), self.alsa_tuning)?;
+        let runtime = build_audio_runtime(
+            &self.patch_path,
+            Some(selector.as_str()),
+            self.alsa_tuning,
+            self.gfm_layer_seed,
+            self.bcs_layer_scenario,
+            Arc::clone(&self.recording_metrics),
+        )?;
         self.install_runtime(self.patch_path.clone(), runtime, keep_demo)?;
         println!(
             "audio switched to `{}`",
@@ -1321,6 +1641,9 @@ impl RuntimeSession {
             &self.patch_path,
             self.audio_selector.as_deref(),
             self.alsa_tuning,
+            self.gfm_layer_seed,
+            self.bcs_layer_scenario,
+            Arc::clone(&self.recording_metrics),
         )
         .context("failed to rebuild previous runtime")?;
         let runtime = start_prepared_audio_runtime(prepared)
@@ -1380,6 +1703,10 @@ impl RuntimeSession {
 
     fn transport_metrics_snapshot(&self) -> TransportMetricsSnapshot {
         self.transport_metrics.snapshot()
+    }
+
+    fn recording_metrics_snapshot(&self) -> RecordingMetricsSnapshot {
+        self.recording_metrics.snapshot()
     }
 
     fn print_runtime_control_messages(&mut self) -> Result<()> {
@@ -1897,10 +2224,13 @@ fn list_midi_devices() -> Result<()> {
     Ok(())
 }
 
-fn dry_run(path: &Path) -> Result<()> {
+fn dry_run(options: &DryRunOptions) -> Result<()> {
+    let path = &options.patch_path;
     let patch = load_patch_from_path(path)?;
     validate_patch_v1(&patch).context("patch validation failed")?;
     let mut engine = Engine::new(EngineConfig::default(), patch)?;
+    engine.set_gfm_layer_mode(gfm_layer_mode_from_seed(options.gfm_layer_seed));
+    engine.set_bcs_layer_mode(bcs_layer_mode_from_scenario(options.bcs_layer_scenario));
     let mut left = vec![0.0_f32; 256];
     let mut right = vec![0.0_f32; 256];
 
@@ -1954,7 +2284,7 @@ fn dry_run(path: &Path) -> Result<()> {
     println!("patch: {} ({})", snapshot.patch_name, path.display());
     println!(
         "description: {}",
-        snapshot.patch_description.unwrap_or_default()
+        snapshot.patch_description.as_deref().unwrap_or_default()
     );
     println!("active voices: {}", snapshot.active_voice_count);
     println!("held notes: {:?}", snapshot.held_notes);
@@ -1988,8 +2318,120 @@ fn dry_run(path: &Path) -> Result<()> {
         snapshot.direct.body_drive,
         snapshot.peak_output
     );
+    println!("{}", gfm_layer_status_line(&snapshot));
+    println!("{}", bcs_layer_status_line(&snapshot));
 
     Ok(())
+}
+
+fn gfm_layer_mode_from_seed(seed: Option<u64>) -> GfmLayerMode {
+    match seed {
+        Some(seed) => GfmLayerMode::Enabled { seed },
+        None => GfmLayerMode::Disabled,
+    }
+}
+
+fn gfm_layer_seed_from_ui_text(enabled: bool, seed_text: &str) -> Result<Option<u64>> {
+    if enabled {
+        parse_gfm_layer_seed(seed_text).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+fn gfm_layer_status_line(snapshot: &EngineSnapshot) -> String {
+    gfm_layer_status_line_from_layer(snapshot.gfm_layer)
+}
+
+fn bcs_layer_mode_from_scenario(scenario: Option<BcsScenario>) -> BcsLayerMode {
+    match scenario {
+        Some(scenario) => BcsLayerMode::Enabled { scenario },
+        None => BcsLayerMode::Disabled,
+    }
+}
+
+fn bcs_layer_status_line(snapshot: &EngineSnapshot) -> String {
+    bcs_layer_status_line_from_layer(snapshot.bcs_layer)
+}
+
+fn bcs_layer_status_line_from_layer(layer: BcsLayerSnapshot) -> String {
+    match layer.mode {
+        BcsLayerMode::Disabled => format!(
+            "bcs: mode=disabled playable={} amount={:.3} effective={:.3}",
+            on_off_bool(layer.enabled),
+            layer.amount,
+            layer.effective_amount
+        ),
+        BcsLayerMode::Enabled { scenario } => {
+            let active = layer
+                .active_scenario
+                .map(format_bcs_scenario)
+                .unwrap_or("-");
+            let sample_rate = layer
+                .sample_rate_hz
+                .map(|sample_rate| sample_rate.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            let pitch = layer
+                .pitch_note
+                .map(|note| {
+                    format!(
+                        "{}@{:.2}Hz",
+                        note,
+                        layer.pitch_frequency_hz.unwrap_or_default()
+                    )
+                })
+                .unwrap_or_else(|| "-".to_string());
+            format!(
+                "bcs: mode=enabled scenario={} active={} playable={} amount={:.3} effective={:.3} pitch={} sample_rate={} max_state={:.6} unsafe_events={} unsafe={}",
+                format_bcs_scenario(scenario),
+                active,
+                on_off_bool(layer.enabled),
+                layer.amount,
+                layer.effective_amount,
+                pitch,
+                sample_rate,
+                layer.max_state_abs,
+                layer.unsafe_events,
+                layer.unsafe_state
+            )
+        }
+    }
+}
+
+fn gfm_layer_status_line_from_layer(layer: mamut_engine::GfmLayerSnapshot) -> String {
+    match layer.mode {
+        GfmLayerMode::Disabled => "gfm: mode=disabled".to_string(),
+        GfmLayerMode::Enabled { seed } => {
+            let ruptures = layer
+                .diagnostics
+                .map(|diagnostics| diagnostics.max_rupture_count.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            format!(
+                "gfm: mode=enabled seed={} selected={} active={} scores=({:.4},{:.4},{:.4}) ruptures={}",
+                format_gfm_seed(seed),
+                format_optional_program_id(layer.selection.program_id),
+                format_optional_program_id(layer.active_program_id),
+                layer.selection.horizont_score,
+                layer.selection.pec_score,
+                layer.selection.baklja_score,
+                ruptures
+            )
+        }
+    }
+}
+
+fn format_gfm_seed(seed: u64) -> String {
+    format!("0x{seed:X}")
+}
+
+fn format_optional_program_id<T: std::fmt::Debug>(program_id: Option<T>) -> String {
+    program_id
+        .map(|program_id| format!("{program_id:?}"))
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn on_off_bool(value: bool) -> &'static str {
+    if value { "on" } else { "off" }
 }
 
 fn play(options: &PlayOptions) -> Result<()> {
@@ -2071,6 +2513,14 @@ fn epm_frame(fill: egui::Color32) -> egui::Frame {
         .stroke(epm_stroke())
         .corner_radius(egui::CornerRadius::same(4))
         .inner_margin(egui::Margin::symmetric(14, 12))
+}
+
+fn compact_epm_frame(fill: egui::Color32) -> egui::Frame {
+    egui::Frame::NONE
+        .fill(fill)
+        .stroke(epm_stroke())
+        .corner_radius(egui::CornerRadius::same(4))
+        .inner_margin(egui::Margin::symmetric(10, 8))
 }
 
 fn epm_tile_frame(highlighted: bool) -> egui::Frame {
@@ -2181,6 +2631,11 @@ struct PerformanceApp {
     factory_patches: Vec<FactoryPatchEntry>,
     factory_patch_error: Option<String>,
     selected_tab: PerformanceTab,
+    gfm_seed_text: String,
+    bcs_selected_scenario: BcsScenario,
+    record_duration_preset: RecordDurationPreset,
+    record_custom_seconds: String,
+    take_tag: String,
     last_snapshot_error: Option<String>,
     last_status_message: Option<String>,
     last_snapshot_refresh: Instant,
@@ -2207,10 +2662,43 @@ impl PerformanceTab {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordDurationPreset {
+    Thirty,
+    Sixty,
+    Custom,
+}
+
+impl RecordDurationPreset {
+    fn seconds(self, custom_seconds: &str) -> Result<u64> {
+        match self {
+            Self::Thirty => Ok(30),
+            Self::Sixty => Ok(60),
+            Self::Custom => {
+                let seconds = custom_seconds
+                    .trim()
+                    .parse::<u64>()
+                    .with_context(|| format!("invalid record duration `{custom_seconds}`"))?;
+                if seconds == 0 {
+                    return Err(anyhow!("record duration must be greater than zero seconds"));
+                }
+                Ok(seconds)
+            }
+        }
+    }
+}
+
 impl PerformanceApp {
     fn new(session: RuntimeSession) -> Self {
         let snapshot = session.request_snapshot().ok();
         let last_midi_message_count = session.input_metrics_snapshot().midi_messages;
+        let gfm_seed_text = session
+            .gfm_layer_seed
+            .map(format_gfm_seed)
+            .unwrap_or_else(|| format_gfm_seed(DEFAULT_GFM_UI_SEED));
+        let bcs_selected_scenario = session
+            .bcs_layer_scenario
+            .unwrap_or(BcsScenario::SubharmonicPressure);
         let (factory_patches, factory_patch_error) = match factory_patch_entries() {
             Ok(mut entries) => {
                 entries.sort_by_key(|entry| {
@@ -2229,6 +2717,11 @@ impl PerformanceApp {
             factory_patches,
             factory_patch_error,
             selected_tab: PerformanceTab::Live,
+            gfm_seed_text,
+            bcs_selected_scenario,
+            record_duration_preset: RecordDurationPreset::Thirty,
+            record_custom_seconds: DEFAULT_LIVE_TAKE_SECONDS.to_string(),
+            take_tag: DEFAULT_LIVE_TAKE_TAG.to_string(),
             last_snapshot_error: None,
             last_status_message: None,
             last_snapshot_refresh: Instant::now()
@@ -2260,6 +2753,8 @@ impl PerformanceApp {
         if self.last_snapshot_refresh.elapsed() >= PERFORMANCE_UI_REFRESH {
             match self.session.request_snapshot() {
                 Ok(snapshot) => {
+                    self.sync_gfm_seed_from_snapshot(&snapshot);
+                    self.sync_bcs_scenario_from_snapshot(&snapshot);
                     self.snapshot = Some(snapshot);
                     self.last_snapshot_error = None;
                 }
@@ -2268,6 +2763,34 @@ impl PerformanceApp {
                 }
             }
             self.last_snapshot_refresh = Instant::now();
+        }
+    }
+
+    fn sync_gfm_seed_from_snapshot(&mut self, snapshot: &EngineSnapshot) {
+        let snapshot_seed = match snapshot.gfm_layer.mode {
+            GfmLayerMode::Enabled { seed } => Some(seed),
+            GfmLayerMode::Disabled => None,
+        };
+        if self.session.gfm_layer_seed == snapshot_seed {
+            return;
+        }
+        self.session.gfm_layer_seed = snapshot_seed;
+        if let Some(seed) = snapshot_seed {
+            self.gfm_seed_text = format_gfm_seed(seed);
+        }
+    }
+
+    fn sync_bcs_scenario_from_snapshot(&mut self, snapshot: &EngineSnapshot) {
+        let snapshot_scenario = match snapshot.bcs_layer.mode {
+            BcsLayerMode::Enabled { scenario } => Some(scenario),
+            BcsLayerMode::Disabled => None,
+        };
+        if self.session.bcs_layer_scenario == snapshot_scenario {
+            return;
+        }
+        self.session.bcs_layer_scenario = snapshot_scenario;
+        if let Some(scenario) = snapshot_scenario {
+            self.bcs_selected_scenario = scenario;
         }
     }
 
@@ -2319,6 +2842,65 @@ impl PerformanceApp {
                 false
             }
         }
+    }
+
+    fn selected_record_seconds(&self) -> Result<u64> {
+        self.record_duration_preset
+            .seconds(&self.record_custom_seconds)
+    }
+
+    fn apply_gfm_seed_from_ui(&mut self, enabled: bool) {
+        let seed = match gfm_layer_seed_from_ui_text(enabled, &self.gfm_seed_text) {
+            Ok(seed) => seed,
+            Err(error) => {
+                self.last_status_message = Some(format!("gfm seed failed: {error}"));
+                return;
+            }
+        };
+        if self.run_action(
+            |session| session.set_gfm_layer_seed(seed).map(|_| ()),
+            if enabled { "gfm enable" } else { "gfm disable" },
+        ) {
+            if let Some(seed) = seed {
+                self.gfm_seed_text = format_gfm_seed(seed);
+            }
+            self.last_snapshot_refresh = Instant::now()
+                .checked_sub(PERFORMANCE_UI_REFRESH)
+                .unwrap_or_else(Instant::now);
+        }
+    }
+
+    fn apply_bcs_scenario_from_ui(&mut self, enabled: bool) {
+        let scenario = enabled.then_some(self.bcs_selected_scenario);
+        if self.run_action(
+            |session| session.set_bcs_layer_scenario(scenario).map(|_| ()),
+            if enabled { "bcs enable" } else { "bcs disable" },
+        ) {
+            self.last_snapshot_refresh = Instant::now()
+                .checked_sub(PERFORMANCE_UI_REFRESH)
+                .unwrap_or_else(Instant::now);
+        }
+    }
+
+    fn apply_live_take_preset(&mut self) {
+        self.take_tag = DEFAULT_LIVE_TAKE_TAG.to_string();
+        self.record_duration_preset = RecordDurationPreset::Thirty;
+        self.record_custom_seconds = DEFAULT_LIVE_TAKE_SECONDS.to_string();
+        self.gfm_seed_text = format_gfm_seed(DEFAULT_GFM_UI_SEED);
+        let path = match resolve_patch_argument(Some("cathedral-bloom")) {
+            Ok(path) => path,
+            Err(error) => {
+                self.last_status_message = Some(format!("preset failed: {error}"));
+                return;
+            }
+        };
+        if !self.run_action(
+            |session| session.switch_patch(path),
+            "preset patch cathedral-bloom",
+        ) {
+            return;
+        }
+        self.apply_gfm_seed_from_ui(true);
     }
 
     fn render_header(&mut self, ui: &mut egui::Ui) {
@@ -2407,6 +2989,296 @@ impl PerformanceApp {
                     ui.colored_label(epm_bad(), error);
                 }
                 ui.colored_label(midi_color, "midi");
+            });
+        });
+    }
+
+    fn render_performance_status_strip(&mut self, ui: &mut egui::Ui) {
+        let transport = self.session.transport_metrics_snapshot();
+        let input = self.session.input_metrics_snapshot();
+        let recording = self.session.recording_metrics_snapshot();
+        let (voices, peak, clip, macros) = self
+            .snapshot
+            .as_ref()
+            .map(|snapshot| {
+                (
+                    snapshot.active_voice_count,
+                    snapshot.peak_output,
+                    snapshot.clip_detected,
+                    Some(snapshot.effective_macros),
+                )
+            })
+            .unwrap_or((0, 0.0, false, None));
+        let midi = self.session.midi_selector.as_deref().unwrap_or("no midi");
+        let midi_channel = self
+            .session
+            .midi_channel
+            .map(|channel| channel.to_string())
+            .unwrap_or_else(|| "all".to_string());
+
+        epm_frame(epm_panel_deep()).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                render_metric_tile(ui, false, "PATCH", &self.session.patch_name, "current");
+                render_metric_tile(
+                    ui,
+                    false,
+                    "AUDIO",
+                    &format!("{} Hz", self.session.sample_rate_hz),
+                    &self.session.audio_device_name,
+                );
+                render_metric_tile(
+                    ui,
+                    Instant::now() <= self.midi_hot_until,
+                    "MIDI",
+                    &format!("ch {midi_channel}"),
+                    midi,
+                );
+                render_metric_tile(
+                    ui,
+                    voices > 0,
+                    "VOICES",
+                    &voices.to_string(),
+                    &format!("peak {peak:.3} clip {}", on_off_bool(clip)),
+                );
+                render_metric_tile(
+                    ui,
+                    transport.xrun_recoveries > 0,
+                    "XRUN",
+                    &transport.xrun_recoveries.to_string(),
+                    &format!(
+                        "und {} / {}f",
+                        transport.underrun_batches, transport.underrun_frames
+                    ),
+                );
+                render_metric_tile(
+                    ui,
+                    recording.state == RecordingState::Active,
+                    "REC",
+                    recording.state.label(),
+                    &format!("drop {}", recording.frames_dropped),
+                );
+                render_metric_tile(ui, false, "MIDI IN", &input.midi_messages.to_string(), "");
+                if let Some(macros) = macros {
+                    render_metric_tile(
+                        ui,
+                        false,
+                        "G/B/H",
+                        &format!(
+                            "{:.2}/{:.2}/{:.2}",
+                            macros.gravitacija, macros.bloom, macros.heat
+                        ),
+                        &format!("R {:.2} S {:.2}", macros.ruin, macros.swarm),
+                    );
+                }
+            });
+        });
+    }
+
+    fn render_gfm_layer_panel(&mut self, ui: &mut egui::Ui) {
+        let snapshot = self.snapshot.as_ref().map(|snapshot| snapshot.gfm_layer);
+        let current_seed = self.session.gfm_layer_seed;
+        let mut enabled = current_seed.is_some();
+
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(epm_eyebrow("GFM LAYER"));
+                    if let Some(snapshot) = snapshot {
+                        ui.label(epm_value(match snapshot.mode {
+                            GfmLayerMode::Enabled { .. } => "READY",
+                            GfmLayerMode::Disabled => "OFF",
+                        }));
+                    } else {
+                        ui.label(epm_value("WAITING"));
+                    }
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    if ui
+                        .add_enabled(true, epm_command_button("TAKE PRESET", false, false))
+                        .clicked()
+                    {
+                        self.apply_live_take_preset();
+                    }
+                    if ui
+                        .add_enabled(enabled, epm_command_button("APPLY SEED", false, false))
+                        .clicked()
+                    {
+                        self.apply_gfm_seed_from_ui(true);
+                    }
+                    if ui.checkbox(&mut enabled, "enabled").changed() {
+                        self.apply_gfm_seed_from_ui(enabled);
+                    }
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.gfm_seed_text)
+                            .desired_width(138.0)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                });
+            });
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                if let Some(snapshot) = snapshot {
+                    let seed = match snapshot.mode {
+                        GfmLayerMode::Enabled { seed } => format_gfm_seed(seed),
+                        GfmLayerMode::Disabled => "off".to_string(),
+                    };
+                    render_metric_tile(
+                        ui,
+                        matches!(snapshot.mode, GfmLayerMode::Enabled { .. }),
+                        "MODE",
+                        match snapshot.mode {
+                            GfmLayerMode::Enabled { .. } => "enabled",
+                            GfmLayerMode::Disabled => "disabled",
+                        },
+                        &seed,
+                    );
+                    render_metric_tile(
+                        ui,
+                        snapshot.effective_amount > 0.001,
+                        "MIDI",
+                        &format!("{:.2}", snapshot.effective_amount),
+                        &format!(
+                            "K8 gate {:.2} AT amt {:.2}",
+                            snapshot.pressure, snapshot.amount
+                        ),
+                    );
+                    render_metric_tile(
+                        ui,
+                        false,
+                        "SELECTED",
+                        &format_optional_program_id(snapshot.selection.program_id),
+                        "program",
+                    );
+                    render_metric_tile(
+                        ui,
+                        false,
+                        "ACTIVE",
+                        &format_optional_program_id(snapshot.active_program_id),
+                        "program",
+                    );
+                    render_metric_tile(
+                        ui,
+                        false,
+                        "SCORES",
+                        &format!(
+                            "{:.2}/{:.2}/{:.2}",
+                            snapshot.selection.horizont_score,
+                            snapshot.selection.pec_score,
+                            snapshot.selection.baklja_score
+                        ),
+                        "H/P/B",
+                    );
+                    render_metric_tile(
+                        ui,
+                        snapshot
+                            .diagnostics
+                            .is_some_and(|diagnostics| diagnostics.max_rupture_count > 0),
+                        "RUPTURES",
+                        &snapshot
+                            .diagnostics
+                            .map(|diagnostics| diagnostics.max_rupture_count.to_string())
+                            .unwrap_or_else(|| "-".to_string()),
+                        "max",
+                    );
+                } else {
+                    render_metric_tile(ui, false, "MODE", "unknown", "snapshot pending");
+                }
+            });
+        });
+    }
+
+    fn render_bcs_layer_panel(&mut self, ui: &mut egui::Ui) {
+        let snapshot = self.snapshot.as_ref().map(|snapshot| snapshot.bcs_layer);
+        let mut enabled = self.session.bcs_layer_scenario.is_some();
+
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(epm_eyebrow("BCS LAYER"));
+                    if let Some(snapshot) = snapshot {
+                        ui.label(epm_value(match snapshot.mode {
+                            BcsLayerMode::Enabled { .. } => "READY",
+                            BcsLayerMode::Disabled => "OFF",
+                        }));
+                    } else {
+                        ui.label(epm_value("WAITING"));
+                    }
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    if ui.checkbox(&mut enabled, "enabled").changed() {
+                        self.apply_bcs_scenario_from_ui(enabled);
+                    }
+                });
+            });
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                for scenario in BcsScenario::ALL {
+                    let selected = self.bcs_selected_scenario == scenario;
+                    let label = format_bcs_scenario(scenario).to_ascii_uppercase();
+                    if ui
+                        .add(epm_command_button(&label, false, selected))
+                        .clicked()
+                    {
+                        self.bcs_selected_scenario = scenario;
+                        if enabled {
+                            self.apply_bcs_scenario_from_ui(true);
+                        }
+                    }
+                }
+            });
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                if let Some(snapshot) = snapshot {
+                    let scenario = match snapshot.mode {
+                        BcsLayerMode::Enabled { scenario } => format_bcs_scenario(scenario),
+                        BcsLayerMode::Disabled => "off",
+                    };
+                    let pitch = snapshot
+                        .pitch_note
+                        .map(|note| {
+                            format!(
+                                "{} / {:.2}Hz",
+                                note,
+                                snapshot.pitch_frequency_hz.unwrap_or_default()
+                            )
+                        })
+                        .unwrap_or_else(|| "-".to_string());
+                    render_metric_tile(
+                        ui,
+                        matches!(snapshot.mode, BcsLayerMode::Enabled { .. }),
+                        "MODE",
+                        match snapshot.mode {
+                            BcsLayerMode::Enabled { .. } => "enabled",
+                            BcsLayerMode::Disabled => "disabled",
+                        },
+                        scenario,
+                    );
+                    render_metric_tile(
+                        ui,
+                        snapshot.effective_amount > 0.001,
+                        "MIDI",
+                        &format!("{:.2}", snapshot.effective_amount),
+                        &format!(
+                            "SW9 {} S9 {:.2}",
+                            on_off_bool(snapshot.enabled),
+                            snapshot.amount
+                        ),
+                    );
+                    render_metric_tile(ui, snapshot.pitch_note.is_some(), "PITCH", &pitch, "note");
+                    render_metric_tile(
+                        ui,
+                        snapshot.unsafe_state || snapshot.unsafe_events > 0,
+                        "STATE",
+                        &format!("{:.3}", snapshot.max_state_abs),
+                        &format!(
+                            "unsafe {} / {}",
+                            on_off_bool(snapshot.unsafe_state),
+                            snapshot.unsafe_events
+                        ),
+                    );
+                } else {
+                    render_metric_tile(ui, false, "MODE", "unknown", "snapshot pending");
+                }
             });
         });
     }
@@ -2623,7 +3495,15 @@ impl PerformanceApp {
     fn render_live_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.render_header(ui);
         ui.add_space(12.0);
+        self.render_performance_status_strip(ui);
+        ui.add_space(12.0);
+        self.render_gfm_layer_panel(ui);
+        ui.add_space(12.0);
+        self.render_bcs_layer_panel(ui);
+        ui.add_space(12.0);
         self.render_factory_bank(ui);
+        ui.add_space(12.0);
+        self.render_output_capture_controls(ui);
         ui.add_space(12.0);
         ui.columns(2, |columns| {
             self.render_slot_buttons(&mut columns[0]);
@@ -2633,18 +3513,136 @@ impl PerformanceApp {
         self.render_footer(ui, ctx);
     }
 
+    fn render_output_capture_controls(&mut self, ui: &mut egui::Ui) {
+        let recording = self.session.recording_metrics_snapshot();
+        let active = recording.state == RecordingState::Active;
+        let seconds_written = recording.frames_written as f32 / self.session.sample_rate_hz as f32;
+        let target_seconds = recording
+            .target_frames
+            .map(|frames| frames as f32 / self.session.sample_rate_hz as f32);
+        let selected_seconds = self
+            .selected_record_seconds()
+            .unwrap_or(DEFAULT_LIVE_TAKE_SECONDS);
+        let preview_path = tagged_output_capture_preview(
+            &self.session.patch_path,
+            &self.take_tag,
+            selected_seconds,
+        );
+
+        epm_frame(epm_panel()).show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(epm_eyebrow("TAKE RECORDER"));
+                    ui.label(epm_value(recording.state.label().to_ascii_uppercase()));
+                    let path = recording
+                        .path
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_else(|| preview_path.display().to_string());
+                    ui.label(epm_small(path));
+                    if let Some(error) = &recording.error {
+                        ui.colored_label(epm_bad(), error);
+                    }
+                });
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    if ui
+                        .add_enabled(active, epm_command_button("STOP REC", true, false))
+                        .clicked()
+                    {
+                        self.run_action(
+                            |session| session.stop_output_recording().map(|_| ()),
+                            "record stop",
+                        );
+                    }
+                    if ui
+                        .add_enabled(!active, epm_command_button("RECORD", false, false))
+                        .clicked()
+                    {
+                        match self.selected_record_seconds() {
+                            Ok(seconds) => {
+                                let tag = self.take_tag.clone();
+                                self.run_action(
+                                    |session| {
+                                        session
+                                            .start_tagged_output_recording(seconds, &tag)
+                                            .map(|_| ())
+                                    },
+                                    &format!("record {seconds}s"),
+                                );
+                            }
+                            Err(error) => {
+                                self.last_status_message =
+                                    Some(format!("record duration failed: {error}"));
+                            }
+                        }
+                    }
+                });
+            });
+
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                for (preset, label) in [
+                    (RecordDurationPreset::Thirty, "30S"),
+                    (RecordDurationPreset::Sixty, "60S"),
+                    (RecordDurationPreset::Custom, "CUSTOM"),
+                ] {
+                    if ui
+                        .add_enabled(
+                            !active,
+                            epm_command_button(label, false, self.record_duration_preset == preset),
+                        )
+                        .clicked()
+                    {
+                        self.record_duration_preset = preset;
+                    }
+                }
+                ui.label(epm_small("seconds"));
+                ui.add_enabled(
+                    !active && self.record_duration_preset == RecordDurationPreset::Custom,
+                    egui::TextEdit::singleline(&mut self.record_custom_seconds)
+                        .desired_width(72.0)
+                        .font(egui::TextStyle::Monospace),
+                );
+                ui.label(epm_small("tag"));
+                ui.add_enabled(
+                    !active,
+                    egui::TextEdit::singleline(&mut self.take_tag)
+                        .desired_width(150.0)
+                        .font(egui::TextStyle::Monospace),
+                );
+            });
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                render_metric_tile(
+                    ui,
+                    active,
+                    "SECONDS",
+                    &format!("{seconds_written:.1}"),
+                    &target_seconds
+                        .map(|seconds| format!("target {seconds:.0}"))
+                        .unwrap_or_else(|| "manual stop".to_string()),
+                );
+                render_metric_tile(
+                    ui,
+                    recording.frames_dropped > 0,
+                    "DROPPED",
+                    &recording.frames_dropped.to_string(),
+                    "writer queue",
+                );
+                render_metric_tile(
+                    ui,
+                    recording.state == RecordingState::Finished,
+                    "WAV",
+                    "f32 stereo",
+                    &format!("{} Hz", self.session.sample_rate_hz),
+                );
+            });
+        });
+    }
+
     fn render_pc4_tab(&mut self, ui: &mut egui::Ui) {
         let input = self.session.input_metrics_snapshot();
-        epm_frame(epm_panel()).show(ui, |ui| {
-            ui.label(epm_eyebrow("PC4 CONTROL MAP"));
-            if let Some(event) = &input.last_control {
-                ui.label(epm_value(format!("{} -> {}", event.label, event.action)));
-                ui.label(epm_small(verdict_label(event.verdict)));
-            } else {
-                ui.label(epm_value("Latest: none"));
-            }
-        });
-        ui.add_space(12.0);
 
         let Some(snapshot) = self.snapshot.as_ref() else {
             epm_frame(epm_panel()).show(ui, |ui| {
@@ -2654,41 +3652,10 @@ impl PerformanceApp {
         };
 
         if let Some(profile) = self.session.controller_profile.clone() {
-            epm_frame(epm_panel_deep()).show(ui, |ui| {
-                ui.label(epm_eyebrow("PROFILE"));
-                ui.label(epm_value(&profile.name));
-                ui.label(epm_small(profile.path.display().to_string()));
-            });
-            ui.add_space(12.0);
-            self.render_controller_section(
-                ui,
-                "Knobs",
-                &profile,
-                ControllerBindingSection::Knob,
-                snapshot,
-                input.last_control.as_ref(),
-            );
-            ui.add_space(12.0);
-            self.render_controller_section(
-                ui,
-                "Sliders",
-                &profile,
-                ControllerBindingSection::Slider,
-                snapshot,
-                input.last_control.as_ref(),
-            );
-            ui.add_space(12.0);
-            self.render_controller_section(
-                ui,
-                "Switches",
-                &profile,
-                ControllerBindingSection::Switch,
-                snapshot,
-                input.last_control.as_ref(),
-            );
+            self.render_pc4_surface(ui, &profile, snapshot, input.last_control.as_ref());
             let other = sorted_bindings_for_section(&profile, ControllerBindingSection::Other);
             if !other.is_empty() {
-                ui.add_space(12.0);
+                ui.add_space(6.0);
                 self.render_binding_grid(
                     ui,
                     "Other",
@@ -2699,23 +3666,156 @@ impl PerformanceApp {
             }
         } else {
             self.render_legacy_pc4_tab(ui, snapshot, input.last_control.as_ref());
+            ui.add_space(12.0);
+            self.render_program_change_map(ui, input.last_control.as_ref());
         }
-
-        ui.add_space(12.0);
-        self.render_program_change_map(ui, input.last_control.as_ref());
     }
 
-    fn render_controller_section(
+    fn render_pc4_surface(
         &self,
         ui: &mut egui::Ui,
-        title: &str,
         profile: &ControllerProfile,
-        section: ControllerBindingSection,
         snapshot: &EngineSnapshot,
         last_control: Option<&LastControlEvent>,
     ) {
-        let bindings = sorted_bindings_for_section(profile, section);
-        self.render_binding_grid(ui, title, &bindings, snapshot, last_control);
+        let knobs = sorted_bindings_for_section(profile, ControllerBindingSection::Knob);
+        let sliders = sorted_bindings_for_section(profile, ControllerBindingSection::Slider);
+        let switches = sorted_bindings_for_section(profile, ControllerBindingSection::Switch);
+
+        self.render_pc4_status_bar(ui, profile, last_control);
+        ui.add_space(6.0);
+        self.render_pc4_knob_bank(ui, &knobs, snapshot, last_control);
+        ui.add_space(6.0);
+        self.render_pc4_slider_bank(ui, &sliders, snapshot, last_control);
+        ui.add_space(6.0);
+        self.render_pc4_switch_and_program_bank(ui, &switches, snapshot, last_control);
+    }
+
+    fn render_pc4_status_bar(
+        &self,
+        ui: &mut egui::Ui,
+        profile: &ControllerProfile,
+        last_control: Option<&LastControlEvent>,
+    ) {
+        compact_epm_frame(epm_panel()).show(ui, |ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), 44.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.vertical(|ui| {
+                        ui.label(epm_eyebrow("PC4 CONTROL SURFACE"));
+                        ui.label(epm_small(format!(
+                            "{} / {}",
+                            profile.name,
+                            profile.path.display()
+                        )));
+                    });
+                    ui.add_space(20.0);
+                    ui.vertical(|ui| {
+                        ui.label(epm_eyebrow("LATEST"));
+                        if let Some(event) = last_control {
+                            ui.label(epm_value(format!("{} -> {}", event.label, event.action)));
+                        } else {
+                            ui.label(epm_value("none"));
+                        }
+                    });
+                    ui.add_space(20.0);
+                    ui.vertical(|ui| {
+                        ui.label(epm_eyebrow("VERDICT"));
+                        ui.label(epm_value(
+                            last_control
+                                .map(|event| verdict_label(event.verdict))
+                                .unwrap_or("idle"),
+                        ));
+                    });
+                    ui.add_space(20.0);
+                    ui.vertical(|ui| {
+                        ui.label(epm_eyebrow("PATCH"));
+                        ui.label(epm_value(&self.session.patch_name));
+                    });
+                },
+            );
+        });
+    }
+
+    fn render_pc4_knob_bank(
+        &self,
+        ui: &mut egui::Ui,
+        bindings: &[&ControllerBinding],
+        snapshot: &EngineSnapshot,
+        last_control: Option<&LastControlEvent>,
+    ) {
+        compact_epm_frame(epm_panel_deep()).show(ui, |ui| {
+            ui.label(epm_eyebrow("KNOBS"));
+            ui.add_space(4.0);
+            let count = bindings.len().max(1) as f32;
+            let spacing = 8.0;
+            let width = ((ui.available_width() - spacing * (count - 1.0)) / count).max(78.0);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = spacing;
+                for binding in bindings {
+                    render_pc4_knob(
+                        ui,
+                        binding,
+                        snapshot,
+                        last_control,
+                        egui::vec2(width, 124.0),
+                    );
+                }
+            });
+        });
+    }
+
+    fn render_pc4_slider_bank(
+        &self,
+        ui: &mut egui::Ui,
+        bindings: &[&ControllerBinding],
+        snapshot: &EngineSnapshot,
+        last_control: Option<&LastControlEvent>,
+    ) {
+        compact_epm_frame(epm_panel()).show(ui, |ui| {
+            ui.label(epm_eyebrow("SLIDERS"));
+            ui.add_space(4.0);
+            let count = bindings.len().max(1) as f32;
+            let spacing = 8.0;
+            let width = ((ui.available_width() - spacing * (count - 1.0)) / count).max(78.0);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = spacing;
+                for binding in bindings {
+                    render_pc4_slider(
+                        ui,
+                        binding,
+                        snapshot,
+                        last_control,
+                        egui::vec2(width, 204.0),
+                    );
+                }
+            });
+        });
+    }
+
+    fn render_pc4_switch_and_program_bank(
+        &self,
+        ui: &mut egui::Ui,
+        bindings: &[&ControllerBinding],
+        snapshot: &EngineSnapshot,
+        last_control: Option<&LastControlEvent>,
+    ) {
+        compact_epm_frame(epm_panel_deep()).show(ui, |ui| {
+            ui.label(epm_eyebrow("SWITCHES"));
+            ui.add_space(4.0);
+            let count = bindings.len().max(1) as f32;
+            let spacing = 6.0;
+            let width = ((ui.available_width() - spacing * (count - 1.0)) / count).max(72.0);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = spacing;
+                for binding in bindings {
+                    render_pc4_switch(ui, binding, snapshot, last_control, egui::vec2(width, 58.0));
+                }
+            });
+            ui.add_space(6.0);
+            self.render_program_change_strip(ui, last_control);
+        });
     }
 
     fn render_binding_grid(
@@ -2825,6 +3925,35 @@ impl PerformanceApp {
                         }
                     }
                 });
+        });
+    }
+
+    fn render_program_change_strip(
+        &self,
+        ui: &mut egui::Ui,
+        last_control: Option<&LastControlEvent>,
+    ) {
+        ui.horizontal_top(|ui| {
+            ui.label(epm_eyebrow("PROGRAM CHANGE"));
+            ui.add_space(6.0);
+            let count = LIVE_SET_STEMS.len() as f32;
+            let spacing = 5.0;
+            let available = (ui.available_width() - 6.0).max(360.0);
+            let width = ((available - spacing * (count - 1.0)) / count).max(68.0);
+            ui.spacing_mut().item_spacing.x = spacing;
+            for (slot, stem) in LIVE_SET_STEMS.iter().enumerate() {
+                let highlighted = last_control
+                    .is_some_and(|event| event_matches_program_change(event, slot as u8));
+                let selected = self.session.current_live_slot() == Some(slot);
+                render_pc4_program_slot(
+                    ui,
+                    highlighted || selected,
+                    slot,
+                    stem,
+                    selected,
+                    egui::vec2(width, 34.0),
+                );
+            }
         });
     }
 
@@ -3006,13 +4135,18 @@ impl eframe::App for PerformanceApp {
             .show(ctx, |ui| {
                 self.render_tabs(ui);
                 ui.add_space(14.0);
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| match self.selected_tab {
-                        PerformanceTab::Live => self.render_live_tab(ui, ctx),
-                        PerformanceTab::Pc4 => self.render_pc4_tab(ui),
-                        PerformanceTab::Debug => self.render_debug_tab(ui),
-                    });
+                match self.selected_tab {
+                    PerformanceTab::Pc4 => self.render_pc4_tab(ui),
+                    PerformanceTab::Live | PerformanceTab::Debug => {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| match self.selected_tab {
+                                PerformanceTab::Live => self.render_live_tab(ui, ctx),
+                                PerformanceTab::Debug => self.render_debug_tab(ui),
+                                PerformanceTab::Pc4 => unreachable!(),
+                            });
+                    }
+                }
             });
 
         ctx.request_repaint_after(Duration::from_millis(16));
@@ -3078,6 +4212,203 @@ fn render_small_status_tile(
     });
 }
 
+fn render_pc4_knob(
+    ui: &mut egui::Ui,
+    binding: &ControllerBinding,
+    snapshot: &EngineSnapshot,
+    last_control: Option<&LastControlEvent>,
+    size: egui::Vec2,
+) {
+    let display = pc4_control_display(snapshot, binding);
+    let highlighted = last_control.is_some_and(|event| event_matches_binding(event, binding));
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    draw_pc4_control_shell(&painter, rect, highlighted);
+
+    let center = egui::pos2(rect.center().x, rect.top() + 48.0);
+    let radius = (rect.width().min(rect.height()) * 0.26).clamp(22.0, 34.0);
+    painter.circle_stroke(center, radius, egui::Stroke::new(5.0, epm_stroke().color));
+    let marker_angle = pc4_knob_angle(display.normalized);
+    draw_arc(
+        &painter,
+        center,
+        radius,
+        PC4_KNOB_START_ANGLE,
+        marker_angle,
+        egui::Stroke::new(5.0, if highlighted { epm_ok() } else { epm_orange() }),
+    );
+    let marker = egui::pos2(
+        center.x + marker_angle.cos() * (radius - 5.0),
+        center.y + marker_angle.sin() * (radius - 5.0),
+    );
+    painter.line_segment(
+        [center, marker],
+        egui::Stroke::new(2.0, if highlighted { epm_ok() } else { epm_text() }),
+    );
+
+    draw_centered_text(&painter, rect, 10.0, &binding.control, 11.0, epm_orange());
+    draw_centered_text(
+        &painter,
+        rect,
+        82.0,
+        &format!("CC{}", binding.cc),
+        10.0,
+        epm_muted(),
+    );
+    draw_centered_text(
+        &painter,
+        rect,
+        98.0,
+        &display.short_action,
+        10.0,
+        epm_cyan(),
+    );
+    draw_centered_text(&painter, rect, 112.0, &display.value, 13.0, epm_text());
+}
+
+fn pc4_knob_angle(normalized: f32) -> f32 {
+    PC4_KNOB_START_ANGLE + normalized.clamp(0.0, 1.0) * PC4_KNOB_SWEEP_ANGLE
+}
+
+fn render_pc4_slider(
+    ui: &mut egui::Ui,
+    binding: &ControllerBinding,
+    snapshot: &EngineSnapshot,
+    last_control: Option<&LastControlEvent>,
+    size: egui::Vec2,
+) {
+    let display = pc4_control_display(snapshot, binding);
+    let highlighted = last_control.is_some_and(|event| event_matches_binding(event, binding));
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    draw_pc4_control_shell(&painter, rect, highlighted);
+
+    let track_top = rect.top() + 36.0;
+    let track_bottom = rect.bottom() - 48.0;
+    let track_x = rect.center().x;
+    painter.line_segment(
+        [
+            egui::pos2(track_x, track_top),
+            egui::pos2(track_x, track_bottom),
+        ],
+        egui::Stroke::new(8.0, epm_stroke().color),
+    );
+    let handle_y = track_bottom - display.normalized * (track_bottom - track_top);
+    painter.line_segment(
+        [
+            egui::pos2(track_x, handle_y),
+            egui::pos2(track_x, track_bottom),
+        ],
+        egui::Stroke::new(8.0, if highlighted { epm_ok() } else { epm_orange() }),
+    );
+    let handle =
+        egui::Rect::from_center_size(egui::pos2(track_x, handle_y), egui::vec2(36.0, 10.0));
+    painter.rect_filled(handle, egui::CornerRadius::same(2), epm_text());
+    painter.rect_stroke(
+        handle,
+        egui::CornerRadius::same(2),
+        egui::Stroke::new(1.0, epm_bg()),
+        egui::StrokeKind::Inside,
+    );
+
+    draw_centered_text(&painter, rect, 10.0, &binding.control, 11.0, epm_orange());
+    draw_centered_text(
+        &painter,
+        rect,
+        24.0,
+        &format!("CC{}", binding.cc),
+        10.0,
+        epm_muted(),
+    );
+    draw_centered_text(
+        &painter,
+        rect,
+        rect.height() - 34.0,
+        &display.short_action,
+        10.0,
+        epm_cyan(),
+    );
+    draw_centered_text(
+        &painter,
+        rect,
+        rect.height() - 18.0,
+        &display.value,
+        13.0,
+        epm_text(),
+    );
+}
+
+fn render_pc4_switch(
+    ui: &mut egui::Ui,
+    binding: &ControllerBinding,
+    snapshot: &EngineSnapshot,
+    last_control: Option<&LastControlEvent>,
+    size: egui::Vec2,
+) {
+    let display = pc4_control_display(snapshot, binding);
+    let highlighted = last_control.is_some_and(|event| event_matches_binding(event, binding));
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    draw_pc4_control_shell(&painter, rect, highlighted);
+
+    let switch_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.center().x, rect.top() + 22.0),
+        egui::vec2((rect.width() - 26.0).clamp(42.0, 76.0), 16.0),
+    );
+    painter.rect_filled(switch_rect, egui::CornerRadius::same(8), epm_panel());
+    painter.rect_stroke(
+        switch_rect,
+        egui::CornerRadius::same(8),
+        epm_stroke(),
+        egui::StrokeKind::Inside,
+    );
+    let knob_x = if display.normalized >= 0.5 || highlighted {
+        switch_rect.right() - 9.0
+    } else {
+        switch_rect.left() + 9.0
+    };
+    painter.circle_filled(
+        egui::pos2(knob_x, switch_rect.center().y),
+        6.0,
+        if highlighted {
+            epm_ok()
+        } else {
+            epm_orange_dim()
+        },
+    );
+    draw_centered_text(&painter, rect, 35.0, &binding.control, 10.0, epm_orange());
+    draw_centered_text(
+        &painter,
+        rect,
+        48.0,
+        &format!("CC{} {}", binding.cc, display.value),
+        9.0,
+        epm_muted(),
+    );
+}
+
+fn render_pc4_program_slot(
+    ui: &mut egui::Ui,
+    highlighted: bool,
+    slot: usize,
+    stem: &str,
+    selected: bool,
+    size: egui::Vec2,
+) {
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    draw_pc4_control_shell(&painter, rect, highlighted);
+    draw_centered_text(
+        &painter,
+        rect,
+        6.0,
+        &format!("PC{slot}"),
+        10.0,
+        if selected { epm_orange() } else { epm_muted() },
+    );
+    draw_centered_text(&painter, rect, 20.0, stem, 9.0, epm_text());
+}
+
 fn render_metric_tile(
     ui: &mut egui::Ui,
     highlighted: bool,
@@ -3121,6 +4452,171 @@ fn epm_command_button(label: &str, danger: bool, selected: bool) -> egui::Button
     .min_size(egui::vec2(92.0, 34.0))
 }
 
+struct Pc4ControlDisplay {
+    normalized: f32,
+    value: String,
+    short_action: String,
+}
+
+fn pc4_control_display(
+    snapshot: &EngineSnapshot,
+    binding: &ControllerBinding,
+) -> Pc4ControlDisplay {
+    let (value, secondary) = binding_display_value(snapshot, binding);
+    let normalized = binding_normalized_value(snapshot, binding);
+    Pc4ControlDisplay {
+        normalized,
+        value: secondary
+            .map(|secondary| format!("{value} {secondary}"))
+            .unwrap_or(value),
+        short_action: short_pc4_action(binding.action),
+    }
+}
+
+fn binding_normalized_value(snapshot: &EngineSnapshot, binding: &ControllerBinding) -> f32 {
+    match binding.action {
+        ControllerBindingAction::Macro(id) => macro_snapshot_value(snapshot, id, false),
+        ControllerBindingAction::DirectParam { id, .. } => direct_param_raw_value(snapshot, id)
+            .map(|value| normalize_param_value(id, value))
+            .unwrap_or(0.0),
+        ControllerBindingAction::GfmLayerAmount => snapshot.gfm_layer.pressure,
+        ControllerBindingAction::BcsLayerAmount => snapshot.bcs_layer.amount,
+        ControllerBindingAction::BcsLayerEnabled => {
+            if snapshot.bcs_layer.enabled {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        ControllerBindingAction::ToggleParam(id) => match id {
+            ParamId::ChorusEnabled => {
+                if snapshot.direct.chorus_enabled {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            ParamId::ReverbEnabled => {
+                if snapshot.direct.reverb_enabled {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            _ => 0.0,
+        },
+        ControllerBindingAction::Runtime(_) | ControllerBindingAction::Reserved => 0.0,
+    }
+    .clamp(0.0, 1.0)
+}
+
+fn normalize_param_value(id: ParamId, value: f32) -> f32 {
+    let spec = param_spec(id);
+    if matches!(spec.unit, ParamUnit::Hertz | ParamUnit::Milliseconds)
+        && spec.min > 0.0
+        && spec.max > spec.min
+        && value > 0.0
+    {
+        let min = spec.min.ln();
+        let max = spec.max.ln();
+        return ((value.ln() - min) / (max - min)).clamp(0.0, 1.0);
+    }
+    if spec.max <= spec.min {
+        0.0
+    } else {
+        ((value - spec.min) / (spec.max - spec.min)).clamp(0.0, 1.0)
+    }
+}
+
+fn short_pc4_action(action: ControllerBindingAction) -> String {
+    match action {
+        ControllerBindingAction::Macro(id) => macro_display_name(id).to_string(),
+        ControllerBindingAction::DirectParam { id, .. } => param_spec(id).name.to_string(),
+        ControllerBindingAction::GfmLayerAmount => "GFM Gate".to_string(),
+        ControllerBindingAction::BcsLayerAmount => "BCS Amount".to_string(),
+        ControllerBindingAction::BcsLayerEnabled => "BCS Enable".to_string(),
+        ControllerBindingAction::Runtime(message) => describe_runtime_control_message(message),
+        ControllerBindingAction::ToggleParam(id) => param_spec(id).name.to_string(),
+        ControllerBindingAction::Reserved => "Reserved".to_string(),
+    }
+}
+
+fn draw_pc4_control_shell(painter: &egui::Painter, rect: egui::Rect, highlighted: bool) {
+    painter.rect_filled(
+        rect,
+        egui::CornerRadius::same(4),
+        if highlighted {
+            epm_tile_hot()
+        } else {
+            epm_tile()
+        },
+    );
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(4),
+        if highlighted {
+            epm_accent_stroke()
+        } else {
+            epm_stroke()
+        },
+        egui::StrokeKind::Inside,
+    );
+}
+
+fn draw_centered_text(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    top_offset: f32,
+    text: &str,
+    size: f32,
+    color: egui::Color32,
+) {
+    let clipped = clipped_label(text, (rect.width() / (size * 0.58)).floor() as usize);
+    painter.text(
+        egui::pos2(rect.center().x, rect.top() + top_offset),
+        egui::Align2::CENTER_TOP,
+        clipped,
+        egui::FontId::new(size, egui::FontFamily::Proportional),
+        color,
+    );
+}
+
+fn clipped_label(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 || text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let keep = max_chars.saturating_sub(1);
+    let mut output = text.chars().take(keep).collect::<String>();
+    output.push('~');
+    output
+}
+
+fn draw_arc(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    radius: f32,
+    start_angle: f32,
+    end_angle: f32,
+    stroke: egui::Stroke,
+) {
+    let steps = 24;
+    let sweep = end_angle - start_angle;
+    if sweep.abs() <= f32::EPSILON {
+        return;
+    }
+    let points = (0..=steps)
+        .map(|step| {
+            let t = step as f32 / steps as f32;
+            let angle = start_angle + sweep * t;
+            egui::pos2(
+                center.x + angle.cos() * radius,
+                center.y + angle.sin() * radius,
+            )
+        })
+        .collect::<Vec<_>>();
+    painter.add(egui::Shape::line(points, stroke));
+}
+
 fn binding_display_value(
     snapshot: &EngineSnapshot,
     binding: &ControllerBinding,
@@ -3133,6 +4629,20 @@ fn binding_display_value(
         }
         ControllerBindingAction::DirectParam { id, .. } => (
             direct_param_display_value(snapshot, id).unwrap_or_else(|| "not exposed".to_string()),
+            None,
+        ),
+        ControllerBindingAction::GfmLayerAmount => {
+            (format!("{:.2}", snapshot.gfm_layer.pressure), None)
+        }
+        ControllerBindingAction::BcsLayerAmount => {
+            (format!("{:.2}", snapshot.bcs_layer.amount), None)
+        }
+        ControllerBindingAction::BcsLayerEnabled => (
+            if snapshot.bcs_layer.enabled {
+                "on".to_string()
+            } else {
+                "off".to_string()
+            },
             None,
         ),
         ControllerBindingAction::Runtime(_) => ("trigger".to_string(), None),
@@ -3170,7 +4680,7 @@ fn on_off(value: bool) -> String {
     if value { "on" } else { "off" }.to_string()
 }
 
-fn direct_param_display_value(snapshot: &EngineSnapshot, id: ParamId) -> Option<String> {
+fn direct_param_raw_value(snapshot: &EngineSnapshot, id: ParamId) -> Option<f32> {
     let value = match id {
         ParamId::Osc1SawLevel => snapshot.direct.osc1_wave_mix[0],
         ParamId::Osc1PulseLevel => snapshot.direct.osc1_wave_mix[1],
@@ -3223,6 +4733,11 @@ fn direct_param_display_value(snapshot: &EngineSnapshot, id: ParamId) -> Option<
         | ParamId::ChorusEnabled
         | ParamId::ReverbEnabled => return None,
     };
+    Some(value)
+}
+
+fn direct_param_display_value(snapshot: &EngineSnapshot, id: ParamId) -> Option<String> {
+    let value = direct_param_raw_value(snapshot, id)?;
     Some(format_param_value(id, value))
 }
 
@@ -3301,6 +4816,9 @@ fn build_audio_runtime(
     patch_path: &Path,
     audio_selector: Option<&str>,
     alsa_tuning: AlsaPlaybackTuning,
+    gfm_layer_seed: Option<u64>,
+    bcs_layer_scenario: Option<BcsScenario>,
+    recording_metrics: Arc<RecordingMetrics>,
 ) -> Result<PreparedAudioRuntime> {
     let patch = load_patch_from_path(patch_path)?;
     validate_patch_v1(&patch).context("patch validation failed")?;
@@ -3315,7 +4833,7 @@ fn build_audio_runtime(
     transport_metrics.record_write_request(alsa_tuning.period_frames);
     let midi_input_queue = Arc::new(ArrayQueue::new(MIDI_INPUT_QUEUE_CAPACITY));
     let priority_actions = Arc::new(PriorityActions::default());
-    let engine = Engine::new(
+    let mut engine = Engine::new(
         EngineConfig {
             sample_rate_hz,
             max_block_frames: 2_048,
@@ -3323,6 +4841,8 @@ fn build_audio_runtime(
         },
         patch,
     )?;
+    engine.set_gfm_layer_mode(gfm_layer_mode_from_seed(gfm_layer_seed));
+    engine.set_bcs_layer_mode(bcs_layer_mode_from_scenario(bcs_layer_scenario));
     let (producer, consumer) = RingBuffer::<StereoFrame>::new(AUDIO_QUEUE_CAPACITY_FRAMES);
     let worker = EngineWorker::new(spawn_engine_thread(
         engine,
@@ -3331,6 +4851,7 @@ fn build_audio_runtime(
         Arc::clone(&midi_input_queue),
         Arc::clone(&priority_actions),
         Arc::clone(&transport_metrics),
+        recording_metrics,
     ));
     Ok(PreparedAudioRuntime {
         tx,
@@ -3410,6 +4931,11 @@ fn print_runtime_help() {
     println!("  macro <name> <0..1>      set one public macro");
     println!("  panic                    clear all notes and live controller state");
     println!("  reset-controllers        clear bend/aftertouch/mod/sustain and macros");
+    println!(
+        "  bcs <off|stable-anchor|edge-sweep|subharmonic-pressure|recovery-return> set BCS layer"
+    );
+    println!("  record <seconds> [path]  record final Mamut stereo output to f32 WAV");
+    println!("  record-stop              stop the active output recording");
     println!("  audio                    list ALSA hw playback outputs");
     println!(
         "  audio <index-or-hw:card,device> switch ALSA hw output (resets live performance state)"
@@ -3423,6 +4949,8 @@ fn print_runtime_help() {
     println!("  --midi-channel <1..16>   accept MIDI only from one channel at launch");
     println!("  --controller-profile <path> load TOML controller bindings");
     println!("  --trace-midi             log incoming MIDI messages to stderr");
+    println!("  --gfm-layer-seed <u64-or-0xHEX> enable the engine GFM layer at launch");
+    println!("  --bcs-layer-scenario <scenario> select the engine BCS scenario mode at launch");
     println!("  demo                     switch the session to the demo performer");
     println!("  quit                     stop playback and exit");
 }
@@ -3439,6 +4967,8 @@ fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
     let mut controller_profile_path = None;
     let mut trace_midi = false;
     let mut headless = false;
+    let mut gfm_layer_seed = None;
+    let mut bcs_layer_scenario = None;
 
     let mut index = 0;
     while index < args.len() {
@@ -3505,6 +5035,20 @@ fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
                 trace_midi = true;
                 index += 1;
             }
+            "--gfm-layer-seed" => {
+                let value = args
+                    .get(index + 1)
+                    .context("missing value after --gfm-layer-seed")?;
+                gfm_layer_seed = Some(parse_gfm_layer_seed(value)?);
+                index += 2;
+            }
+            "--bcs-layer-scenario" => {
+                let value = args
+                    .get(index + 1)
+                    .context("missing value after --bcs-layer-scenario")?;
+                bcs_layer_scenario = parse_optional_bcs_layer_scenario(value)?;
+                index += 2;
+            }
             option if option.starts_with("--") => {
                 return Err(anyhow!("unknown play option `{option}`"));
             }
@@ -3532,7 +5076,103 @@ fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
         controller_profile_path,
         trace_midi,
         headless,
+        gfm_layer_seed,
+        bcs_layer_scenario,
     })
+}
+
+fn parse_dry_run_options(args: &[String]) -> Result<DryRunOptions> {
+    let mut patch_arg: Option<String> = None;
+    let mut gfm_layer_seed = None;
+    let mut bcs_layer_scenario = None;
+
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--gfm-layer-seed" => {
+                let value = args
+                    .get(index + 1)
+                    .context("missing value after --gfm-layer-seed")?;
+                gfm_layer_seed = Some(parse_gfm_layer_seed(value)?);
+                index += 2;
+            }
+            "--bcs-layer-scenario" => {
+                let value = args
+                    .get(index + 1)
+                    .context("missing value after --bcs-layer-scenario")?;
+                bcs_layer_scenario = parse_optional_bcs_layer_scenario(value)?;
+                index += 2;
+            }
+            option if option.starts_with("--") => {
+                return Err(anyhow!("unknown dry-run option `{option}`"));
+            }
+            patch if patch_arg.is_none() => {
+                patch_arg = Some(patch.to_string());
+                index += 1;
+            }
+            extra => {
+                return Err(anyhow!(
+                    "unexpected extra argument `{extra}`; pass at most one patch name or path"
+                ));
+            }
+        }
+    }
+
+    Ok(DryRunOptions {
+        patch_path: resolve_patch_argument(patch_arg.as_deref())?,
+        gfm_layer_seed,
+        bcs_layer_scenario,
+    })
+}
+
+fn parse_gfm_layer_seed(value: &str) -> Result<u64> {
+    let normalized = value.replace('_', "");
+    if normalized.is_empty() {
+        return Err(anyhow!("invalid GFM layer seed `{value}`"));
+    }
+
+    if let Some(hex) = normalized
+        .strip_prefix("0x")
+        .or_else(|| normalized.strip_prefix("0X"))
+    {
+        if hex.is_empty() {
+            return Err(anyhow!("invalid GFM layer seed `{value}`"));
+        }
+        u64::from_str_radix(hex, 16).with_context(|| format!("invalid GFM layer seed `{value}`"))
+    } else {
+        normalized
+            .parse::<u64>()
+            .with_context(|| format!("invalid GFM layer seed `{value}`"))
+    }
+}
+
+fn parse_optional_bcs_layer_scenario(value: &str) -> Result<Option<BcsScenario>> {
+    let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
+    match normalized.as_str() {
+        "off" | "none" | "disabled" => Ok(None),
+        _ => parse_bcs_layer_scenario(&normalized).map(Some),
+    }
+}
+
+fn parse_bcs_layer_scenario(value: &str) -> Result<BcsScenario> {
+    match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+        "stable-anchor" | "stable" | "anchor" => Ok(BcsScenario::StableAnchor),
+        "edge-sweep" | "edge" => Ok(BcsScenario::EdgeSweep),
+        "subharmonic-pressure" | "subharmonic" | "pressure" => Ok(BcsScenario::SubharmonicPressure),
+        "recovery-return" | "recovery" | "return" => Ok(BcsScenario::RecoveryReturn),
+        _ => Err(anyhow!(
+            "invalid BCS layer scenario `{value}`; expected stable-anchor, edge-sweep, subharmonic-pressure, recovery-return, or off"
+        )),
+    }
+}
+
+fn format_bcs_scenario(scenario: BcsScenario) -> &'static str {
+    match scenario {
+        BcsScenario::StableAnchor => "stable-anchor",
+        BcsScenario::EdgeSweep => "edge-sweep",
+        BcsScenario::SubharmonicPressure => "subharmonic-pressure",
+        BcsScenario::RecoveryReturn => "recovery-return",
+    }
 }
 
 fn parse_frame_count(value: &str, flag: &str) -> Result<usize> {
@@ -3612,6 +5252,37 @@ fn parse_runtime_ui_command(input: &str) -> Result<RuntimeUiCommand> {
         }
         "panic" => Ok(RuntimeUiCommand::Panic),
         "reset-controllers" | "reset" => Ok(RuntimeUiCommand::ResetControllers),
+        "bcs" | "bcs-layer" => {
+            let value = parts.next().context(
+                "bcs command requires off, stable-anchor, edge-sweep, subharmonic-pressure, or recovery-return",
+            )?;
+            if parts.next().is_some() {
+                return Err(anyhow!("bcs command accepts exactly one argument"));
+            }
+            Ok(RuntimeUiCommand::BcsLayer(
+                parse_optional_bcs_layer_scenario(value)?,
+            ))
+        }
+        "record" | "rec" => {
+            let seconds = parts
+                .next()
+                .context("record command requires a duration in seconds")?;
+            let seconds = seconds
+                .parse::<u64>()
+                .with_context(|| format!("invalid record duration `{seconds}`"))?;
+            if seconds == 0 {
+                return Err(anyhow!("record duration must be greater than zero seconds"));
+            }
+            let path = parts.collect::<Vec<_>>().join(" ");
+            let path = (!path.trim().is_empty()).then(|| PathBuf::from(path));
+            Ok(RuntimeUiCommand::Record { seconds, path })
+        }
+        "record-stop" | "rec-stop" | "stop-recording" => {
+            if parts.next().is_some() {
+                return Err(anyhow!("record-stop command does not accept arguments"));
+            }
+            Ok(RuntimeUiCommand::RecordStop)
+        }
         "audio" => {
             let selector = parts.collect::<Vec<_>>().join(" ");
             if selector.trim().is_empty() {
@@ -3795,6 +5466,9 @@ fn controller_binding_action(binding: &ControllerBindingFile) -> Result<Controll
                 scale: binding.scale.unwrap_or_else(|| default_scale_for_param(id)),
             })
         }
+        ControllerBindingKind::GfmLayerAmount => Ok(ControllerBindingAction::GfmLayerAmount),
+        ControllerBindingKind::BcsLayerAmount => Ok(ControllerBindingAction::BcsLayerAmount),
+        ControllerBindingKind::BcsLayerEnabled => Ok(ControllerBindingAction::BcsLayerEnabled),
         ControllerBindingKind::RuntimeAction => {
             let action = binding
                 .action
@@ -4417,6 +6091,9 @@ fn describe_binding_action(action: ControllerBindingAction) -> String {
         ControllerBindingAction::DirectParam { id, .. } => {
             format!("direct param {}", param_spec(id).name)
         }
+        ControllerBindingAction::GfmLayerAmount => "gfm layer gate".to_string(),
+        ControllerBindingAction::BcsLayerAmount => "bcs layer amount".to_string(),
+        ControllerBindingAction::BcsLayerEnabled => "bcs layer enable".to_string(),
         ControllerBindingAction::Runtime(message) => describe_runtime_control_message(message),
         ControllerBindingAction::ToggleParam(id) => format!("toggle {}", param_spec(id).name),
         ControllerBindingAction::Reserved => "reserved".to_string(),
@@ -4460,6 +6137,15 @@ fn describe_parsed_midi_message(parsed: ParsedMidiMessage) -> String {
             id,
             value,
         })) => format!("macro {} value={value:.3}", macro_display_name(id)),
+        ParsedMidiMessage::Realtime(RealtimeMidiMessage::Controller(
+            ControllerEvent::GfmLayerAmount { amount },
+        )) => format!("gfm layer gate={amount:.3}"),
+        ParsedMidiMessage::Realtime(RealtimeMidiMessage::Controller(
+            ControllerEvent::BcsLayerAmount { amount },
+        )) => format!("bcs layer amount={amount:.3}"),
+        ParsedMidiMessage::Realtime(RealtimeMidiMessage::Controller(
+            ControllerEvent::BcsLayerEnabled { enabled },
+        )) => format!("bcs layer enable={enabled}"),
         ParsedMidiMessage::Realtime(RealtimeMidiMessage::Controller(
             ControllerEvent::DirectParam { id, value },
         )) => format!("direct param {} value={value:.3}", param_spec(id).name),
@@ -4558,6 +6244,149 @@ fn workspace_root() -> PathBuf {
 
 fn default_patch_path() -> PathBuf {
     workspace_root().join("patches/factory/molten-horizon.toml")
+}
+
+fn default_output_capture_path() -> Result<PathBuf> {
+    let dir = default_output_capture_dir();
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create capture directory {}", dir.display()))?;
+    Ok(dir.join(generated_output_capture_filename()))
+}
+
+fn tagged_output_capture_path(patch_path: &Path, tag: &str, seconds: u64) -> Result<PathBuf> {
+    let dir = default_output_capture_dir();
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create capture directory {}", dir.display()))?;
+    Ok(dir.join(generated_tagged_output_capture_filename(
+        patch_path, tag, seconds,
+    )))
+}
+
+fn tagged_output_capture_preview(patch_path: &Path, tag: &str, seconds: u64) -> PathBuf {
+    default_output_capture_dir().join(format!(
+        "{}-{}-{}s-<timestamp>.wav",
+        patch_capture_stem(patch_path),
+        sanitize_capture_component(tag, DEFAULT_LIVE_TAKE_TAG),
+        seconds
+    ))
+}
+
+fn default_output_capture_dir() -> PathBuf {
+    if let Some(value) = env::var_os(CAPTURE_DIR_ENV) {
+        if !value.as_os_str().is_empty() {
+            return PathBuf::from(value);
+        }
+    }
+
+    let repo_root = workspace_root();
+    if let Some(lab_root) = lab_root_from_repo_root(&repo_root) {
+        return lab_root.join("audio-captures");
+    }
+    repo_root.join("audio-captures")
+}
+
+fn lab_root_from_repo_root(repo_root: &Path) -> Option<PathBuf> {
+    let systems_dir = repo_root.parent()?;
+    if systems_dir.file_name()? != "systems" {
+        return None;
+    }
+    let workspace_dir = systems_dir.parent()?;
+    if workspace_dir.file_name()? != "workspace" {
+        return None;
+    }
+    workspace_dir.parent().map(|path| path.to_path_buf())
+}
+
+fn generated_output_capture_filename() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let (year, month, day, hour, minute, second) = unix_seconds_to_utc_parts(seconds);
+    format!("mamut-output-{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}.wav")
+}
+
+fn generated_tagged_output_capture_filename(patch_path: &Path, tag: &str, seconds: u64) -> String {
+    let unix_seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let (year, month, day, hour, minute, second) = unix_seconds_to_utc_parts(unix_seconds);
+    format!(
+        "{}-{}-{}s-{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}.wav",
+        patch_capture_stem(patch_path),
+        sanitize_capture_component(tag, DEFAULT_LIVE_TAKE_TAG),
+        seconds
+    )
+}
+
+fn patch_capture_stem(patch_path: &Path) -> String {
+    patch_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(|stem| sanitize_capture_component(stem, "patch"))
+        .unwrap_or_else(|| "patch".to_string())
+}
+
+fn sanitize_capture_component(value: &str, fallback: &str) -> String {
+    let mut output = String::new();
+    let mut previous_dash = false;
+    for character in value.chars().flat_map(char::to_lowercase) {
+        let mapped = if character.is_ascii_alphanumeric() {
+            Some(character)
+        } else if character == '-' || character == '_' || character.is_whitespace() {
+            Some('-')
+        } else {
+            None
+        };
+        let Some(mapped) = mapped else {
+            continue;
+        };
+        if mapped == '-' {
+            if previous_dash || output.is_empty() {
+                continue;
+            }
+            previous_dash = true;
+        } else {
+            previous_dash = false;
+        }
+        output.push(mapped);
+    }
+    while output.ends_with('-') {
+        output.pop();
+    }
+    if output.is_empty() {
+        sanitize_capture_component(fallback, "take")
+    } else {
+        output
+    }
+}
+
+fn unix_seconds_to_utc_parts(seconds: u64) -> (i32, u32, u32, u32, u32, u32) {
+    let days = (seconds / 86_400) as i64;
+    let seconds_of_day = seconds % 86_400;
+    let (year, month, day) = civil_from_days(days);
+    let hour = (seconds_of_day / 3_600) as u32;
+    let minute = ((seconds_of_day % 3_600) / 60) as u32;
+    let second = (seconds_of_day % 60) as u32;
+    (year, month, day, hour, minute, second)
+}
+
+fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
+    let z = days_since_unix_epoch + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_phase = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_phase + 2) / 5 + 1;
+    let month = month_phase + if month_phase < 10 { 3 } else { -9 };
+    if month <= 2 {
+        year += 1;
+    }
+    (year as i32, month as u32, day as u32)
 }
 
 fn round_up_to_render_block(frames: usize) -> usize {
@@ -4776,11 +6605,14 @@ struct EngineThreadState {
     midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
     priority_actions: Arc<PriorityActions>,
     transport_metrics: Arc<TransportMetrics>,
+    recording_metrics: Arc<RecordingMetrics>,
     left: Vec<f32>,
     right: Vec<f32>,
     note_events: Vec<Scheduled<NoteEvent>>,
     controller_events: Vec<Scheduled<ControllerEvent>>,
     snapshot_requests: Vec<mpsc::Sender<EngineSnapshot>>,
+    output_recorder: Option<OutputRecorder>,
+    recording_workers: Vec<OutputRecordingWorker>,
 }
 
 impl EngineThreadState {
@@ -4791,6 +6623,7 @@ impl EngineThreadState {
         midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
         priority_actions: Arc<PriorityActions>,
         transport_metrics: Arc<TransportMetrics>,
+        recording_metrics: Arc<RecordingMetrics>,
     ) -> Self {
         Self {
             engine,
@@ -4799,11 +6632,14 @@ impl EngineThreadState {
             midi_input_queue,
             priority_actions,
             transport_metrics,
+            recording_metrics,
             left: vec![0.0; ENGINE_RENDER_BLOCK_FRAMES],
             right: vec![0.0; ENGINE_RENDER_BLOCK_FRAMES],
             note_events: Vec::with_capacity(32),
             controller_events: Vec::with_capacity(64),
             snapshot_requests: Vec::with_capacity(4),
+            output_recorder: None,
+            recording_workers: Vec::new(),
         }
     }
 
@@ -4818,6 +6654,7 @@ impl EngineThreadState {
             }
 
             self.flush_snapshot_requests();
+            self.reap_recording_workers();
 
             if self.queue_needs_audio() {
                 self.render_audio_block();
@@ -4834,6 +6671,8 @@ impl EngineThreadState {
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
+
+        self.shutdown_recorders();
     }
 
     fn drain_commands_nonblocking(&mut self) -> bool {
@@ -4876,6 +6715,18 @@ impl EngineThreadState {
                 event,
             }),
             EngineCommand::RequestSnapshot(reply) => self.snapshot_requests.push(reply),
+            EngineCommand::SetGfmLayerMode(mode, reply) => {
+                let _ = reply.send(Ok(self.engine.set_gfm_layer_mode(mode)));
+            }
+            EngineCommand::SetBcsLayerMode(mode, reply) => {
+                let _ = reply.send(Ok(self.engine.set_bcs_layer_mode(mode)));
+            }
+            EngineCommand::StartOutputRecording(request, reply) => {
+                let _ = reply.send(self.start_output_recording(request));
+            }
+            EngineCommand::StopOutputRecording(reply) => {
+                let _ = reply.send(self.stop_output_recording());
+            }
             EngineCommand::Shutdown => return false,
         }
         true
@@ -4894,6 +6745,18 @@ impl EngineThreadState {
             match self.rx.try_recv() {
                 Ok(EngineCommand::Note(_)) | Ok(EngineCommand::Controller(_)) => {}
                 Ok(EngineCommand::RequestSnapshot(reply)) => self.snapshot_requests.push(reply),
+                Ok(EngineCommand::SetGfmLayerMode(mode, reply)) => {
+                    let _ = reply.send(Ok(self.engine.set_gfm_layer_mode(mode)));
+                }
+                Ok(EngineCommand::SetBcsLayerMode(mode, reply)) => {
+                    let _ = reply.send(Ok(self.engine.set_bcs_layer_mode(mode)));
+                }
+                Ok(EngineCommand::StartOutputRecording(request, reply)) => {
+                    let _ = reply.send(self.start_output_recording(request));
+                }
+                Ok(EngineCommand::StopOutputRecording(reply)) => {
+                    let _ = reply.send(self.stop_output_recording());
+                }
                 Ok(EngineCommand::Shutdown) => return false,
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return false,
@@ -4944,6 +6807,74 @@ impl EngineThreadState {
             &self.left,
             &self.right,
         );
+        self.record_output_block();
+    }
+
+    fn start_output_recording(
+        &mut self,
+        request: OutputRecordingRequest,
+    ) -> std::result::Result<PathBuf, String> {
+        self.reap_recording_workers();
+        if self.output_recorder.is_some() {
+            return Err("output recording is already active".to_string());
+        }
+        if !self.recording_workers.is_empty() {
+            return Err("previous output recording is still finalizing".to_string());
+        }
+        let recorder = OutputRecorder::start(request, Arc::clone(&self.recording_metrics))?;
+        let path = recorder.path.clone();
+        self.output_recorder = Some(recorder);
+        Ok(path)
+    }
+
+    fn stop_output_recording(&mut self) -> std::result::Result<Option<PathBuf>, String> {
+        let Some(recorder) = self.output_recorder.take() else {
+            return Ok(None);
+        };
+        let path = recorder.path.clone();
+        self.recording_workers.push(recorder.stop_async());
+        Ok(Some(path))
+    }
+
+    fn record_output_block(&mut self) {
+        let finished = match self.output_recorder.as_mut() {
+            Some(recorder) => recorder.record_block(&self.left, &self.right),
+            None => false,
+        };
+        if finished {
+            let _ = self.stop_output_recording();
+        }
+    }
+
+    fn reap_recording_workers(&mut self) {
+        let active_worker_finished = self
+            .output_recorder
+            .as_ref()
+            .is_some_and(|recorder| recorder.worker.is_finished());
+        if active_worker_finished {
+            if let Some(recorder) = self.output_recorder.take() {
+                self.recording_workers.push(recorder.stop_async());
+            }
+        }
+
+        let mut index = 0;
+        while index < self.recording_workers.len() {
+            if self.recording_workers[index].is_finished() {
+                let worker = self.recording_workers.swap_remove(index);
+                worker.join();
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    fn shutdown_recorders(&mut self) {
+        if let Some(recorder) = self.output_recorder.take() {
+            self.recording_workers.push(recorder.stop_async());
+        }
+        for worker in self.recording_workers.drain(..) {
+            worker.join();
+        }
     }
 }
 
@@ -4954,6 +6885,7 @@ fn spawn_engine_thread(
     midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
     priority_actions: Arc<PriorityActions>,
     transport_metrics: Arc<TransportMetrics>,
+    recording_metrics: Arc<RecordingMetrics>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         EngineThreadState::new(
@@ -4963,9 +6895,90 @@ fn spawn_engine_thread(
             midi_input_queue,
             priority_actions,
             transport_metrics,
+            recording_metrics,
         )
         .run()
     })
+}
+
+fn run_output_recording_writer(
+    mut writer: FloatStereoWavWriter,
+    mut consumer: Consumer<StereoFrame>,
+    metrics: Arc<RecordingMetrics>,
+    stop: Arc<AtomicBool>,
+) {
+    loop {
+        let available_frames = consumer.slots();
+        if available_frames == 0 {
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(2));
+            continue;
+        }
+
+        let chunk = match consumer.read_chunk(available_frames) {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                metrics.record_error(format!("recording queue read failed: {error:?}"));
+                return;
+            }
+        };
+        let (first, second) = chunk.as_slices();
+        let mut write_error = None;
+        for frame in first.iter().chain(second.iter()) {
+            if let Err(error) = writer.write_frame(*frame) {
+                write_error = Some(error);
+                break;
+            }
+        }
+        chunk.commit_all();
+        metrics.set_frames_written(writer.frames_written());
+        if let Some(error) = write_error {
+            metrics.record_error(format!("recording write failed: {error}"));
+            return;
+        }
+    }
+
+    match writer.finalize() {
+        Ok(frames_written) => {
+            metrics.set_frames_written(frames_written);
+            metrics.finish_if_active();
+        }
+        Err(error) => metrics.record_error(format!("recording finalize failed: {error}")),
+    }
+}
+
+fn write_float_stereo_wav_header<W: Write>(writer: &mut W, data_bytes: u32) -> io::Result<()> {
+    writer.write_all(b"RIFF")?;
+    write_u32_le(writer, 36 + data_bytes)?;
+    writer.write_all(b"WAVE")?;
+    writer.write_all(b"fmt ")?;
+    write_u32_le(writer, 16)?;
+    write_u16_le(writer, 3)?;
+    write_u16_le(writer, ALSA_PLAYBACK_CHANNELS as u16)?;
+    write_u32_le(writer, ALSA_PLAYBACK_SAMPLE_RATE_HZ)?;
+    write_u32_le(
+        writer,
+        ALSA_PLAYBACK_SAMPLE_RATE_HZ
+            * ALSA_PLAYBACK_CHANNELS as u32
+            * std::mem::size_of::<f32>() as u32,
+    )?;
+    write_u16_le(
+        writer,
+        (ALSA_PLAYBACK_CHANNELS * std::mem::size_of::<f32>()) as u16,
+    )?;
+    write_u16_le(writer, 32)?;
+    writer.write_all(b"data")?;
+    write_u32_le(writer, data_bytes)
+}
+
+fn write_u16_le<W: Write>(writer: &mut W, value: u16) -> io::Result<()> {
+    writer.write_all(&value.to_le_bytes())
+}
+
+fn write_u32_le<W: Write>(writer: &mut W, value: u32) -> io::Result<()> {
+    writer.write_all(&value.to_le_bytes())
 }
 
 fn drain_queue_into_output(
@@ -5067,6 +7080,33 @@ fn push_rendered_channels_into_queue(
     transport_metrics.record_overflow(frame_count.saturating_sub(frame_offset));
 }
 
+fn push_recording_channels_into_queue(
+    producer: &mut Producer<StereoFrame>,
+    left: &[f32],
+    right: &[f32],
+    requested_frames: usize,
+) -> usize {
+    let frame_count = requested_frames.min(left.len()).min(right.len());
+    let writable_frames = frame_count.min(producer.slots());
+    if writable_frames == 0 {
+        return 0;
+    }
+
+    let mut chunk = match producer.write_chunk(writable_frames) {
+        Ok(chunk) => chunk,
+        Err(_) => return 0,
+    };
+    let (first, second) = chunk.as_mut_slices();
+
+    let mut frame_offset = 0_usize;
+    frame_offset +=
+        write_channels_into_stereo_frames(first, &left[frame_offset..], &right[frame_offset..]);
+    frame_offset +=
+        write_channels_into_stereo_frames(second, &left[frame_offset..], &right[frame_offset..]);
+    chunk.commit_all();
+    frame_offset
+}
+
 fn write_channels_into_stereo_frames(
     output: &mut [StereoFrame],
     left: &[f32],
@@ -5127,6 +7167,157 @@ fn zero_fill_partial_output_tail(output: &mut [f32], channel_count: usize) {
 struct OpenedMidiConnection {
     port_name: String,
     _connection: MidiInputConnection<()>,
+}
+
+struct FloatStereoWavWriter {
+    writer: BufWriter<File>,
+    frames_written: u64,
+}
+
+impl FloatStereoWavWriter {
+    fn create(path: &Path) -> io::Result<Self> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+        write_float_stereo_wav_header(&mut writer, 0)?;
+        Ok(Self {
+            writer,
+            frames_written: 0,
+        })
+    }
+
+    fn write_frame(&mut self, frame: StereoFrame) -> io::Result<()> {
+        self.writer.write_all(&frame[0].to_le_bytes())?;
+        self.writer.write_all(&frame[1].to_le_bytes())?;
+        self.frames_written += 1;
+        Ok(())
+    }
+
+    fn frames_written(&self) -> u64 {
+        self.frames_written
+    }
+
+    fn finalize(mut self) -> io::Result<u64> {
+        let frames_written = self.frames_written;
+        let data_bytes = frames_written
+            .checked_mul(ALSA_PLAYBACK_CHANNELS as u64)
+            .and_then(|samples| samples.checked_mul(std::mem::size_of::<f32>() as u64))
+            .ok_or_else(|| io::Error::other("recording is too large for WAV"))?;
+        if data_bytes > u32::MAX as u64 - 36 {
+            return Err(io::Error::other("recording exceeds 32-bit WAV size"));
+        }
+        self.writer.seek(SeekFrom::Start(4))?;
+        write_u32_le(&mut self.writer, 36 + data_bytes as u32)?;
+        self.writer.seek(SeekFrom::Start(40))?;
+        write_u32_le(&mut self.writer, data_bytes as u32)?;
+        self.writer.flush()?;
+        Ok(frames_written)
+    }
+}
+
+struct OutputRecordingWorker {
+    stop: Arc<AtomicBool>,
+    join_handle: Option<JoinHandle<()>>,
+}
+
+impl OutputRecordingWorker {
+    fn spawn(
+        writer: FloatStereoWavWriter,
+        consumer: Consumer<StereoFrame>,
+        metrics: Arc<RecordingMetrics>,
+    ) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop);
+        let join_handle = thread::spawn(move || {
+            run_output_recording_writer(writer, consumer, metrics, thread_stop)
+        });
+        Self {
+            stop,
+            join_handle: Some(join_handle),
+        }
+    }
+
+    fn request_stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
+    fn is_finished(&self) -> bool {
+        match &self.join_handle {
+            Some(join_handle) => join_handle.is_finished(),
+            None => true,
+        }
+    }
+
+    fn join(mut self) {
+        self.request_stop();
+        if let Some(join_handle) = self.join_handle.take() {
+            let _ = join_handle.join();
+        }
+    }
+}
+
+struct OutputRecorder {
+    path: PathBuf,
+    producer: Producer<StereoFrame>,
+    worker: OutputRecordingWorker,
+    target_frames: Option<usize>,
+    submitted_frames: usize,
+    metrics: Arc<RecordingMetrics>,
+}
+
+impl OutputRecorder {
+    fn start(
+        request: OutputRecordingRequest,
+        metrics: Arc<RecordingMetrics>,
+    ) -> std::result::Result<Self, String> {
+        let writer = FloatStereoWavWriter::create(&request.path).map_err(|error| {
+            format!(
+                "failed to create output recording {}: {error}",
+                request.path.display()
+            )
+        })?;
+        let (producer, consumer) = RingBuffer::<StereoFrame>::new(RECORDING_QUEUE_CAPACITY_FRAMES);
+        metrics.start(request.path.clone(), request.max_frames);
+        let worker = OutputRecordingWorker::spawn(writer, consumer, Arc::clone(&metrics));
+        Ok(Self {
+            path: request.path,
+            producer,
+            worker,
+            target_frames: request.max_frames,
+            submitted_frames: 0,
+            metrics,
+        })
+    }
+
+    fn record_block(&mut self, left: &[f32], right: &[f32]) -> bool {
+        let frame_count = left.len().min(right.len());
+        let wanted_frames = match self.target_frames {
+            Some(target_frames) => {
+                frame_count.min(target_frames.saturating_sub(self.submitted_frames))
+            }
+            None => frame_count,
+        };
+        if wanted_frames == 0 {
+            return true;
+        }
+
+        let written_frames =
+            push_recording_channels_into_queue(&mut self.producer, left, right, wanted_frames);
+        self.metrics
+            .record_dropped(wanted_frames.saturating_sub(written_frames));
+        self.submitted_frames += wanted_frames;
+        self.target_frames
+            .is_some_and(|target_frames| self.submitted_frames >= target_frames)
+    }
+
+    fn stop_async(self) -> OutputRecordingWorker {
+        self.worker.request_stop();
+        self.worker
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -5232,6 +7423,17 @@ fn parse_profile_cc_binding(binding: &ControllerBinding, value: f32) -> Option<P
             RealtimeMidiMessage::Controller(ControllerEvent::DirectParam {
                 id,
                 value: scale_controller_value(id, value, scale),
+            }),
+        )),
+        ControllerBindingAction::GfmLayerAmount => Some(ParsedMidiMessage::Realtime(
+            RealtimeMidiMessage::Controller(ControllerEvent::GfmLayerAmount { amount: value }),
+        )),
+        ControllerBindingAction::BcsLayerAmount => Some(ParsedMidiMessage::Realtime(
+            RealtimeMidiMessage::Controller(ControllerEvent::BcsLayerAmount { amount: value }),
+        )),
+        ControllerBindingAction::BcsLayerEnabled => Some(ParsedMidiMessage::Realtime(
+            RealtimeMidiMessage::Controller(ControllerEvent::BcsLayerEnabled {
+                enabled: value >= 0.5,
             }),
         )),
         ControllerBindingAction::Runtime(message) => {
@@ -5343,8 +7545,8 @@ mod tests {
         .expect("pc4-full profile parses")
     }
 
-    fn test_engine_thread_state() -> EngineThreadState {
-        let patch = load_patch_from_path(&default_patch_path()).expect("default patch loads");
+    fn test_engine_thread_state_with_patch_path(path: &Path) -> EngineThreadState {
+        let patch = load_patch_from_path(path).expect("patch loads");
         let engine = Engine::new(
             EngineConfig {
                 sample_rate_hz: ALSA_PLAYBACK_SAMPLE_RATE_HZ as f32,
@@ -5363,7 +7565,17 @@ mod tests {
             Arc::new(ArrayQueue::new(MIDI_INPUT_QUEUE_CAPACITY)),
             Arc::new(PriorityActions::default()),
             Arc::new(TransportMetrics::default()),
+            Arc::new(RecordingMetrics::default()),
         )
+    }
+
+    fn test_engine_thread_state() -> EngineThreadState {
+        test_engine_thread_state_with_patch_path(&default_patch_path())
+    }
+
+    fn test_engine_thread_state_for_patch(stem: &str) -> EngineThreadState {
+        let path = resolve_patch_argument(Some(stem)).expect("factory patch resolves");
+        test_engine_thread_state_with_patch_path(&path)
     }
 
     fn test_snapshot() -> EngineSnapshot {
@@ -5412,6 +7624,10 @@ mod tests {
             "--controller-profile".to_string(),
             "profiles/pc4-full.toml".to_string(),
             "--trace-midi".to_string(),
+            "--gfm-layer-seed".to_string(),
+            "0x6A464D40".to_string(),
+            "--bcs-layer-scenario".to_string(),
+            "subharmonic-pressure".to_string(),
             "razor-thaw".to_string(),
         ];
 
@@ -5425,6 +7641,11 @@ mod tests {
         assert_eq!(options.alsa_start_threshold_frames, Some(1024));
         assert_eq!(options.midi_selector.as_deref(), Some("Launchkey"));
         assert_eq!(options.midi_channel, Some(3));
+        assert_eq!(options.gfm_layer_seed, Some(0x6A46_4D40));
+        assert_eq!(
+            options.bcs_layer_scenario,
+            Some(BcsScenario::SubharmonicPressure)
+        );
         assert!(
             options
                 .controller_profile_path
@@ -5437,6 +7658,277 @@ mod tests {
                 .patch_path
                 .ends_with("patches/factory/razor-thaw.toml")
         );
+    }
+
+    #[test]
+    fn parse_play_options_defaults_gfm_layer_disabled() {
+        let args = vec!["razor-thaw".to_string()];
+        let options = parse_play_options(&args).expect("play options parse");
+
+        assert_eq!(options.gfm_layer_seed, None);
+        assert_eq!(options.bcs_layer_scenario, None);
+    }
+
+    #[test]
+    fn parse_dry_run_options_supports_gfm_layer_seed() {
+        let args = vec![
+            "--gfm-layer-seed".to_string(),
+            "1782992192".to_string(),
+            "--bcs-layer-scenario".to_string(),
+            "recovery_return".to_string(),
+            "cathedral-bloom".to_string(),
+        ];
+        let options = parse_dry_run_options(&args).expect("dry-run options parse");
+
+        assert_eq!(options.gfm_layer_seed, Some(0x6A46_4D40));
+        assert_eq!(
+            options.bcs_layer_scenario,
+            Some(BcsScenario::RecoveryReturn)
+        );
+        assert!(
+            options
+                .patch_path
+                .ends_with("patches/factory/cathedral-bloom.toml")
+        );
+    }
+
+    #[test]
+    fn parse_gfm_layer_seed_accepts_decimal_and_hex() {
+        assert_eq!(
+            parse_gfm_layer_seed("1782992192").expect("decimal seed parses"),
+            0x6A46_4D40
+        );
+        assert_eq!(
+            parse_gfm_layer_seed("0x6A464D40").expect("hex seed parses"),
+            0x6A46_4D40
+        );
+        assert_eq!(
+            parse_gfm_layer_seed("0x6A46_4D40").expect("underscored hex seed parses"),
+            0x6A46_4D40
+        );
+    }
+
+    #[test]
+    fn parse_gfm_layer_seed_rejects_invalid_values() {
+        assert!(parse_gfm_layer_seed("not-a-seed").is_err());
+        assert!(parse_gfm_layer_seed("0x").is_err());
+        assert!(parse_play_options(&["--gfm-layer-seed".to_string()]).is_err());
+    }
+
+    #[test]
+    fn parse_bcs_layer_scenario_accepts_aliases_and_off() {
+        assert_eq!(
+            parse_optional_bcs_layer_scenario("stable-anchor").expect("stable parses"),
+            Some(BcsScenario::StableAnchor)
+        );
+        assert_eq!(
+            parse_optional_bcs_layer_scenario("edge_sweep").expect("edge parses"),
+            Some(BcsScenario::EdgeSweep)
+        );
+        assert_eq!(
+            parse_optional_bcs_layer_scenario("subharmonic").expect("subharmonic parses"),
+            Some(BcsScenario::SubharmonicPressure)
+        );
+        assert_eq!(
+            parse_optional_bcs_layer_scenario("off").expect("off parses"),
+            None
+        );
+        assert!(parse_optional_bcs_layer_scenario("not-a-scenario").is_err());
+        assert!(parse_play_options(&["--bcs-layer-scenario".to_string()]).is_err());
+    }
+
+    #[test]
+    fn gfm_layer_seed_from_ui_text_maps_enabled_disabled_and_invalid() {
+        assert_eq!(
+            gfm_layer_seed_from_ui_text(false, "not-a-seed").expect("disabled ignores text"),
+            None
+        );
+        assert_eq!(
+            gfm_layer_seed_from_ui_text(true, "0x6A46_4D40").expect("enabled seed parses"),
+            Some(0x6A46_4D40)
+        );
+        assert!(gfm_layer_seed_from_ui_text(true, "not-a-seed").is_err());
+    }
+
+    #[test]
+    fn gfm_layer_status_line_reports_disabled_and_enabled_modes() {
+        let disabled = gfm_layer_status_line(&test_snapshot());
+        assert_eq!(disabled, "gfm: mode=disabled");
+
+        let path = resolve_patch_argument(Some("ember-vault")).expect("factory patch resolves");
+        let patch = load_patch_from_path(&path).expect("patch loads");
+        let mut engine = Engine::new(EngineConfig::default(), patch).expect("engine builds");
+        engine.set_gfm_layer_mode(GfmLayerMode::Enabled { seed: 0x6A46_4D40 });
+        let enabled = gfm_layer_status_line(&engine.snapshot());
+
+        assert!(enabled.contains("mode=enabled"));
+        assert!(enabled.contains("seed=0x6A464D40"));
+        assert!(enabled.contains("selected=PecPerformance"));
+        assert!(enabled.contains("active=PecPerformance"));
+    }
+
+    #[test]
+    fn bcs_layer_status_line_reports_disabled_and_enabled_modes() {
+        let disabled = bcs_layer_status_line(&test_snapshot());
+        assert_eq!(
+            disabled,
+            "bcs: mode=disabled playable=off amount=0.000 effective=0.000"
+        );
+
+        let path = resolve_patch_argument(Some("ember-vault")).expect("factory patch resolves");
+        let patch = load_patch_from_path(&path).expect("patch loads");
+        let mut engine = Engine::new(EngineConfig::default(), patch).expect("engine builds");
+        engine.set_bcs_layer_mode(BcsLayerMode::Enabled {
+            scenario: BcsScenario::SubharmonicPressure,
+        });
+        let enabled = bcs_layer_status_line(&engine.snapshot());
+
+        assert!(enabled.contains("mode=enabled"));
+        assert!(enabled.contains("scenario=subharmonic-pressure"));
+        assert!(enabled.contains("active=subharmonic-pressure"));
+        assert!(enabled.contains("playable=off"));
+        assert!(enabled.contains("amount=0.000"));
+        assert!(enabled.contains("effective=0.000"));
+        assert!(enabled.contains("unsafe_events=0"));
+    }
+
+    #[test]
+    fn engine_command_sets_gfm_layer_mode_enabled_and_disabled() {
+        let mut state = test_engine_thread_state_for_patch("ember-vault");
+
+        let (reply_tx, reply_rx) = mpsc::channel();
+        assert!(state.handle_command(EngineCommand::SetGfmLayerMode(
+            GfmLayerMode::Enabled { seed: 0x6A46_4D40 },
+            reply_tx,
+        )));
+        let selection = reply_rx
+            .recv_timeout(Duration::from_millis(50))
+            .expect("enabled reply arrives")
+            .expect("enabled command succeeds");
+        assert_eq!(
+            format_optional_program_id(selection.program_id),
+            "PecPerformance"
+        );
+
+        let snapshot = state.engine.snapshot();
+        assert_eq!(
+            snapshot.gfm_layer.mode,
+            GfmLayerMode::Enabled { seed: 0x6A46_4D40 }
+        );
+        assert_eq!(
+            format_optional_program_id(snapshot.gfm_layer.active_program_id),
+            "PecPerformance"
+        );
+        assert!(snapshot.gfm_layer.diagnostics.is_some());
+
+        let (reply_tx, reply_rx) = mpsc::channel();
+        assert!(state.handle_command(EngineCommand::SetGfmLayerMode(
+            GfmLayerMode::Disabled,
+            reply_tx,
+        )));
+        let selection = reply_rx
+            .recv_timeout(Duration::from_millis(50))
+            .expect("disabled reply arrives")
+            .expect("disabled command succeeds");
+        assert_eq!(format_optional_program_id(selection.program_id), "none");
+
+        let snapshot = state.engine.snapshot();
+        assert_eq!(snapshot.gfm_layer.mode, GfmLayerMode::Disabled);
+        assert_eq!(
+            format_optional_program_id(snapshot.gfm_layer.active_program_id),
+            "none"
+        );
+        assert!(snapshot.gfm_layer.diagnostics.is_none());
+    }
+
+    #[test]
+    fn engine_command_sets_bcs_layer_mode_enabled_and_disabled() {
+        let mut state = test_engine_thread_state_for_patch("ember-vault");
+
+        let (reply_tx, reply_rx) = mpsc::channel();
+        assert!(state.handle_command(EngineCommand::SetBcsLayerMode(
+            BcsLayerMode::Enabled {
+                scenario: BcsScenario::RecoveryReturn
+            },
+            reply_tx,
+        )));
+        let layer = reply_rx
+            .recv_timeout(Duration::from_millis(50))
+            .expect("enabled reply arrives")
+            .expect("enabled command succeeds");
+        assert_eq!(layer.active_scenario, Some(BcsScenario::RecoveryReturn));
+        assert_eq!(layer.sample_rate_hz, Some(ALSA_PLAYBACK_SAMPLE_RATE_HZ));
+
+        let snapshot = state.engine.snapshot();
+        assert_eq!(
+            snapshot.bcs_layer.mode,
+            BcsLayerMode::Enabled {
+                scenario: BcsScenario::RecoveryReturn
+            }
+        );
+        assert_eq!(
+            snapshot.bcs_layer.active_scenario,
+            Some(BcsScenario::RecoveryReturn)
+        );
+
+        let (reply_tx, reply_rx) = mpsc::channel();
+        assert!(state.handle_command(EngineCommand::SetBcsLayerMode(
+            BcsLayerMode::Disabled,
+            reply_tx,
+        )));
+        let layer = reply_rx
+            .recv_timeout(Duration::from_millis(50))
+            .expect("disabled reply arrives")
+            .expect("disabled command succeeds");
+        assert_eq!(layer, BcsLayerSnapshot::default());
+        assert_eq!(
+            state.engine.snapshot().bcs_layer,
+            BcsLayerSnapshot::default()
+        );
+    }
+
+    #[test]
+    fn tagged_capture_preview_uses_audio_capture_name_contract() {
+        let preview = tagged_output_capture_preview(
+            Path::new("patches/factory/Cathedral Bloom.toml"),
+            "Gravitacija Take!",
+            30,
+        );
+
+        assert_eq!(
+            preview.file_name().and_then(|name| name.to_str()),
+            Some("cathedral-bloom-gravitacija-take-30s-<timestamp>.wav")
+        );
+    }
+
+    #[test]
+    fn pc4_control_display_exposes_passive_visual_meter_values() {
+        let profile = pc4_full_profile();
+        let snapshot = test_snapshot();
+        let s1 = profile.binding_for_cc(12).expect("s1 binding");
+        let k3 = profile.binding_for_cc(72).expect("k3 binding");
+        let sw5 = profile.binding_for_cc(85).expect("sw5 binding");
+
+        let s1_display = pc4_control_display(&snapshot, s1);
+        assert!((0.0..=1.0).contains(&s1_display.normalized));
+        assert!(s1_display.short_action.contains("Osc1 Saw"));
+
+        let k3_display = pc4_control_display(&snapshot, k3);
+        assert!((0.0..=1.0).contains(&k3_display.normalized));
+        assert!(k3_display.value.contains("ms"));
+
+        let sw5_display = pc4_control_display(&snapshot, sw5);
+        assert!((0.0..=1.0).contains(&sw5_display.normalized));
+        assert!(matches!(sw5_display.value.as_str(), "on" | "off"));
+    }
+
+    #[test]
+    fn pc4_knob_angle_uses_seven_to_five_clock_sweep() {
+        let epsilon = 0.0001;
+
+        assert!((pc4_knob_angle(0.0) - (2.0 * std::f32::consts::PI / 3.0)).abs() < epsilon);
+        assert!((pc4_knob_angle(0.5) - (3.0 * std::f32::consts::PI / 2.0)).abs() < epsilon);
+        assert!((pc4_knob_angle(1.0) - (7.0 * std::f32::consts::PI / 3.0)).abs() < epsilon);
     }
 
     #[test]
@@ -5510,6 +8002,14 @@ mod tests {
             RuntimeUiCommand::Panic
         );
         assert_eq!(
+            parse_runtime_ui_command("bcs edge-sweep").expect("bcs parses"),
+            RuntimeUiCommand::BcsLayer(Some(BcsScenario::EdgeSweep))
+        );
+        assert_eq!(
+            parse_runtime_ui_command("bcs off").expect("bcs off parses"),
+            RuntimeUiCommand::BcsLayer(None)
+        );
+        assert_eq!(
             parse_runtime_ui_command("audio Scarlett").expect("audio command parses"),
             RuntimeUiCommand::AudioSelect("Scarlett".to_string())
         );
@@ -5525,6 +8025,60 @@ mod tests {
             parse_runtime_ui_command("demo-patch").expect("demo patch parses"),
             RuntimeUiCommand::DemoPatch
         );
+        assert_eq!(
+            parse_runtime_ui_command("record 10").expect("record command parses"),
+            RuntimeUiCommand::Record {
+                seconds: 10,
+                path: None,
+            }
+        );
+        assert_eq!(
+            parse_runtime_ui_command("record 70 /tmp/mamut-take.wav")
+                .expect("record command with path parses"),
+            RuntimeUiCommand::Record {
+                seconds: 70,
+                path: Some(PathBuf::from("/tmp/mamut-take.wav")),
+            }
+        );
+        assert_eq!(
+            parse_runtime_ui_command("record-stop").expect("record stop parses"),
+            RuntimeUiCommand::RecordStop
+        );
+        assert!(parse_runtime_ui_command("record 0").is_err());
+    }
+
+    #[test]
+    fn float_stereo_wav_writer_patches_header_sizes() {
+        let path = std::env::temp_dir().join(format!(
+            "mamut-test-{}.wav",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time after unix epoch")
+                .as_nanos()
+        ));
+        {
+            let mut writer = FloatStereoWavWriter::create(&path).expect("writer creates");
+            writer.write_frame([0.25, -0.25]).expect("frame writes");
+            writer.write_frame([0.5, -0.5]).expect("frame writes");
+            assert_eq!(writer.finalize().expect("writer finalizes"), 2);
+        }
+        let bytes = fs::read(&path).expect("wav file reads");
+        let _ = fs::remove_file(&path);
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WAVE");
+        assert_eq!(&bytes[12..16], b"fmt ");
+        assert_eq!(u16::from_le_bytes([bytes[20], bytes[21]]), 3);
+        assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 2);
+        assert_eq!(
+            u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]),
+            44_100
+        );
+        assert_eq!(&bytes[36..40], b"data");
+        assert_eq!(
+            u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]),
+            16
+        );
+        assert_eq!(bytes.len(), 44 + 16);
     }
 
     #[test]
@@ -5699,8 +8253,16 @@ mod tests {
             ))
         ));
         assert!(matches!(
+            profile.binding_for_cc(3).map(|binding| binding.action),
+            Some(ControllerBindingAction::GfmLayerAmount)
+        ));
+        assert!(matches!(
+            profile.binding_for_cc(28).map(|binding| binding.action),
+            Some(ControllerBindingAction::BcsLayerAmount)
+        ));
+        assert!(matches!(
             profile.binding_for_cc(90).map(|binding| binding.action),
-            Some(ControllerBindingAction::Reserved)
+            Some(ControllerBindingAction::BcsLayerEnabled)
         ));
         let knobs = sorted_bindings_for_section(&profile, ControllerBindingSection::Knob);
         let sliders = sorted_bindings_for_section(&profile, ControllerBindingSection::Slider);
@@ -5710,7 +8272,8 @@ mod tests {
         assert_eq!(switches.len(), 9);
         assert_eq!(knobs[0].control, "K1 Filter 1");
         assert_eq!(sliders[6].control, "S7");
-        assert_eq!(switches[8].control, "SW9");
+        assert_eq!(sliders[8].control, "S9 BCS Amount");
+        assert_eq!(switches[8].control, "SW9 BCS Enable");
     }
 
     #[test]
@@ -5735,7 +8298,9 @@ kind = "reserved"
         let cutoff = profile.binding_for_cc(26).expect("s7 binding");
         let attack = profile.binding_for_cc(72).expect("k3 binding");
         let chorus = profile.binding_for_cc(85).expect("sw5 binding");
-        let reserved = profile.binding_for_cc(3).expect("k8 binding");
+        let gfm_gate = profile.binding_for_cc(3).expect("k8 binding");
+        let bcs_amount = profile.binding_for_cc(28).expect("s9 binding");
+        let bcs_enable = profile.binding_for_cc(90).expect("sw9 binding");
 
         assert!(
             binding_display_value(&snapshot, cutoff).0.contains("Hz"),
@@ -5749,24 +8314,27 @@ kind = "reserved"
             binding_display_value(&snapshot, chorus).0.as_str(),
             "on" | "off"
         ));
-        assert_eq!(binding_display_value(&snapshot, reserved).0, "Reserved");
+        assert_eq!(binding_display_value(&snapshot, gfm_gate).0, "0.00");
+        assert_eq!(binding_display_value(&snapshot, bcs_amount).0, "0.00");
+        assert_eq!(binding_display_value(&snapshot, bcs_enable).0, "off");
     }
 
     #[test]
-    fn last_control_event_tracks_profile_reserved_and_program_change() {
+    fn last_control_event_tracks_profile_gfm_gate_and_program_change() {
         let profile = pc4_full_profile();
-        let reserved = parse_midi_message(&[0xB0, 3, 64], 2.0, None, Some(&profile));
+        let parsed = parse_midi_message(&[0xB0, 3, 64], 2.0, None, Some(&profile));
         let event = last_control_event(
             &[0xB0, 3, 64],
             None,
             Some(&profile),
-            reserved,
+            parsed,
             Instant::now(),
             false,
         )
-        .expect("reserved event");
+        .expect("gfm amount event");
         assert_eq!(event.kind, LastControlKind::ProfileCc(3));
-        assert_eq!(event.verdict, LastControlVerdict::Reserved);
+        assert_eq!(event.action, "gfm layer gate");
+        assert_eq!(event.verdict, LastControlVerdict::Accepted);
 
         let parsed = parse_midi_message(&[0xC0, 4], 2.0, None, Some(&profile));
         let event = last_control_event(
@@ -5868,9 +8436,31 @@ kind = "reserved"
             Some(ParsedMidiMessage::Runtime(RuntimeControlMessage::Panic))
         ));
         assert!(parse_midi_message(&[0xB0, 80, 0], 2.0, None, Some(&profile)).is_none());
+        match parse_midi_message(&[0xB0, 3, 64], 2.0, None, Some(&profile)).expect("k8 parses") {
+            ParsedMidiMessage::Realtime(RealtimeMidiMessage::Controller(
+                ControllerEvent::GfmLayerAmount { amount },
+            )) => assert!((amount - (64.0 / 127.0)).abs() < 0.0001),
+            other => panic!("unexpected parsed MIDI message: {other:?}"),
+        }
+        match parse_midi_message(&[0xB0, 28, 96], 2.0, None, Some(&profile)).expect("s9 parses") {
+            ParsedMidiMessage::Realtime(RealtimeMidiMessage::Controller(
+                ControllerEvent::BcsLayerAmount { amount },
+            )) => assert!((amount - (96.0 / 127.0)).abs() < 0.0001),
+            other => panic!("unexpected parsed MIDI message: {other:?}"),
+        }
         assert!(matches!(
-            parse_midi_message(&[0xB0, 3, 64], 2.0, None, Some(&profile)),
-            Some(ParsedMidiMessage::Reserved)
+            parse_midi_message(&[0xB0, 90, 127], 2.0, None, Some(&profile)),
+            Some(ParsedMidiMessage::Realtime(
+                RealtimeMidiMessage::Controller(ControllerEvent::BcsLayerEnabled { enabled: true })
+            ))
+        ));
+        assert!(matches!(
+            parse_midi_message(&[0xB0, 90, 0], 2.0, None, Some(&profile)),
+            Some(ParsedMidiMessage::Realtime(
+                RealtimeMidiMessage::Controller(ControllerEvent::BcsLayerEnabled {
+                    enabled: false
+                })
+            ))
         ));
     }
 

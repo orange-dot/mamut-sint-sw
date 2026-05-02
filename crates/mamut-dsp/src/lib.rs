@@ -482,17 +482,98 @@ pub fn mix(a: f32, b: f32, amount: f32) -> f32 {
     a + (b - a) * amount.clamp(0.0, 1.0)
 }
 
+pub const DENORMAL_FLUSH_ABS: f32 = 1.0e-20;
+pub const MASTER_SAFETY_KNEE: f32 = 0.92;
+pub const MASTER_SAFETY_CEILING: f32 = 0.96;
+
+pub fn flush_tiny_sample(sample: f32) -> f32 {
+    if sample.is_finite() && sample.abs() >= DENORMAL_FLUSH_ABS {
+        sample
+    } else {
+        0.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DcBlocker {
+    coefficient: f32,
+    previous_input: f32,
+    previous_output: f32,
+}
+
+impl DcBlocker {
+    pub fn new(sample_rate_hz: f32, cutoff_hz: f32) -> Self {
+        let sample_rate_hz = sample_rate_hz.max(1.0);
+        let cutoff_hz = cutoff_hz.max(0.001);
+        let coefficient = (-TAU * cutoff_hz / sample_rate_hz)
+            .exp()
+            .clamp(0.0, 0.999_999);
+        Self {
+            coefficient,
+            previous_input: 0.0,
+            previous_output: 0.0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.previous_input = 0.0;
+        self.previous_output = 0.0;
+    }
+
+    pub fn process(&mut self, sample: f32) -> f32 {
+        let input = flush_tiny_sample(sample);
+        let output = input - self.previous_input + self.coefficient * self.previous_output;
+        self.previous_input = input;
+        self.previous_output = flush_tiny_sample(output);
+        self.previous_output
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StereoDcBlocker {
+    left: DcBlocker,
+    right: DcBlocker,
+}
+
+impl StereoDcBlocker {
+    pub fn new(sample_rate_hz: f32, cutoff_hz: f32) -> Self {
+        Self {
+            left: DcBlocker::new(sample_rate_hz, cutoff_hz),
+            right: DcBlocker::new(sample_rate_hz, cutoff_hz),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.left.reset();
+        self.right.reset();
+    }
+
+    pub fn process(&mut self, left: f32, right: f32) -> (f32, f32) {
+        (self.left.process(left), self.right.process(right))
+    }
+}
+
 pub fn soft_clip(sample: f32, asymmetry: f32) -> f32 {
     let offset = asymmetry.clamp(-1.0, 1.0) * 0.35;
     ((sample + offset) * 1.25).tanh()
 }
 
-pub fn sanitize_sample(sample: f32) -> f32 {
-    if sample.is_finite() {
-        sample.clamp(-1.0, 1.0)
-    } else {
-        0.0
+pub fn master_safety_limit(sample: f32) -> f32 {
+    let sample = flush_tiny_sample(sample);
+    let abs_sample = sample.abs();
+    if abs_sample <= MASTER_SAFETY_KNEE {
+        return sample;
     }
+
+    let over = abs_sample - MASTER_SAFETY_KNEE;
+    let ceiling_span = MASTER_SAFETY_CEILING - MASTER_SAFETY_KNEE;
+    let limited_abs = MASTER_SAFETY_KNEE + ceiling_span * over / (over + ceiling_span);
+    let limited = limited_abs.min(MASTER_SAFETY_CEILING).copysign(sample);
+    flush_tiny_sample(limited)
+}
+
+pub fn sanitize_sample(sample: f32) -> f32 {
+    flush_tiny_sample(sample).clamp(-1.0, 1.0)
 }
 
 pub fn sanitize_block(block: &mut StereoBlockMut<'_>) {
@@ -523,6 +604,16 @@ mod tests {
     fn sanitize_non_finite_samples() {
         assert_eq!(sanitize_sample(f32::NAN), 0.0);
         assert_eq!(sanitize_sample(f32::INFINITY), 0.0);
+    }
+
+    #[test]
+    fn sanitize_flushes_tiny_samples() {
+        assert_eq!(sanitize_sample(DENORMAL_FLUSH_ABS * 0.5), 0.0);
+        assert_eq!(sanitize_sample(-DENORMAL_FLUSH_ABS * 0.5), 0.0);
+        assert_eq!(
+            sanitize_sample(DENORMAL_FLUSH_ABS * 2.0),
+            DENORMAL_FLUSH_ABS * 2.0
+        );
     }
 
     #[test]
@@ -562,6 +653,92 @@ mod tests {
         for _ in 0..4096 {
             let sample = filter.process(0.85, 8_400.0, 0.95, 0.95, 0.90, 48_000.0);
             assert!(sample.is_finite());
+        }
+    }
+
+    #[test]
+    fn dc_blocker_removes_constant_bias() {
+        let mut blocker = DcBlocker::new(48_000.0, 5.0);
+        let mut output = 0.0;
+
+        for _ in 0..48_000 {
+            output = blocker.process(0.2);
+        }
+
+        assert!(output.abs() < 0.001, "output={output}");
+    }
+
+    #[test]
+    fn dc_blocker_preserves_audio_band_sine_level() {
+        let mut blocker = DcBlocker::new(48_000.0, 5.0);
+        let mut input_sum = 0.0;
+        let mut output_sum = 0.0;
+        let mut samples = 0_usize;
+
+        for frame in 0..96_000 {
+            let sample = (TAU * 100.0 * frame as f32 / 48_000.0).sin() * 0.4;
+            let output = blocker.process(sample);
+            assert!(output.is_finite());
+            if frame >= 4_800 {
+                input_sum += sample * sample;
+                output_sum += output * output;
+                samples += 1;
+            }
+        }
+
+        let input_rms = (input_sum / samples as f32).sqrt();
+        let output_rms = (output_sum / samples as f32).sqrt();
+        let ratio = output_rms / input_rms;
+        assert!((0.98..=1.02).contains(&ratio), "ratio={ratio}");
+    }
+
+    #[test]
+    fn dc_blocker_reset_clears_history() {
+        let mut blocker = StereoDcBlocker::new(48_000.0, 5.0);
+        for _ in 0..4_800 {
+            blocker.process(0.2, -0.2);
+        }
+
+        blocker.reset();
+
+        assert_eq!(blocker.process(0.0, 0.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn dc_blocker_flushes_tiny_silence_tail() {
+        let mut blocker = DcBlocker::new(48_000.0, 5.0);
+        let output = blocker.process(DENORMAL_FLUSH_ABS * 0.5);
+
+        assert_eq!(output, 0.0);
+        assert_eq!(blocker.process(0.0), 0.0);
+    }
+
+    #[test]
+    fn master_safety_limit_is_neutral_below_knee() {
+        for sample in [-0.92, -0.5, 0.0, 0.5, 0.92] {
+            assert_eq!(master_safety_limit(sample), sample);
+        }
+    }
+
+    #[test]
+    fn master_safety_limit_is_finite_and_bounded() {
+        for sample in [
+            f32::NEG_INFINITY,
+            -1000.0,
+            -1.0,
+            -0.95,
+            0.95,
+            1.0,
+            1000.0,
+            f32::INFINITY,
+            f32::NAN,
+        ] {
+            let limited = master_safety_limit(sample);
+            assert!(limited.is_finite());
+            assert!(
+                limited.abs() <= MASTER_SAFETY_CEILING,
+                "sample={sample} limited={limited}"
+            );
         }
     }
 

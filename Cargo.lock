@@ -1815,11 +1815,16 @@ name = "mamut-engine"
 version = "0.1.0"
 dependencies = [
  "mamut-dsp",
+ "mamut-field",
  "mamut-identity",
  "mamut-params",
  "mamut-patch",
  "thiserror 2.0.18",
 ]
+
+[[package]]
+name = "mamut-field"
+version = "0.1.0"
 
 [[package]]
 name = "mamut-identity"
