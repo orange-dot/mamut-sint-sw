@@ -5,6 +5,32 @@ on:
   pull_request:
 
 jobs:
+  style:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+
+      - name: Check committed whitespace
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
+          elif [[ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            git diff --check "${{ github.event.before }}...${{ github.sha }}"
+          else
+            git diff-tree --check --no-commit-id --root -r "${{ github.sha }}"
+          fi
+
   cargo-test:
     runs-on: ubuntu-latest
 
@@ -32,3 +58,37 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked
+
+  release-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libasound2-dev \
+            libudev-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libgl1-mesa-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev
+
+      - name: Build engine examples
+        run: cargo build --release -p mamut-engine --examples
+
+      - name: Run core output safety sweep
+        run: cargo run --release -p mamut-engine --example core_output_safety_sweep
+
+      - name: Build standalone release
+        run: cargo build --release -p mamut-standalone
