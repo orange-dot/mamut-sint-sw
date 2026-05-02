@@ -243,6 +243,17 @@ right_out = right * (1 - crossfeed) + left  * crossfeed
 output_gain = 10 ^ (output_trim_db / 20)
 ```
 
-The public output buffer receives sanitized samples. Peak and clip state are
-recorded for snapshots, with clip detection currently treated as peak output at
-or above `0.98`.
+The master output then runs through the output safety path:
+
+```text
+dc_left, dc_right = master_dc_blocker(left_out, right_out)
+limited = master_safety_limit(dc)
+sanitized = sanitize_sample(limited)
+```
+
+`master_safety_limit` is neutral below `0.92` full-scale and bends larger
+samples toward a `0.96` ceiling. `sanitize_sample` clears `NaN`, infinity, and
+tiny values below the denormal flush threshold before clamping. The public
+output buffer receives the sanitized post-safety samples. Peak and clip state
+are recorded from that same post-safety signal, with clip detection currently
+treated as peak output at or above `0.98`.

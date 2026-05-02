@@ -58,6 +58,7 @@ Workspace crates:
 - `mamut-patch` - canonical TOML patch model and validation
 - `mamut-identity` - macro-to-identity resolution
 - `mamut-dsp` - shared DSP blocks and real-time utilities
+- `mamut-field` - Rust-first offline GFM lattice model and render evidence
 - `mamut-engine` - voice allocation, identity resolution, and audio render path
 - `mamut-standalone` - standalone runtime with audio, MIDI, and demo performer
 

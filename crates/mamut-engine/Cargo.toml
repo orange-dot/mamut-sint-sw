@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 mamut-dsp.workspace = true
+mamut-field.workspace = true
 mamut-identity.workspace = true
 mamut-params.workspace = true
 mamut-patch.workspace = true
