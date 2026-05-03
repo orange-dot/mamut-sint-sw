@@ -20,6 +20,9 @@ Start here:
 - `EPM1_SPRINT_6A_HOST_UNDERRUN_STABILITY.md` - next work item for real-host underrun diagnosis and performance stabilization
 - `EPM1_PC4_LIVE_PROFILE.md` - locked Sprint 6 `PC4` control map, live slot policy, and performance-window truth model
 - `EPM1_FIRST_PERFORMANCE_PLAYBOOK.md` - shortest trustworthy path for the first real `PC4` performance session
+- `adrs/0001-standalone-midi-ingress-hardening.md` - accepted narrow bugfix
+  decision for MIDI callback hygiene, drop visibility, and controller burst
+  coalescing under the transport freeze
 - `dsp/primitives-math.md` - formula companion for the low-level Rust DSP primitives
 - `dsp/render-path-math.md` - frame-level math for voice allocation, mixing, filtering, and final render stages
 - `dsp/control-identity-math.md` - macro, identity, and direct-parameter resolution math

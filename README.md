@@ -109,6 +109,11 @@ Runtime notes:
 - `play --controller-profile <path>` loads TOML controller bindings such as
   `profiles/pc4-full.toml`
 - `play --trace-midi` logs incoming MIDI messages to `stderr` for routing/debug sessions
+- MIDI trace and latest-control UI work run on a session-owned worker, not in
+  the MIDI callback; `status` and the GUI expose accepted, dropped, trace
+  dropped, and coalesced-controller counters
+- MIDI `panic` and `reset_controllers` bypass the normal runtime-control queue
+  and use the priority action path directly
 - when a graphical session is available, `play` opens a native `egui`
   performance window by default with `Live`, `PC4`, and `Debug` tabs
 - use `--headless` to force the terminal runtime surface instead of the

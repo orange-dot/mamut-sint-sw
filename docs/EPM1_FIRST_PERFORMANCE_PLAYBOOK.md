@@ -131,12 +131,37 @@ Watch these transport fields:
 - `target`
 - `write_hint`
 
+Also watch these MIDI ingress fields:
+
+- `accepted`
+- `midi_dropped`
+- `runtime_dropped`
+- `trace_dropped`
+- `controllers_coalesced`
+
 Interpretation:
 
 - small non-growing counts after startup are less worrying than counters that
   keep climbing during ordinary play
 - audible clicks plus rising underruns means the session is not ready to trust
 - overflow growth points to producer-side pressure or queue mismatch
+- `midi_dropped`, `runtime_dropped`, and `trace_dropped` should stay at `0`
+  during a normal no-recording/no-trace 96 kHz arpeggio pass
+- `controllers_coalesced` may rise during dense pitch bend, mod wheel,
+  aftertouch, macro, or layer amount movement; it should not imply lost note
+  or sustain events
+
+Recommended 96 kHz ingress hardening acceptance command:
+
+```bash
+tools/run-pc4-ag03.sh molten-horizon \
+  --alsa-period-frames 512 \
+  --alsa-buffer-frames 2048 \
+  --alsa-start-threshold-frames 2048
+```
+
+Run at least five minutes of PC4 arpeggio without recording first. Add
+recording only after the no-recording pass stays clean.
 
 ## 5. First Safe Patch Rotation
 
