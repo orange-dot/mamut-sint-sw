@@ -46,6 +46,220 @@ pub(crate) struct OutputRecordingRequest {
     pub(crate) max_frames: Option<usize>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct MidiTraceLogStart {
+    pub(crate) wav_path: PathBuf,
+    pub(crate) log_path: PathBuf,
+    pub(crate) patch_path: PathBuf,
+    pub(crate) patch_name: String,
+    pub(crate) sample_rate_hz: u32,
+    pub(crate) max_frames: Option<usize>,
+    pub(crate) midi_channel: Option<u8>,
+    pub(crate) controller_profile: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MidiTraceLogStarted {
+    pub(crate) path: PathBuf,
+    pub(crate) generation: u64,
+}
+
+pub(crate) struct MidiTraceLog {
+    pub(crate) active: Mutex<Option<ActiveMidiTraceLog>>,
+    pub(crate) active_flag: AtomicBool,
+    pub(crate) generation: AtomicU64,
+}
+
+pub(crate) struct ActiveMidiTraceLog {
+    pub(crate) path: PathBuf,
+    pub(crate) generation: u64,
+    pub(crate) writer: BufWriter<File>,
+    pub(crate) target_end_at: Option<Instant>,
+    pub(crate) lines_written: u64,
+    pub(crate) write_failed: bool,
+}
+
+impl Default for MidiTraceLog {
+    fn default() -> Self {
+        Self {
+            active: Mutex::new(None),
+            active_flag: AtomicBool::new(false),
+            generation: AtomicU64::new(0),
+        }
+    }
+}
+
+impl MidiTraceLog {
+    pub(crate) fn start(&self, request: MidiTraceLogStart) -> io::Result<MidiTraceLogStarted> {
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| io::Error::other("MIDI trace log lock poisoned"))?;
+        if active.is_some() {
+            return Err(io::Error::other("MIDI trace log is already active"));
+        }
+
+        let started_at = Instant::now();
+        let target_end_at = request.max_frames.and_then(|frames| {
+            let seconds = frames as f64 / f64::from(request.sample_rate_hz.max(1));
+            started_at.checked_add(Duration::from_secs_f64(seconds))
+        });
+        let mut writer = BufWriter::new(File::create(&request.log_path)?);
+        write_midi_trace_log_header(&mut writer, &request)?;
+        let path = request.log_path.clone();
+        let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+
+        *active = Some(ActiveMidiTraceLog {
+            path: path.clone(),
+            generation,
+            writer,
+            target_end_at,
+            lines_written: 0,
+            write_failed: false,
+        });
+        self.active_flag.store(true, Ordering::Relaxed);
+        Ok(MidiTraceLogStarted { path, generation })
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        self.active_flag.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn write_line(&self, received_at: Instant, line: &str) {
+        if !self.is_active() {
+            return;
+        }
+
+        let Ok(mut active) = self.active.lock() else {
+            return;
+        };
+        let Some(active) = active.as_mut() else {
+            self.active_flag.store(false, Ordering::Relaxed);
+            return;
+        };
+        if active
+            .target_end_at
+            .is_some_and(|target_end_at| received_at > target_end_at)
+        {
+            return;
+        }
+        if active.write_failed {
+            return;
+        }
+
+        if let Err(error) = writeln!(active.writer, "{line}") {
+            active.write_failed = true;
+            eprintln!(
+                "midi trace sidecar write failed for {}: {error}",
+                active.path.display()
+            );
+            return;
+        }
+        active.lines_written += 1;
+    }
+
+    pub(crate) fn finish(&self, reason: &str) -> Option<PathBuf> {
+        self.active_flag.store(false, Ordering::Relaxed);
+        let Ok(mut active) = self.active.lock() else {
+            return None;
+        };
+        let Some(mut active) = active.take() else {
+            return None;
+        };
+
+        let _ = writeln!(active.writer, "#");
+        let _ = writeln!(active.writer, "# finish: {reason}");
+        let _ = writeln!(active.writer, "# midi_lines: {}", active.lines_written);
+        let _ = active.writer.flush();
+        Some(active.path)
+    }
+
+    pub(crate) fn finish_generation(&self, generation: u64, reason: &str) -> Option<PathBuf> {
+        let Ok(mut active) = self.active.lock() else {
+            return None;
+        };
+        if !active
+            .as_ref()
+            .is_some_and(|active| active.generation == generation)
+        {
+            return None;
+        }
+        self.active_flag.store(false, Ordering::Relaxed);
+        let Some(mut active) = active.take() else {
+            return None;
+        };
+
+        let _ = writeln!(active.writer, "#");
+        let _ = writeln!(active.writer, "# finish: {reason}");
+        let _ = writeln!(active.writer, "# midi_lines: {}", active.lines_written);
+        let _ = active.writer.flush();
+        Some(active.path)
+    }
+
+    pub(crate) fn abort_and_remove(&self) -> Option<PathBuf> {
+        self.active_flag.store(false, Ordering::Relaxed);
+        let Ok(mut active) = self.active.lock() else {
+            return None;
+        };
+        let active = active.take()?;
+        let path = active.path.clone();
+        drop(active);
+        let _ = fs::remove_file(&path);
+        Some(path)
+    }
+}
+
+pub(crate) fn output_recording_midi_log_path(wav_path: &Path) -> PathBuf {
+    wav_path.with_extension("midi.log")
+}
+
+pub(crate) fn write_midi_trace_log_header<W: Write>(
+    writer: &mut W,
+    request: &MidiTraceLogStart,
+) -> io::Result<()> {
+    let started_unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    writeln!(writer, "# Mamut MIDI trace sidecar v1")?;
+    writeln!(writer, "# started_unix_ms: {started_unix_ms}")?;
+    writeln!(writer, "# wav_path: {}", request.wav_path.display())?;
+    writeln!(writer, "# midi_log_path: {}", request.log_path.display())?;
+    writeln!(writer, "# patch_name: {}", request.patch_name)?;
+    writeln!(writer, "# patch_path: {}", request.patch_path.display())?;
+    writeln!(writer, "# sample_rate_hz: {}", request.sample_rate_hz)?;
+    writeln!(
+        writer,
+        "# max_frames: {}",
+        request
+            .max_frames
+            .map(|frames| frames.to_string())
+            .unwrap_or_else(|| "manual-stop".to_string())
+    )?;
+    writeln!(
+        writer,
+        "# midi_channel: {}",
+        request
+            .midi_channel
+            .map(|channel| channel.to_string())
+            .unwrap_or_else(|| "all".to_string())
+    )?;
+    writeln!(
+        writer,
+        "# controller_profile: {}",
+        request
+            .controller_profile
+            .as_deref()
+            .unwrap_or("pc4-legacy")
+    )?;
+    writeln!(
+        writer,
+        "# timing: t=seconds from MIDI input open; dt=milliseconds from previous traced MIDI event"
+    )?;
+    writeln!(writer, "#")?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AlsaPlaybackSampleFormat {
     Float32,
@@ -73,6 +287,428 @@ pub(crate) enum RealtimeMidiMessage {
     Note(NoteEvent),
     Controller(ControllerEvent),
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum SoundLabPage {
+    Osc1 = 0,
+    Osc2 = 1,
+    Noise = 2,
+    Spectral = 3,
+    Relations = 4,
+    BodyFilter = 5,
+    Motion = 6,
+    Performance = 7,
+    Layers = 8,
+}
+
+impl SoundLabPage {
+    pub(crate) const ALL: [Self; 9] = [
+        Self::Osc1,
+        Self::Osc2,
+        Self::Noise,
+        Self::Spectral,
+        Self::Relations,
+        Self::BodyFilter,
+        Self::Motion,
+        Self::Performance,
+        Self::Layers,
+    ];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Osc1 => "Osc 1",
+            Self::Osc2 => "Osc 2",
+            Self::Noise => "Noise",
+            Self::Spectral => "Spectral",
+            Self::Relations => "Relations",
+            Self::BodyFilter => "Body/Filter",
+            Self::Motion => "Motion",
+            Self::Performance => "Performance",
+            Self::Layers => "Layers",
+        }
+    }
+
+    pub(crate) fn from_index(index: u8) -> Option<Self> {
+        match index {
+            0 => Some(Self::Osc1),
+            1 => Some(Self::Osc2),
+            2 => Some(Self::Noise),
+            3 => Some(Self::Spectral),
+            4 => Some(Self::Relations),
+            5 => Some(Self::BodyFilter),
+            6 => Some(Self::Motion),
+            7 => Some(Self::Performance),
+            8 => Some(Self::Layers),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SoundLabMidiSource {
+    Knob(u8),
+    Slider(u8),
+    ModWheel,
+}
+
+impl SoundLabMidiSource {
+    pub(crate) fn badge(self) -> String {
+        match self {
+            Self::Knob(index) => format!("K{index}"),
+            Self::Slider(index) => format!("S{index}"),
+            Self::ModWheel => "MW".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SoundLabMidiParamBinding {
+    pub(crate) source: SoundLabMidiSource,
+    pub(crate) id: ParamId,
+}
+
+pub(crate) const SOUND_LAB_OVERLAY_EVENT_CAPACITY: usize = 4;
+pub(crate) const SOUND_LAB_MIDI_FOCUS_DISABLED: u8 = u8::MAX;
+
+#[derive(Debug)]
+pub(crate) struct SoundLabMidiFocus {
+    page: AtomicU8,
+}
+
+impl Default for SoundLabMidiFocus {
+    fn default() -> Self {
+        Self {
+            page: AtomicU8::new(SOUND_LAB_MIDI_FOCUS_DISABLED),
+        }
+    }
+}
+
+impl SoundLabMidiFocus {
+    pub(crate) fn set(&self, page: Option<SoundLabPage>) {
+        self.page.store(
+            page.map(|page| page as u8)
+                .unwrap_or(SOUND_LAB_MIDI_FOCUS_DISABLED),
+            Ordering::Relaxed,
+        );
+    }
+
+    pub(crate) fn page(&self) -> Option<SoundLabPage> {
+        SoundLabPage::from_index(self.page.load(Ordering::Relaxed))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SoundLabOverlayEvents {
+    pub(crate) page: SoundLabPage,
+    pub(crate) source: SoundLabMidiSource,
+    pub(crate) events: [Option<ControllerEvent>; SOUND_LAB_OVERLAY_EVENT_CAPACITY],
+}
+
+impl SoundLabOverlayEvents {
+    pub(crate) fn empty(page: SoundLabPage, source: SoundLabMidiSource) -> Self {
+        Self {
+            page,
+            source,
+            events: [None; SOUND_LAB_OVERLAY_EVENT_CAPACITY],
+        }
+    }
+
+    pub(crate) fn single(
+        page: SoundLabPage,
+        source: SoundLabMidiSource,
+        event: ControllerEvent,
+    ) -> Self {
+        let mut events = Self::empty(page, source);
+        events.events[0] = Some(event);
+        events
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = ControllerEvent> + '_ {
+        self.events.iter().filter_map(|event| *event)
+    }
+
+    pub(crate) fn trace_summary(&self) -> String {
+        let targets = self
+            .iter()
+            .map(describe_controller_event_target)
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "sound lab overlay page={} source={} -> {}",
+            self.page.label(),
+            self.source.badge(),
+            targets
+        )
+    }
+}
+
+pub(crate) fn describe_controller_event_target(event: ControllerEvent) -> String {
+    match event {
+        ControllerEvent::DirectParam { id, value } => {
+            format!(
+                "{}={}",
+                param_spec(id).name,
+                format_paramish_value(id, value)
+            )
+        }
+        ControllerEvent::Macro { id, value } => {
+            format!("macro {}={value:.3}", id.key())
+        }
+        ControllerEvent::GfmLayerAmount { amount } => format!("gfm={amount:.3}"),
+        ControllerEvent::BcsLayerAmount { amount } => format!("bcs={amount:.3}"),
+        ControllerEvent::BcsLayerEnabled { enabled } => format!("bcs_enable={enabled}"),
+        ControllerEvent::ModWheel { amount } => format!("mod_wheel={amount:.3}"),
+        ControllerEvent::Sustain { down } => format!("sustain={down}"),
+        ControllerEvent::ChannelAftertouch { pressure } => format!("aftertouch={pressure:.3}"),
+        ControllerEvent::PitchBend { semitones } => format!("bend={semitones:.3}"),
+    }
+}
+
+pub(crate) fn format_paramish_value(id: ParamId, value: f32) -> String {
+    match param_spec(id).unit {
+        ParamUnit::Boolean => {
+            if value >= 0.5 {
+                "on".to_string()
+            } else {
+                "off".to_string()
+            }
+        }
+        ParamUnit::Indexed => format!("{}", value.round() as i32),
+        ParamUnit::Hertz => format!("{value:.1}Hz"),
+        ParamUnit::Milliseconds => format!("{value:.1}ms"),
+        ParamUnit::Decibels => format!("{value:.1}dB"),
+        ParamUnit::Cents => format!("{value:.1}c"),
+        ParamUnit::Semitones => format!("{value:.1}st"),
+        ParamUnit::Normalized => format!("{value:.3}"),
+    }
+}
+
+pub(crate) fn sound_lab_page_knob_bindings(
+    page: SoundLabPage,
+) -> &'static [SoundLabMidiParamBinding] {
+    match page {
+        SoundLabPage::Osc1 => &OSC1_KNOB_BINDINGS,
+        SoundLabPage::Osc2 => &OSC2_KNOB_BINDINGS,
+        SoundLabPage::Noise => &NOISE_KNOB_BINDINGS,
+        SoundLabPage::Spectral => &SPECTRAL_KNOB_BINDINGS,
+        SoundLabPage::Relations => &RELATIONS_KNOB_BINDINGS,
+        SoundLabPage::BodyFilter => &BODY_FILTER_KNOB_BINDINGS,
+        SoundLabPage::Motion => &MOTION_KNOB_BINDINGS,
+        SoundLabPage::Performance => &PERFORMANCE_KNOB_BINDINGS,
+        SoundLabPage::Layers => &[],
+    }
+}
+
+pub(crate) fn sound_lab_page_slider_bindings(
+    page: SoundLabPage,
+) -> &'static [SoundLabMidiParamBinding] {
+    match page {
+        SoundLabPage::Osc1 => &OSC1_SLIDER_BINDINGS,
+        SoundLabPage::Osc2 => &OSC2_SLIDER_BINDINGS,
+        SoundLabPage::Noise => &[],
+        SoundLabPage::Spectral => &[],
+        SoundLabPage::Relations => &RELATIONS_SLIDER_BINDINGS,
+        SoundLabPage::BodyFilter => &BODY_FILTER_SLIDER_BINDINGS,
+        SoundLabPage::Motion => &MOTION_SLIDER_BINDINGS,
+        SoundLabPage::Performance => &PERFORMANCE_SLIDER_BINDINGS,
+        SoundLabPage::Layers => &[],
+    }
+}
+
+pub(crate) fn sound_lab_page_mod_wheel_params(page: SoundLabPage) -> &'static [ParamId] {
+    match page {
+        SoundLabPage::Osc1 => &[
+            ParamId::Osc1SawBend,
+            ParamId::Osc1TriangleFold,
+            ParamId::Osc1PulseEdge,
+        ],
+        SoundLabPage::Osc2 => &[ParamId::Osc2Level, ParamId::Osc2CrossmodAmount],
+        SoundLabPage::Noise => &[ParamId::NoiseFilterLevel, ParamId::NoiseBodyLevel],
+        SoundLabPage::Spectral => &[ParamId::SpectralPosition],
+        SoundLabPage::Relations => &[
+            ParamId::FmAmount,
+            ParamId::PhaseModAmount,
+            ParamId::RingModAmount,
+            ParamId::CrossMixAmount,
+        ],
+        SoundLabPage::BodyFilter => &[ParamId::FilterCutoffHz],
+        SoundLabPage::Motion => &[ParamId::FilterEnvDepth],
+        SoundLabPage::Performance => &[ParamId::BloomMacro],
+        SoundLabPage::Layers => &[],
+    }
+}
+
+pub(crate) fn sound_lab_page_binding_for_source(
+    page: SoundLabPage,
+    source: SoundLabMidiSource,
+) -> Option<SoundLabMidiParamBinding> {
+    let bindings = match source {
+        SoundLabMidiSource::Knob(_) => sound_lab_page_knob_bindings(page),
+        SoundLabMidiSource::Slider(_) => sound_lab_page_slider_bindings(page),
+        SoundLabMidiSource::ModWheel => return None,
+    };
+    bindings
+        .iter()
+        .copied()
+        .find(|binding| binding.source == source)
+}
+
+#[cfg(test)]
+pub(crate) fn sound_lab_badges_for_param(page: SoundLabPage, id: ParamId) -> Vec<String> {
+    let mut badges = sound_lab_page_knob_bindings(page)
+        .iter()
+        .chain(sound_lab_page_slider_bindings(page).iter())
+        .filter(|binding| binding.id == id)
+        .map(|binding| binding.source.badge())
+        .collect::<Vec<_>>();
+    if sound_lab_page_mod_wheel_params(page).contains(&id) {
+        badges.push(SoundLabMidiSource::ModWheel.badge());
+    }
+    badges
+}
+
+macro_rules! k {
+    ($index:literal, $id:ident) => {
+        SoundLabMidiParamBinding {
+            source: SoundLabMidiSource::Knob($index),
+            id: ParamId::$id,
+        }
+    };
+}
+
+macro_rules! s {
+    ($index:literal, $id:ident) => {
+        SoundLabMidiParamBinding {
+            source: SoundLabMidiSource::Slider($index),
+            id: ParamId::$id,
+        }
+    };
+}
+
+const OSC1_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
+    k!(1, Osc1SawLevel),
+    k!(2, Osc1PulseLevel),
+    k!(3, Osc1TriangleLevel),
+    k!(4, Osc1NoiseLevel),
+    k!(5, Osc1FineTuneCents),
+    k!(6, Osc1PulseWidth),
+    k!(7, Osc1PwmDepth),
+    k!(9, Osc1PhaseMode),
+];
+const OSC1_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 4] = [
+    s!(1, Osc1StartPhase),
+    s!(2, Osc1SawBend),
+    s!(3, Osc1TriangleFold),
+    s!(4, Osc1PulseEdge),
+];
+const OSC2_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
+    k!(1, Osc2SawLevel),
+    k!(2, Osc2PulseLevel),
+    k!(3, Osc2TriangleLevel),
+    k!(4, Osc2IntervalSemitones),
+    k!(5, Osc2FineTuneCents),
+    k!(6, Osc2Level),
+    k!(7, Osc2PitchMode),
+    k!(9, Osc2Ratio),
+];
+const OSC2_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 8] = [
+    s!(1, Osc2PulseWidth),
+    s!(2, Osc2PwmDepth),
+    s!(3, Osc2PhaseMode),
+    s!(4, Osc2StartPhase),
+    s!(5, Osc2SawBend),
+    s!(6, Osc2TriangleFold),
+    s!(7, Osc2PulseEdge),
+    s!(8, Osc2CrossmodAmount),
+];
+const NOISE_KNOB_BINDINGS: [SoundLabMidiParamBinding; 6] = [
+    k!(1, NoiseColor),
+    k!(2, NoiseFilterLevel),
+    k!(3, NoiseBodyLevel),
+    k!(4, AnalogDrift),
+    k!(5, MicroJitter),
+    k!(6, SourcePwmRateHz),
+];
+const SPECTRAL_KNOB_BINDINGS: [SoundLabMidiParamBinding; 6] = [
+    k!(1, SpectralLevel),
+    k!(2, SpectralTable),
+    k!(3, SpectralPosition),
+    k!(4, SpectralMorph),
+    k!(5, SpectralRatio),
+    k!(6, SpectralFineTuneCents),
+];
+const RELATIONS_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
+    k!(1, FmAmount),
+    k!(2, FmDirection),
+    k!(3, PhaseModAmount),
+    k!(4, PhaseModDirection),
+    k!(5, RingModAmount),
+    k!(6, AmAmount),
+    k!(7, SyncDirection),
+    k!(9, SyncSoftness),
+];
+const RELATIONS_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 6] = [
+    s!(1, CrossMixMode),
+    s!(2, CrossMixAmount),
+    s!(3, Osc2SyncAmount),
+    s!(4, Osc2CrossmodAmount),
+    s!(5, Osc2Level),
+    s!(6, Osc2Ratio),
+];
+const BODY_FILTER_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
+    k!(1, SubLevel),
+    k!(2, SubOctaveOffset),
+    k!(3, MixerBodyMix),
+    k!(4, MixerPreFilterDrive),
+    k!(5, FilterCutoffHz),
+    k!(6, FilterResonance),
+    k!(7, FilterDrive),
+    k!(9, FilterKeytrack),
+];
+const BODY_FILTER_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 4] = [
+    s!(1, FinalStageBodyDrive),
+    s!(2, FinalStageAsymmetry),
+    s!(3, FinalStageLowMidEmphasis),
+    s!(4, FinalStageOutputTrimDb),
+];
+const MOTION_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
+    k!(1, AmpEnvAttackMs),
+    k!(2, AmpEnvDecayMs),
+    k!(3, AmpEnvSustain),
+    k!(4, AmpEnvReleaseMs),
+    k!(5, FilterEnvAttackMs),
+    k!(6, FilterEnvDecayMs),
+    k!(7, FilterEnvSustain),
+    k!(9, FilterEnvReleaseMs),
+];
+const MOTION_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 8] = [
+    s!(1, FilterEnvDepth),
+    s!(2, ChorusEnabled),
+    s!(3, ChorusMix),
+    s!(4, ChorusDepth),
+    s!(5, ChorusRateHz),
+    s!(6, ReverbEnabled),
+    s!(7, ReverbMix),
+    s!(8, ReverbSize),
+];
+const PERFORMANCE_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
+    k!(1, VoiceVelocityToLevel),
+    k!(2, VoiceVelocityToFilter),
+    k!(3, PerformanceVelocityToLevel),
+    k!(4, PerformanceVelocityToFilter),
+    k!(5, PerformanceAftertouchToGravitacija),
+    k!(6, PerformanceAftertouchToBaklja),
+    k!(7, PerformanceModWheelToBloom),
+    k!(9, PerformanceModWheelToSwarm),
+];
+const PERFORMANCE_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 5] = [
+    s!(1, GravitacijaMacro),
+    s!(2, BloomMacro),
+    s!(3, HeatMacro),
+    s!(4, RuinMacro),
+    s!(5, SwarmMacro),
+];
 
 #[derive(Debug, Clone)]
 pub(crate) struct FactoryPatchEntry {
@@ -151,6 +787,7 @@ pub(crate) enum EngineCommand {
     Note(NoteEvent),
     Controller(ControllerEvent),
     RequestSnapshot(mpsc::Sender<EngineSnapshot>),
+    RequestPatch(mpsc::Sender<PatchFileV1>),
     SetGfmLayerMode(
         GfmLayerMode,
         mpsc::Sender<std::result::Result<GfmVoiceProgramSelection, String>>,
@@ -746,6 +1383,8 @@ pub(crate) struct RuntimeSession {
     pub(crate) transport_metrics: Arc<TransportMetrics>,
     pub(crate) input_metrics: Arc<InputMetrics>,
     pub(crate) recording_metrics: Arc<RecordingMetrics>,
+    pub(crate) midi_trace_log: Arc<MidiTraceLog>,
+    pub(crate) sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
 }
 
 pub(crate) struct EngineWorker {

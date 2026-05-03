@@ -4,6 +4,7 @@ impl RuntimeSession {
     pub(crate) fn new(options: &PlayOptions) -> Result<Self> {
         let alsa_tuning = AlsaPlaybackTuning::from_play_options(options)?;
         let recording_metrics = Arc::new(RecordingMetrics::default());
+        let midi_trace_log = Arc::new(MidiTraceLog::default());
         let controller_profile = options
             .controller_profile_path
             .as_deref()
@@ -21,6 +22,7 @@ impl RuntimeSession {
         let runtime = start_prepared_audio_runtime(prepared_runtime)?;
         let input_metrics = Arc::new(InputMetrics::default());
         let runtime_control_queue = Arc::new(ArrayQueue::new(RUNTIME_CONTROL_QUEUE_CAPACITY));
+        let sound_lab_midi_focus = Arc::new(SoundLabMidiFocus::default());
         let mut session = Self {
             patch_path: options.patch_path.clone(),
             patch_name: runtime.patch_name,
@@ -46,6 +48,8 @@ impl RuntimeSession {
             transport_metrics: runtime.transport_metrics,
             input_metrics,
             recording_metrics,
+            midi_trace_log,
+            sound_lab_midi_focus,
         };
         session.driver = session.open_driver_for_tx(
             session.tx.clone(),
@@ -77,8 +81,14 @@ impl RuntimeSession {
             self.trace_midi,
             runtime_control_queue,
             input_metrics,
+            Arc::clone(&self.midi_trace_log),
+            Arc::clone(&self.sound_lab_midi_focus),
             force_demo,
         )
+    }
+
+    pub(crate) fn set_sound_lab_midi_focus(&self, page: Option<SoundLabPage>) {
+        self.sound_lab_midi_focus.set(page);
     }
 
     pub(crate) fn restore_demo_driver(&mut self) {
@@ -195,9 +205,17 @@ impl RuntimeSession {
                 Ok(RuntimeUiCommand::Record { seconds, path }) => {
                     let path = self.start_output_recording(seconds, path)?;
                     println!("recording {seconds}s -> {}", path.display());
+                    println!(
+                        "midi log -> {}",
+                        output_recording_midi_log_path(&path).display()
+                    );
                 }
                 Ok(RuntimeUiCommand::RecordStop) => match self.stop_output_recording()? {
-                    Some(path) => println!("recording stop requested -> {}", path.display()),
+                    Some(path) => println!(
+                        "recording stop requested -> {} (midi log {})",
+                        path.display(),
+                        output_recording_midi_log_path(&path).display()
+                    ),
                     None => println!("no active output recording"),
                 },
                 Ok(RuntimeUiCommand::AudioList) => list_audio_devices()?,
@@ -249,6 +267,16 @@ impl RuntimeSession {
             .send(EngineCommand::Controller(ControllerEvent::Macro {
                 id,
                 value: value.clamp(0.0, 1.0),
+            }))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))
+    }
+
+    pub(crate) fn set_direct_param(&self, id: ParamId, value: f32) -> Result<()> {
+        let spec = param_spec(id);
+        self.tx
+            .send(EngineCommand::Controller(ControllerEvent::DirectParam {
+                id,
+                value: value.clamp(spec.min, spec.max),
             }))
             .map_err(|_| anyhow!("audio runtime is no longer available"))
     }
@@ -400,6 +428,75 @@ impl RuntimeSession {
             .map_err(|_| anyhow!("timed out waiting for engine snapshot"))
     }
 
+    pub(crate) fn request_patch(&self) -> Result<PatchFileV1> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.tx
+            .send(EngineCommand::RequestPatch(reply_tx))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
+        reply_rx
+            .recv_timeout(Duration::from_millis(500))
+            .map_err(|_| anyhow!("timed out waiting for engine patch"))
+    }
+
+    pub(crate) fn export_sound_lab_patch(&self, requested_name: &str) -> Result<PathBuf> {
+        let mut patch = self.request_patch()?;
+        let snapshot = self.request_snapshot()?;
+        let original_name = patch.meta.patch_name.clone();
+        let patch_name = if requested_name.trim().is_empty() {
+            format!("{original_name} Lab")
+        } else {
+            requested_name.trim().to_string()
+        };
+        patch.meta.patch_name = patch_name.clone();
+        patch.x = Some(sound_lab_extension_table(
+            patch.x.take().unwrap_or_default(),
+            &snapshot,
+            &self.patch_path,
+        ));
+
+        validate_patch_v1(&patch).context("exported Sound Lab patch failed validation")?;
+        let serialized = save_patch_toml(&patch).context("failed to serialize Sound Lab patch")?;
+        let dir = user_patch_dir();
+        fs::create_dir_all(&dir)
+            .with_context(|| format!("failed to create user patch directory {}", dir.display()))?;
+
+        let filename = generated_user_patch_filename(&patch_name);
+        let stem = filename
+            .strip_suffix(".toml")
+            .unwrap_or(filename.as_str())
+            .to_string();
+        for index in 0..1000 {
+            let candidate = if index == 0 {
+                dir.join(&filename)
+            } else {
+                dir.join(format!("{stem}-{index}.toml"))
+            };
+            match File::options()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(mut file) => {
+                    file.write_all(serialized.as_bytes()).with_context(|| {
+                        format!("failed to write Sound Lab patch {}", candidate.display())
+                    })?;
+                    return Ok(candidate);
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(anyhow!(
+                        "failed to create Sound Lab patch {}: {error}",
+                        candidate.display()
+                    ));
+                }
+            }
+        }
+
+        Err(anyhow!(
+            "failed to find a free Sound Lab patch filename for `{patch_name}`"
+        ))
+    }
+
     pub(crate) fn start_output_recording(
         &self,
         seconds: u64,
@@ -417,18 +514,34 @@ impl RuntimeSession {
             Some(path) => path,
             None => default_output_capture_path()?,
         };
+        let midi_log_path = self.start_midi_trace_recording_log(&path, Some(target_frames))?;
         let request = OutputRecordingRequest {
             path,
             max_frames: Some(target_frames),
         };
         let (reply_tx, reply_rx) = mpsc::channel();
-        self.tx
+        if self
+            .tx
             .send(EngineCommand::StartOutputRecording(request, reply_tx))
-            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
-        reply_rx
-            .recv_timeout(RECORDING_REPLY_TIMEOUT)
-            .map_err(|_| anyhow!("timed out starting output recording"))?
-            .map_err(|error| anyhow!(error))
+            .is_err()
+        {
+            self.midi_trace_log.abort_and_remove();
+            return Err(anyhow!("audio runtime is no longer available"));
+        }
+        match reply_rx.recv_timeout(RECORDING_REPLY_TIMEOUT) {
+            Ok(Ok(path)) => Ok(path),
+            Ok(Err(error)) => {
+                self.midi_trace_log.abort_and_remove();
+                Err(anyhow!(error))
+            }
+            Err(_) => {
+                self.midi_trace_log.abort_and_remove();
+                Err(anyhow!(
+                    "timed out starting output recording after creating MIDI log {}",
+                    midi_log_path.display()
+                ))
+            }
+        }
     }
 
     pub(crate) fn start_tagged_output_recording(&self, seconds: u64, tag: &str) -> Result<PathBuf> {
@@ -441,10 +554,56 @@ impl RuntimeSession {
         self.tx
             .send(EngineCommand::StopOutputRecording(reply_tx))
             .map_err(|_| anyhow!("audio runtime is no longer available"))?;
-        reply_rx
+        let path = reply_rx
             .recv_timeout(RECORDING_REPLY_TIMEOUT)
             .map_err(|_| anyhow!("timed out stopping output recording"))?
-            .map_err(|error| anyhow!(error))
+            .map_err(|error| anyhow!(error))?;
+        self.midi_trace_log.finish("record-stop requested");
+        Ok(path)
+    }
+
+    pub(crate) fn start_midi_trace_recording_log(
+        &self,
+        wav_path: &Path,
+        max_frames: Option<usize>,
+    ) -> Result<PathBuf> {
+        let log_path = output_recording_midi_log_path(wav_path);
+        let controller_profile = self
+            .controller_profile
+            .as_ref()
+            .map(|profile| format!("{} ({})", profile.name, profile.path.display()));
+        let started = self
+            .midi_trace_log
+            .start(MidiTraceLogStart {
+                wav_path: wav_path.to_path_buf(),
+                log_path: log_path.clone(),
+                patch_path: self.patch_path.clone(),
+                patch_name: self.patch_name.clone(),
+                sample_rate_hz: self.sample_rate_hz,
+                max_frames,
+                midi_channel: self.midi_channel,
+                controller_profile,
+            })
+            .with_context(|| {
+                format!("failed to create MIDI trace sidecar {}", log_path.display())
+            })?;
+        if let Some(max_frames) = max_frames {
+            let midi_trace_log = Arc::clone(&self.midi_trace_log);
+            let generation = started.generation;
+            let seconds = max_frames as f64 / f64::from(self.sample_rate_hz.max(1));
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs_f64(seconds) + MIDI_ACTIVITY_FLASH);
+                midi_trace_log.finish_generation(generation, "recording target duration elapsed");
+            });
+        }
+        Ok(started.path)
+    }
+
+    pub(crate) fn reconcile_midi_trace_recording_log(&self, recording: &RecordingMetricsSnapshot) {
+        if recording.state != RecordingState::Active {
+            self.midi_trace_log
+                .finish(&format!("recording state {}", recording.state.label()));
+        }
     }
 
     pub(crate) fn set_gfm_layer_seed(
@@ -541,6 +700,8 @@ impl RuntimeSession {
             self.trace_midi,
             Arc::clone(&self.runtime_control_queue),
             Arc::clone(&self.input_metrics),
+            Arc::clone(&self.midi_trace_log),
+            Arc::clone(&self.sound_lab_midi_focus),
         ) {
             Ok(Some(connection)) => connection,
             Ok(None) => {
@@ -554,6 +715,8 @@ impl RuntimeSession {
                     self.trace_midi,
                     Arc::clone(&self.runtime_control_queue),
                     Arc::clone(&self.input_metrics),
+                    Arc::clone(&self.midi_trace_log),
+                    Arc::clone(&self.sound_lab_midi_focus),
                     old_mode_was_demo,
                 );
                 return Err(anyhow!("no MIDI input devices available"));
@@ -569,6 +732,8 @@ impl RuntimeSession {
                     self.trace_midi,
                     Arc::clone(&self.runtime_control_queue),
                     Arc::clone(&self.input_metrics),
+                    Arc::clone(&self.midi_trace_log),
+                    Arc::clone(&self.sound_lab_midi_focus),
                     old_mode_was_demo,
                 );
                 return Err(error);
@@ -604,6 +769,8 @@ impl RuntimeSession {
         prepared_runtime: PreparedAudioRuntime,
         keep_demo: bool,
     ) -> Result<()> {
+        self.midi_trace_log
+            .finish("runtime replaced while recording");
         let same_hw_device = same_hw_selector(
             self.audio_selector.as_deref(),
             &prepared_runtime.audio_selector,
@@ -643,6 +810,8 @@ impl RuntimeSession {
                         self.trace_midi,
                         Arc::clone(&self.runtime_control_queue),
                         Arc::clone(&self.input_metrics),
+                        Arc::clone(&self.midi_trace_log),
+                        Arc::clone(&self.sound_lab_midi_focus),
                         old_mode_was_demo,
                     );
                 }
@@ -698,6 +867,8 @@ impl RuntimeSession {
                     self.trace_midi,
                     Arc::clone(&self.runtime_control_queue),
                     Arc::clone(&self.input_metrics),
+                    Arc::clone(&self.midi_trace_log),
+                    Arc::clone(&self.sound_lab_midi_focus),
                     old_mode_was_demo,
                 );
                 return Err(error);
@@ -782,6 +953,8 @@ impl RuntimeSession {
             self.trace_midi,
             Arc::clone(&self.runtime_control_queue),
             Arc::clone(&self.input_metrics),
+            Arc::clone(&self.midi_trace_log),
+            Arc::clone(&self.sound_lab_midi_focus),
             old_mode_was_demo,
         );
         Ok(())
@@ -800,10 +973,14 @@ impl RuntimeSession {
     }
 
     pub(crate) fn recording_metrics_snapshot(&self) -> RecordingMetricsSnapshot {
-        self.recording_metrics.snapshot()
+        let snapshot = self.recording_metrics.snapshot();
+        self.reconcile_midi_trace_recording_log(&snapshot);
+        snapshot
     }
 
     pub(crate) fn print_runtime_control_messages(&mut self) -> Result<()> {
+        let recording = self.recording_metrics.snapshot();
+        self.reconcile_midi_trace_recording_log(&recording);
         for message in self.poll_runtime_control_messages()? {
             println!("{message}");
         }
@@ -867,4 +1044,72 @@ impl RuntimeSession {
         }
         Ok(messages)
     }
+}
+
+pub(crate) fn sound_lab_extension_table(
+    mut extensions: toml::Table,
+    snapshot: &EngineSnapshot,
+    source_patch_path: &Path,
+) -> toml::Table {
+    let mut sound_lab = toml::Table::new();
+    sound_lab.insert(
+        "intent_version".to_string(),
+        toml::Value::String("1".to_string()),
+    );
+    sound_lab.insert(
+        "note".to_string(),
+        toml::Value::String(
+            "Runtime layer intent only; GFM/BCS state is not auto-loaded from this patch."
+                .to_string(),
+        ),
+    );
+    sound_lab.insert(
+        "source_patch_path".to_string(),
+        toml::Value::String(source_patch_path.display().to_string()),
+    );
+
+    match snapshot.gfm_layer.mode {
+        GfmLayerMode::Enabled { seed } => {
+            sound_lab.insert("gfm_enabled".to_string(), toml::Value::Boolean(true));
+            sound_lab.insert(
+                "gfm_seed".to_string(),
+                toml::Value::String(format_gfm_seed(seed)),
+            );
+        }
+        GfmLayerMode::Disabled => {
+            sound_lab.insert("gfm_enabled".to_string(), toml::Value::Boolean(false));
+            sound_lab.insert(
+                "gfm_seed".to_string(),
+                toml::Value::String("disabled".to_string()),
+            );
+        }
+    }
+
+    match snapshot.bcs_layer.mode {
+        BcsLayerMode::Enabled { scenario } => {
+            sound_lab.insert("bcs_enabled".to_string(), toml::Value::Boolean(true));
+            sound_lab.insert(
+                "bcs_scenario".to_string(),
+                toml::Value::String(format_bcs_scenario(scenario).to_string()),
+            );
+        }
+        BcsLayerMode::Disabled => {
+            sound_lab.insert("bcs_enabled".to_string(), toml::Value::Boolean(false));
+            sound_lab.insert(
+                "bcs_scenario".to_string(),
+                toml::Value::String("disabled".to_string()),
+            );
+        }
+    }
+    sound_lab.insert(
+        "bcs_gain".to_string(),
+        toml::Value::Float(snapshot.bcs_layer.gain as f64),
+    );
+    sound_lab.insert(
+        "bcs_effective_gain".to_string(),
+        toml::Value::Float(snapshot.bcs_layer.effective_gain as f64),
+    );
+
+    extensions.insert("sound_lab".to_string(), toml::Value::Table(sound_lab));
+    extensions
 }

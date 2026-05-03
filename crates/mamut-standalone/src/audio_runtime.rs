@@ -313,6 +313,9 @@ impl EngineThreadState {
                 event,
             }),
             EngineCommand::RequestSnapshot(reply) => self.snapshot_requests.push(reply),
+            EngineCommand::RequestPatch(reply) => {
+                let _ = reply.send(self.engine.export_patch());
+            }
             EngineCommand::SetGfmLayerMode(mode, reply) => {
                 let _ = reply.send(Ok(self.engine.set_gfm_layer_mode(mode)));
             }
@@ -343,6 +346,9 @@ impl EngineThreadState {
             match self.rx.try_recv() {
                 Ok(EngineCommand::Note(_)) | Ok(EngineCommand::Controller(_)) => {}
                 Ok(EngineCommand::RequestSnapshot(reply)) => self.snapshot_requests.push(reply),
+                Ok(EngineCommand::RequestPatch(reply)) => {
+                    let _ = reply.send(self.engine.export_patch());
+                }
                 Ok(EngineCommand::SetGfmLayerMode(mode, reply)) => {
                     let _ = reply.send(Ok(self.engine.set_gfm_layer_mode(mode)));
                 }
@@ -1047,6 +1053,102 @@ pub(crate) fn parse_profile_cc_binding(
             ParsedMidiMessage::Runtime(RuntimeControlMessage::ToggleParam(id)),
         ),
         ControllerBindingAction::Reserved => Some(ParsedMidiMessage::Reserved),
+    }
+}
+
+pub(crate) fn sound_lab_midi_overlay_events(
+    message: &[u8],
+    controller_profile: Option<&ControllerProfile>,
+    page: Option<SoundLabPage>,
+) -> Option<SoundLabOverlayEvents> {
+    let page = page?;
+    let raw_status = *message.first()?;
+    if raw_status & 0xF0 != 0xB0 || message.len() < 3 {
+        return None;
+    }
+
+    let cc = message[1];
+    let normalized = message[2] as f32 / 127.0;
+    let source = sound_lab_overlay_source_for_cc(cc, controller_profile)?;
+    match source {
+        SoundLabMidiSource::ModWheel => sound_lab_mod_wheel_events(page, normalized),
+        SoundLabMidiSource::Knob(_) | SoundLabMidiSource::Slider(_) => {
+            let binding = sound_lab_page_binding_for_source(page, source)?;
+            Some(SoundLabOverlayEvents::single(
+                page,
+                source,
+                direct_param_overlay_event(binding.id, normalized),
+            ))
+        }
+    }
+}
+
+fn sound_lab_overlay_source_for_cc(
+    cc: u8,
+    controller_profile: Option<&ControllerProfile>,
+) -> Option<SoundLabMidiSource> {
+    if cc == 1 {
+        return Some(SoundLabMidiSource::ModWheel);
+    }
+    if cc == 64 {
+        return None;
+    }
+
+    let binding = controller_profile.and_then(|profile| profile.binding_for_cc(cc))?;
+    if matches!(
+        binding.action,
+        ControllerBindingAction::GfmLayerAmount
+            | ControllerBindingAction::BcsLayerAmount
+            | ControllerBindingAction::BcsLayerEnabled
+    ) {
+        return None;
+    }
+
+    match (binding.section, binding.index) {
+        (ControllerBindingSection::Knob, Some(index)) => Some(SoundLabMidiSource::Knob(index)),
+        (ControllerBindingSection::Slider, Some(index)) => Some(SoundLabMidiSource::Slider(index)),
+        _ => None,
+    }
+}
+
+fn sound_lab_mod_wheel_events(page: SoundLabPage, value: f32) -> Option<SoundLabOverlayEvents> {
+    let params = sound_lab_page_mod_wheel_params(page);
+    if params.is_empty() {
+        return None;
+    }
+
+    let mut events = SoundLabOverlayEvents::empty(page, SoundLabMidiSource::ModWheel);
+    for (slot, id) in params
+        .iter()
+        .copied()
+        .take(SOUND_LAB_OVERLAY_EVENT_CAPACITY)
+        .enumerate()
+    {
+        events.events[slot] = Some(direct_param_overlay_event(id, value));
+    }
+    Some(events)
+}
+
+fn direct_param_overlay_event(id: ParamId, normalized: f32) -> ControllerEvent {
+    ControllerEvent::DirectParam {
+        id,
+        value: sound_lab_direct_param_value(id, normalized),
+    }
+}
+
+pub(crate) fn sound_lab_direct_param_value(id: ParamId, normalized: f32) -> f32 {
+    let spec = param_spec(id);
+    let value = scale_controller_value(id, normalized, default_scale_for_param(id));
+    match spec.unit {
+        ParamUnit::Boolean => {
+            if value >= 0.5 {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        ParamUnit::Indexed | ParamUnit::Semitones => value.round().clamp(spec.min, spec.max),
+        _ => value.clamp(spec.min, spec.max),
     }
 }
 

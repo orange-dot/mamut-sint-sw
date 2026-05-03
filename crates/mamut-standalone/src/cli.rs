@@ -575,7 +575,7 @@ pub(crate) fn parse_profile_runtime_action(
 
 pub(crate) fn default_scale_for_param(id: ParamId) -> ControllerValueScale {
     match param_spec(id).unit {
-        ParamUnit::Hertz => ControllerValueScale::Log,
+        ParamUnit::Hertz | ParamUnit::Milliseconds => ControllerValueScale::Log,
         _ => ControllerValueScale::Linear,
     }
 }
@@ -775,6 +775,8 @@ pub(crate) fn open_midi_input(
     trace_midi: bool,
     runtime_control_queue: Arc<ArrayQueue<RuntimeControlMessage>>,
     input_metrics: Arc<InputMetrics>,
+    midi_trace_log: Arc<MidiTraceLog>,
+    sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
 ) -> Result<Option<OpenedMidiConnection>> {
     let mut midi_input = match MidiInput::new("mamut-standalone") {
         Ok(midi_input) => midi_input,
@@ -809,7 +811,9 @@ pub(crate) fn open_midi_input(
         .nth(port_index)
         .ok_or_else(|| anyhow!("MIDI input device index {port_index} is out of range"))?;
     let port_name = selected.name.clone();
-    let startup_guard_until = Instant::now()
+    let trace_started_at = Instant::now();
+    let mut previous_trace_at: Option<Instant> = None;
+    let startup_guard_until = trace_started_at
         .checked_add(MIDI_STARTUP_GUARD)
         .unwrap_or_else(Instant::now);
     let connection = midi_input
@@ -826,6 +830,15 @@ pub(crate) fn open_midi_input(
                 );
                 let startup_suppressed =
                     startup_guard_suppresses_message(parsed, received_at, startup_guard_until);
+                let overlay = if startup_suppressed || parsed.is_none() {
+                    None
+                } else {
+                    sound_lab_midi_overlay_events(
+                        message,
+                        controller_profile.as_deref(),
+                        sound_lab_midi_focus.page(),
+                    )
+                };
                 let routed = if startup_suppressed { None } else { parsed };
                 if let Some(event) = last_control_event(
                     message,
@@ -837,24 +850,47 @@ pub(crate) fn open_midi_input(
                 ) {
                     input_metrics.record_last_control(event);
                 }
-                if trace_midi {
-                    if startup_suppressed {
-                        trace_midi_startup_suppressed(
+                let trace_to_sidecar = midi_trace_log.is_active();
+                if trace_midi || trace_to_sidecar {
+                    let trace_timing = MidiTraceTiming::from_received_at(
+                        trace_started_at,
+                        &mut previous_trace_at,
+                        received_at,
+                    );
+                    let mut line = if startup_suppressed {
+                        format_midi_trace_startup_suppressed(
                             message,
                             midi_channel,
                             controller_profile.as_deref(),
                             parsed,
-                        );
+                            trace_timing,
+                        )
                     } else {
-                        trace_midi_message(
+                        format_midi_trace_message(
                             message,
                             midi_channel,
                             controller_profile.as_deref(),
                             parsed,
-                        );
+                            trace_timing,
+                        )
+                    };
+                    if let Some(overlay) = overlay {
+                        line.push_str(" -> ");
+                        line.push_str(&overlay.trace_summary());
+                    }
+                    if trace_midi {
+                        eprintln!("{line}");
+                    }
+                    if trace_to_sidecar {
+                        midi_trace_log.write_line(received_at, &line);
                     }
                 }
-                if let Some(parsed) = routed {
+                if let Some(overlay) = overlay {
+                    input_metrics.record_midi_message();
+                    for event in overlay.iter() {
+                        let _ = midi_input_queue.push(RealtimeMidiMessage::Controller(event));
+                    }
+                } else if let Some(parsed) = routed {
                     input_metrics.record_midi_message();
                     match parsed {
                         ParsedMidiMessage::Realtime(message) => {
@@ -892,37 +928,77 @@ pub(crate) fn startup_guard_suppresses_message(
     )
 }
 
-pub(crate) fn trace_midi_startup_suppressed(
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct MidiTraceTiming {
+    pub(crate) elapsed_seconds: f64,
+    pub(crate) delta_millis: f64,
+}
+
+impl MidiTraceTiming {
+    pub(crate) fn from_received_at(
+        started_at: Instant,
+        previous_trace_at: &mut Option<Instant>,
+        received_at: Instant,
+    ) -> Self {
+        let elapsed_seconds = received_at
+            .checked_duration_since(started_at)
+            .unwrap_or_default()
+            .as_secs_f64();
+        let delta_millis = previous_trace_at
+            .and_then(|previous| received_at.checked_duration_since(previous))
+            .unwrap_or_default()
+            .as_secs_f64()
+            * 1000.0;
+        *previous_trace_at = Some(received_at);
+        Self {
+            elapsed_seconds,
+            delta_millis,
+        }
+    }
+}
+
+pub(crate) fn format_midi_trace_startup_suppressed(
     message: &[u8],
     midi_channel: Option<u8>,
     controller_profile: Option<&ControllerProfile>,
     parsed: Option<ParsedMidiMessage>,
-) {
-    trace_midi_message_with_prefix(
+    timing: MidiTraceTiming,
+) -> String {
+    format_midi_trace_message_with_prefix(
         "startup suppressed ",
         message,
         midi_channel,
         controller_profile,
         parsed,
-    );
+        timing,
+    )
 }
 
-pub(crate) fn trace_midi_message(
+pub(crate) fn format_midi_trace_message(
     message: &[u8],
     midi_channel: Option<u8>,
     controller_profile: Option<&ControllerProfile>,
     parsed: Option<ParsedMidiMessage>,
-) {
-    trace_midi_message_with_prefix("", message, midi_channel, controller_profile, parsed);
+    timing: MidiTraceTiming,
+) -> String {
+    format_midi_trace_message_with_prefix(
+        "",
+        message,
+        midi_channel,
+        controller_profile,
+        parsed,
+        timing,
+    )
 }
 
-pub(crate) fn trace_midi_message_with_prefix(
+pub(crate) fn format_midi_trace_message_with_prefix(
     verdict_prefix: &str,
     message: &[u8],
     midi_channel: Option<u8>,
     controller_profile: Option<&ControllerProfile>,
     parsed: Option<ParsedMidiMessage>,
-) {
+    timing: MidiTraceTiming,
+) -> String {
     let raw_status = *message.first().unwrap_or(&0);
     let status = raw_status & 0xF0;
     let channel = (raw_status & 0x0F) + 1;
@@ -949,9 +1025,15 @@ pub(crate) fn trace_midi_message_with_prefix(
     let verdict = format!("{verdict_prefix}{verdict}");
 
     if status < 0xF0 {
-        eprintln!("midi trace: ch={channel} raw=[{raw}] {verdict}");
+        format!(
+            "midi trace: t={:.3}s dt={:.1}ms ch={channel} raw=[{raw}] {verdict}",
+            timing.elapsed_seconds, timing.delta_millis
+        )
     } else {
-        eprintln!("midi trace: system raw=[{raw}] {verdict}");
+        format!(
+            "midi trace: t={:.3}s dt={:.1}ms system raw=[{raw}] {verdict}",
+            timing.elapsed_seconds, timing.delta_millis
+        )
     }
 }
 
@@ -1295,6 +1377,24 @@ pub(crate) fn workspace_root() -> PathBuf {
 
 pub(crate) fn default_patch_path() -> PathBuf {
     workspace_root().join("patches/factory/molten-horizon.toml")
+}
+
+pub(crate) fn user_patch_dir() -> PathBuf {
+    workspace_root().join("patches/user")
+}
+
+pub(crate) fn generated_user_patch_filename(patch_name: &str) -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    generated_user_patch_filename_at(patch_name, seconds)
+}
+
+pub(crate) fn generated_user_patch_filename_at(patch_name: &str, unix_seconds: u64) -> String {
+    let slug = sanitize_capture_component(patch_name, "sound-lab");
+    let (year, month, day, hour, minute, second) = unix_seconds_to_utc_parts(unix_seconds);
+    format!("{slug}-{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}.toml")
 }
 
 pub(crate) fn default_output_capture_path() -> Result<PathBuf> {

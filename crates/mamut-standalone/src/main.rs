@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
         mpsc::{self, RecvTimeoutError, TryRecvError},
     },
     thread::{self, JoinHandle},
@@ -27,7 +27,7 @@ use mamut_engine::{
     Scheduled,
 };
 use mamut_params::{MacroId, ParamId, ParamUnit, param_by_key, param_spec};
-use mamut_patch::{PatchFileV1, load_patch_toml, validate_patch_v1};
+use mamut_patch::{PatchFileV1, load_patch_toml, save_patch_toml, validate_patch_v1};
 use midir::{Ignore, MidiInput, MidiInputConnection, MidiInputPort};
 use rtrb::{Consumer, Producer, RingBuffer};
 use serde::Deserialize;

@@ -10,6 +10,8 @@ pub(crate) fn open_driver_for_selector(
     trace_midi: bool,
     runtime_control_queue: Arc<ArrayQueue<RuntimeControlMessage>>,
     input_metrics: Arc<InputMetrics>,
+    midi_trace_log: Arc<MidiTraceLog>,
+    sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
     force_demo: bool,
 ) -> Result<PerformanceDriver> {
     if force_demo {
@@ -25,6 +27,8 @@ pub(crate) fn open_driver_for_selector(
         trace_midi,
         runtime_control_queue,
         input_metrics,
+        midi_trace_log,
+        sound_lab_midi_focus,
     )? {
         Ok(PerformanceDriver::Midi(connection))
     } else {
@@ -42,6 +46,8 @@ pub(crate) fn restore_driver_state(
     trace_midi: bool,
     runtime_control_queue: Arc<ArrayQueue<RuntimeControlMessage>>,
     input_metrics: Arc<InputMetrics>,
+    midi_trace_log: Arc<MidiTraceLog>,
+    sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
     old_mode_was_demo: bool,
 ) -> PerformanceDriver {
     if old_mode_was_demo {
@@ -57,6 +63,8 @@ pub(crate) fn restore_driver_state(
         trace_midi,
         runtime_control_queue,
         input_metrics,
+        midi_trace_log,
+        sound_lab_midi_focus,
     ) {
         Ok(Some(connection)) => PerformanceDriver::Midi(connection),
         Ok(None) | Err(_) => PerformanceDriver::Idle,
