@@ -10,7 +10,7 @@ pub(crate) const AUDIO_QUEUE_TARGET_FRAMES: usize =
 pub(crate) const ENGINE_IDLE_SLEEP: Duration = Duration::from_millis(1);
 pub(crate) const ALSA_WAIT_TIMEOUT_MS: u32 = 100;
 pub(crate) const ALSA_PLAYBACK_CHANNELS: usize = 2;
-pub(crate) const ALSA_PLAYBACK_SAMPLE_RATE_HZ: u32 = 44_100;
+pub(crate) const ALSA_PLAYBACK_SAMPLE_RATE_HZ: u32 = 96_000;
 pub(crate) const ALSA_PLAYBACK_SAMPLE_RATE_HZ_ALLOWED: [u32; 6] =
     [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 pub(crate) const ALSA_PERIOD_FRAMES_DEFAULT: usize = 256;

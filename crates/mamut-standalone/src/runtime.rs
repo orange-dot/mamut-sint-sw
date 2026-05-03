@@ -3,6 +3,7 @@ use super::*;
 pub(crate) fn build_audio_runtime(
     patch_path: &Path,
     audio_selector: Option<&str>,
+    sample_rate_hz: u32,
     alsa_tuning: AlsaPlaybackTuning,
     gfm_layer_seed: Option<u64>,
     bcs_layer_scenario: Option<BcsScenario>,
@@ -11,7 +12,7 @@ pub(crate) fn build_audio_runtime(
     let patch = load_patch_from_path(patch_path)?;
     validate_patch_v1(&patch).context("patch validation failed")?;
     let selected_device = select_alsa_output_device(audio_selector)?;
-    let sample_rate_hz = ALSA_PLAYBACK_SAMPLE_RATE_HZ as f32;
+    let engine_sample_rate_hz = sample_rate_hz as f32;
     let channels = ALSA_PLAYBACK_CHANNELS;
     let bend_range = patch.performance_response.bend_range_semitones as f32;
     let patch_name = patch.meta.patch_name.clone();
@@ -23,7 +24,7 @@ pub(crate) fn build_audio_runtime(
     let priority_actions = Arc::new(PriorityActions::default());
     let mut engine = Engine::new(
         EngineConfig {
-            sample_rate_hz,
+            sample_rate_hz: engine_sample_rate_hz,
             max_block_frames: 2_048,
             voice_count: 6,
         },
@@ -48,7 +49,7 @@ pub(crate) fn build_audio_runtime(
         selected_device: selected_device.clone(),
         audio_selector: selected_device.selector.clone(),
         audio_device_name: selected_device.display_name(),
-        sample_rate_hz: ALSA_PLAYBACK_SAMPLE_RATE_HZ,
+        sample_rate_hz,
         channels,
         alsa_tuning,
         bend_range,
@@ -77,7 +78,11 @@ pub(crate) fn start_prepared_audio_runtime(prepared: PreparedAudioRuntime) -> Re
         transport_metrics,
     } = prepared;
 
-    let opened_playback = match open_alsa_playback_device(&selected_device, alsa_tuning) {
+    let opened_playback = match open_alsa_playback_device(
+        &selected_device,
+        sample_rate_hz,
+        alsa_tuning,
+    ) {
         Ok(opened_playback) => opened_playback,
         Err(error) => {
             worker.shutdown(tx);

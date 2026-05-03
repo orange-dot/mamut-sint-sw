@@ -14,6 +14,7 @@ impl RuntimeSession {
         let prepared_runtime = build_audio_runtime(
             &options.patch_path,
             options.audio_selector.as_deref(),
+            options.sample_rate_hz,
             alsa_tuning,
             options.gfm_layer_seed,
             options.bcs_layer_scenario,
@@ -252,6 +253,7 @@ impl RuntimeSession {
         let runtime = build_audio_runtime(
             &path,
             self.audio_selector.as_deref(),
+            self.sample_rate_hz,
             self.alsa_tuning,
             self.gfm_layer_seed,
             self.bcs_layer_scenario,
@@ -664,6 +666,7 @@ impl RuntimeSession {
         let runtime = build_audio_runtime(
             &self.patch_path,
             Some(selector.as_str()),
+            self.sample_rate_hz,
             self.alsa_tuning,
             self.gfm_layer_seed,
             self.bcs_layer_scenario,
@@ -905,6 +908,7 @@ impl RuntimeSession {
         let prepared = build_audio_runtime(
             &self.patch_path,
             self.audio_selector.as_deref(),
+            self.sample_rate_hz,
             self.alsa_tuning,
             self.gfm_layer_seed,
             self.bcs_layer_scenario,

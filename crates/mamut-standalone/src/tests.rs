@@ -967,7 +967,7 @@ fn float_stereo_wav_writer_patches_header_sizes() {
     assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 2);
     assert_eq!(
         u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]),
-        44_100
+        ALSA_PLAYBACK_SAMPLE_RATE_HZ
     );
     assert_eq!(&bytes[36..40], b"data");
     assert_eq!(

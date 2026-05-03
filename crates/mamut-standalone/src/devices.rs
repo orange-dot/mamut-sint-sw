@@ -281,6 +281,7 @@ pub(crate) fn same_hw_selector(current: Option<&str>, replacement: &str) -> bool
 
 pub(crate) fn open_alsa_playback_device(
     selected_device: &AlsaOutputDevice,
+    sample_rate_hz: u32,
     tuning: AlsaPlaybackTuning,
 ) -> Result<OpenedAlsaPlayback> {
     let pcm =
@@ -298,7 +299,7 @@ pub(crate) fn open_alsa_playback_device(
             .context("failed to disable ALSA resampling")?;
         hwp.set_channels(ALSA_PLAYBACK_CHANNELS as u32)
             .context("failed to set ALSA channel count")?;
-        hwp.set_rate(ALSA_PLAYBACK_SAMPLE_RATE_HZ, ValueOr::Nearest)
+        hwp.set_rate(sample_rate_hz, ValueOr::Nearest)
             .context("failed to set ALSA sample rate")?;
         sample_format =
             select_alsa_playback_sample_format(&hwp, selected_device.selector.as_str())?;
@@ -348,12 +349,12 @@ pub(crate) fn open_alsa_playback_device(
         )
     };
 
-    if applied_rate != ALSA_PLAYBACK_SAMPLE_RATE_HZ {
+    if applied_rate != sample_rate_hz {
         return Err(anyhow!(
             "ALSA device {} applied {} Hz instead of requested {} Hz",
             selected_device.selector,
             applied_rate,
-            ALSA_PLAYBACK_SAMPLE_RATE_HZ
+            sample_rate_hz
         ));
     }
     if applied_channels != ALSA_PLAYBACK_CHANNELS {
@@ -406,7 +407,7 @@ pub(crate) fn open_alsa_playback_device(
         pcm,
         audio_selector: selected_device.selector.clone(),
         audio_device_name: selected_device.display_name(),
-        sample_rate_hz: ALSA_PLAYBACK_SAMPLE_RATE_HZ,
+        sample_rate_hz,
         channels: ALSA_PLAYBACK_CHANNELS,
         sample_format,
         tuning,
