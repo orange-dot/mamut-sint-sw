@@ -94,9 +94,17 @@ Runtime notes:
 - `play` accepts either a patch path or a factory patch name like `molten-horizon`
 - `play` requires `--audio-device` and accepts only an ALSA list index or an
   explicit `hw:<card>,<device>` selector
+- `play` defaults to `96 kHz`; pass `--sample-rate 44100` for the older
+  44.1 kHz behavior or `--sample-rate 192000` for the later high-rate
+  experiment path. Supported rates are `44100`, `48000`, `88200`, `96000`,
+  `176400`, and `192000`.
 - `play --alsa-period-frames`, `--alsa-buffer-frames`, and
   `--alsa-start-threshold-frames` expose direct ALSA tuning for latency and
   underrun work
+- first 96 kHz AG03 live tests should start with `--alsa-period-frames 512`,
+  `--alsa-buffer-frames 2048`, and `--alsa-start-threshold-frames 2048`; that
+  is about a 5.33 ms period and 21.33 ms buffer at 96 kHz. The same frame
+  counts represent half as much wall-clock slack again at 192 kHz.
 - `play --midi-channel <1..16>` filters input to one MIDI channel when a port carries extra traffic
 - `play --controller-profile <path>` loads TOML controller bindings such as
   `profiles/pc4-full.toml`

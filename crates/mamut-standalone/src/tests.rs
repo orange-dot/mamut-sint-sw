@@ -953,7 +953,7 @@ fn float_stereo_wav_writer_patches_header_sizes() {
             .as_nanos()
     ));
     {
-        let mut writer = FloatStereoWavWriter::create(&path).expect("writer creates");
+        let mut writer = FloatStereoWavWriter::create(&path, 96_000).expect("writer creates");
         writer.write_frame([0.25, -0.25]).expect("frame writes");
         writer.write_frame([0.5, -0.5]).expect("frame writes");
         assert_eq!(writer.finalize().expect("writer finalizes"), 2);
@@ -967,8 +967,17 @@ fn float_stereo_wav_writer_patches_header_sizes() {
     assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 2);
     assert_eq!(
         u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]),
-        ALSA_PLAYBACK_SAMPLE_RATE_HZ
+        96_000
     );
+    assert_eq!(
+        u32::from_le_bytes([bytes[28], bytes[29], bytes[30], bytes[31]]),
+        96_000 * 2 * std::mem::size_of::<f32>() as u32
+    );
+    assert_eq!(
+        u16::from_le_bytes([bytes[32], bytes[33]]),
+        (2 * std::mem::size_of::<f32>()) as u16
+    );
+    assert_eq!(u16::from_le_bytes([bytes[34], bytes[35]]), 32);
     assert_eq!(&bytes[36..40], b"data");
     assert_eq!(
         u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]),
@@ -1325,8 +1334,8 @@ fn midi_trace_sidecar_writes_header_lines_footer_and_stops() {
         log_path: log_path.clone(),
         patch_path: PathBuf::from("patches/factory/molten-horizon.toml"),
         patch_name: "Molten Horizon".to_string(),
-        sample_rate_hz: 44_100,
-        max_frames: Some(44_100),
+        sample_rate_hz: 96_000,
+        max_frames: Some(96_000),
         midi_channel: Some(1),
         controller_profile: Some("PC4 Full (profiles/pc4-full.toml)".to_string()),
     })
@@ -1353,6 +1362,7 @@ fn midi_trace_sidecar_writes_header_lines_footer_and_stops() {
     assert!(text.contains("# wav_path:"));
     assert!(text.contains("# midi_log_path:"));
     assert!(text.contains("# patch_name: Molten Horizon"));
+    assert!(text.contains("# sample_rate_hz: 96000"));
     assert!(text.contains("raw=[90 40 60]"));
     assert!(text.contains("raw=[80 40 40]"));
     assert!(!text.contains("raw=[90 41 60]"));

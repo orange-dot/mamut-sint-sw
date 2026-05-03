@@ -313,6 +313,42 @@ fn selected_factory_gfm_programs_render_finite_and_recovery_safe() {
 }
 
 #[test]
+fn molten_horizon_renders_finite_at_96khz() {
+    let patch = load_patch_toml(MOLTEN_HORIZON).expect("factory patch must parse");
+    let note_events = engine_layer_note_on_events(select_gfm_program_for_patch(&patch).program_id);
+    let mut engine = Engine::new(
+        EngineConfig {
+            sample_rate_hz: 96_000.0,
+            max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+            voice_count: 6,
+        },
+        patch,
+    )
+    .expect("engine must validate");
+    let controllers = [Scheduled {
+        frame_offset: 0,
+        event: ControllerEvent::Macro {
+            id: MacroId::Gravitacija,
+            value: 0.72,
+        },
+    }];
+
+    let (_, stats) = render_engine_layer_signature_with_notes_and_controllers(
+        &mut engine,
+        96_000,
+        note_events,
+        &controllers,
+    );
+    let snapshot = engine.snapshot();
+
+    assert_eq!(snapshot.sample_rate_hz, 96_000.0);
+    assert!(stats.finite, "stats={stats:?}");
+    assert!(stats.rms > 0.001, "stats={stats:?}");
+    assert!(stats.peak_abs <= MASTER_SAFETY_CEILING, "stats={stats:?}");
+    assert!(!snapshot.clip_detected, "snapshot={snapshot:?}");
+}
+
+#[test]
 fn gfm_patch_voice_factory_matches_direct_selection_render() {
     for (_, patch_source) in FACTORY_PATCHES {
         let patch = load_patch_toml(patch_source).expect("factory patch must parse");

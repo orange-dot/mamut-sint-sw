@@ -78,17 +78,14 @@ pub(crate) fn start_prepared_audio_runtime(prepared: PreparedAudioRuntime) -> Re
         transport_metrics,
     } = prepared;
 
-    let opened_playback = match open_alsa_playback_device(
-        &selected_device,
-        sample_rate_hz,
-        alsa_tuning,
-    ) {
-        Ok(opened_playback) => opened_playback,
-        Err(error) => {
-            worker.shutdown(tx);
-            return Err(error);
-        }
-    };
+    let opened_playback =
+        match open_alsa_playback_device(&selected_device, sample_rate_hz, alsa_tuning) {
+            Ok(opened_playback) => opened_playback,
+            Err(error) => {
+                worker.shutdown(tx);
+                return Err(error);
+            }
+        };
     transport_metrics.record_write_request(opened_playback.tuning.period_frames);
     let stream =
         AlsaPlaybackStream::spawn(opened_playback, consumer, Arc::clone(&transport_metrics));

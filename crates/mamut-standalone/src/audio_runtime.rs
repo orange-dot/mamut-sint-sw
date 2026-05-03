@@ -556,6 +556,7 @@ pub(crate) fn run_output_recording_writer(
 pub(crate) fn write_float_stereo_wav_header<W: Write>(
     writer: &mut W,
     data_bytes: u32,
+    sample_rate_hz: u32,
 ) -> io::Result<()> {
     writer.write_all(b"RIFF")?;
     write_u32_le(writer, 36 + data_bytes)?;
@@ -564,12 +565,10 @@ pub(crate) fn write_float_stereo_wav_header<W: Write>(
     write_u32_le(writer, 16)?;
     write_u16_le(writer, 3)?;
     write_u16_le(writer, ALSA_PLAYBACK_CHANNELS as u16)?;
-    write_u32_le(writer, ALSA_PLAYBACK_SAMPLE_RATE_HZ)?;
+    write_u32_le(writer, sample_rate_hz)?;
     write_u32_le(
         writer,
-        ALSA_PLAYBACK_SAMPLE_RATE_HZ
-            * ALSA_PLAYBACK_CHANNELS as u32
-            * std::mem::size_of::<f32>() as u32,
+        sample_rate_hz * ALSA_PLAYBACK_CHANNELS as u32 * std::mem::size_of::<f32>() as u32,
     )?;
     write_u16_le(
         writer,
@@ -782,7 +781,7 @@ pub(crate) struct FloatStereoWavWriter {
 }
 
 impl FloatStereoWavWriter {
-    pub(crate) fn create(path: &Path) -> io::Result<Self> {
+    pub(crate) fn create(path: &Path, sample_rate_hz: u32) -> io::Result<Self> {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 fs::create_dir_all(parent)?;
@@ -790,7 +789,7 @@ impl FloatStereoWavWriter {
         }
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
-        write_float_stereo_wav_header(&mut writer, 0)?;
+        write_float_stereo_wav_header(&mut writer, 0, sample_rate_hz)?;
         Ok(Self {
             writer,
             frames_written: 0,
@@ -881,12 +880,14 @@ impl OutputRecorder {
         request: OutputRecordingRequest,
         metrics: Arc<RecordingMetrics>,
     ) -> std::result::Result<Self, String> {
-        let writer = FloatStereoWavWriter::create(&request.path).map_err(|error| {
-            format!(
-                "failed to create output recording {}: {error}",
-                request.path.display()
-            )
-        })?;
+        let writer = FloatStereoWavWriter::create(&request.path, request.sample_rate_hz).map_err(
+            |error| {
+                format!(
+                    "failed to create output recording {}: {error}",
+                    request.path.display()
+                )
+            },
+        )?;
         let (producer, consumer) = RingBuffer::<StereoFrame>::new(RECORDING_QUEUE_CAPACITY_FRAMES);
         metrics.start(request.path.clone(), request.max_frames);
         let worker = OutputRecordingWorker::spawn(writer, consumer, Arc::clone(&metrics));

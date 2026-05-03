@@ -519,6 +519,7 @@ impl RuntimeSession {
         let midi_log_path = self.start_midi_trace_recording_log(&path, Some(target_frames))?;
         let request = OutputRecordingRequest {
             path,
+            sample_rate_hz: self.sample_rate_hz,
             max_frames: Some(target_frames),
         };
         let (reply_tx, reply_rx) = mpsc::channel();

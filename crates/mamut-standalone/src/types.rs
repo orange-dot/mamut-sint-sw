@@ -21,7 +21,7 @@ pub(crate) const MIDI_ACTIVITY_FLASH: Duration = Duration::from_millis(700);
 pub(crate) const MIDI_STARTUP_GUARD: Duration = MIDI_ACTIVITY_FLASH;
 pub(crate) const MIDI_INPUT_QUEUE_CAPACITY: usize = 512;
 pub(crate) const RUNTIME_CONTROL_QUEUE_CAPACITY: usize = 64;
-pub(crate) const RECORDING_QUEUE_CAPACITY_FRAMES: usize = 44_100 * 4;
+pub(crate) const RECORDING_QUEUE_CAPACITY_FRAMES: usize = 192_000 * 4;
 pub(crate) const RECORDING_REPLY_TIMEOUT: Duration = Duration::from_millis(500);
 pub(crate) const DEFAULT_LIVE_TAKE_SECONDS: u64 = 30;
 pub(crate) const DEFAULT_GFM_UI_SEED: u64 = DEFAULT_GFM_LAYER_SEED;
@@ -45,6 +45,7 @@ pub(crate) type StereoFrame = [f32; 2];
 #[derive(Debug, Clone)]
 pub(crate) struct OutputRecordingRequest {
     pub(crate) path: PathBuf,
+    pub(crate) sample_rate_hz: u32,
     pub(crate) max_frames: Option<usize>,
 }
 
