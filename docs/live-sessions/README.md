@@ -11,6 +11,9 @@ playbooks under `docs/`.
 
 Recent sessions:
 
+- `2026-05-03-audionoise-loopback-pedal.md` - first Mamut standalone run
+  through the external AudioNoise ALSA live pedal sidecar, validating the
+  `snd-aloop` chain, Yamaha output, bypass, `svfdrive --wet 0.25`, and echo.
 - `2026-04-30-windowed-gui-gfm-flicker-followup.md` - non-blocking visual
   flicker/jitter observed while enabling GFM from the windowed GUI, recorded as
   later GUI polish rather than an audio or MIDI blocker.
