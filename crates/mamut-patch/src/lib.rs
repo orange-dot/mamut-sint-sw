@@ -37,6 +37,42 @@ pub struct PatchMeta {
 pub struct EnginePatchDefaults {
     pub osc1: Osc1Patch,
     pub osc2: Osc2Patch,
+    #[serde(default)]
+    pub spectral: SpectralPatch,
+    #[serde(default)]
+    pub additive: AdditivePatch,
+    #[serde(default = "default_source_pwm_rate_hz")]
+    pub source_pwm_rate_hz: f32,
+    #[serde(default)]
+    pub noise_color: NoiseColor,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noise_filter_level: Option<f32>,
+    #[serde(default)]
+    pub noise_body_level: f32,
+    #[serde(default)]
+    pub analog_drift: f32,
+    #[serde(default)]
+    pub micro_jitter: f32,
+    #[serde(default)]
+    pub fm_amount: f32,
+    #[serde(default)]
+    pub fm_direction: ModDirection,
+    #[serde(default)]
+    pub phase_mod_amount: f32,
+    #[serde(default)]
+    pub phase_mod_direction: ModDirection,
+    #[serde(default)]
+    pub ring_mod_amount: f32,
+    #[serde(default)]
+    pub am_amount: f32,
+    #[serde(default)]
+    pub sync_direction: ModDirection,
+    #[serde(default)]
+    pub sync_softness: f32,
+    #[serde(default)]
+    pub cross_mix_mode: CrossMixMode,
+    #[serde(default)]
+    pub cross_mix_amount: f32,
     pub sub: SubPatch,
     pub mixer: MixerPatch,
     pub filter: FilterPatch,
@@ -56,6 +92,20 @@ pub struct Osc1Patch {
     pub noise_level: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fine_tune_cents: Option<f32>,
+    #[serde(default = "default_half")]
+    pub pulse_width: f32,
+    #[serde(default)]
+    pub pwm_depth: f32,
+    #[serde(default)]
+    pub phase_mode: OscPhaseMode,
+    #[serde(default)]
+    pub start_phase: f32,
+    #[serde(default)]
+    pub saw_bend: f32,
+    #[serde(default)]
+    pub triangle_fold: f32,
+    #[serde(default)]
+    pub pulse_edge: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -68,6 +118,162 @@ pub struct Osc2Patch {
     pub fine_tune_cents: f32,
     pub sync_amount: f32,
     pub crossmod_amount: f32,
+    #[serde(default = "default_half")]
+    pub pulse_width: f32,
+    #[serde(default)]
+    pub pwm_depth: f32,
+    #[serde(default)]
+    pub phase_mode: OscPhaseMode,
+    #[serde(default)]
+    pub start_phase: f32,
+    #[serde(default = "default_one")]
+    pub level: f32,
+    #[serde(default)]
+    pub pitch_mode: Osc2PitchMode,
+    #[serde(default = "default_one")]
+    pub ratio: f32,
+    #[serde(default)]
+    pub saw_bend: f32,
+    #[serde(default)]
+    pub triangle_fold: f32,
+    #[serde(default)]
+    pub pulse_edge: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OscPhaseMode {
+    #[default]
+    Deterministic,
+    Fixed,
+    FreeRun,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Osc2PitchMode {
+    #[default]
+    Semitone,
+    Ratio,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpectralPatch {
+    #[serde(default)]
+    pub level: f32,
+    #[serde(default)]
+    pub table: SpectralTable,
+    #[serde(default)]
+    pub position: f32,
+    #[serde(default)]
+    pub morph: f32,
+    #[serde(default = "default_one")]
+    pub ratio: f32,
+    #[serde(default)]
+    pub fine_tune_cents: f32,
+}
+
+impl Default for SpectralPatch {
+    fn default() -> Self {
+        Self {
+            level: 0.0,
+            table: SpectralTable::default(),
+            position: 0.0,
+            morph: 0.0,
+            ratio: 1.0,
+            fine_tune_cents: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SpectralTable {
+    #[default]
+    Sineish,
+    Vocalish,
+    Metallic,
+    Hollow,
+    Formant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdditivePatch {
+    #[serde(default)]
+    pub level: f32,
+    #[serde(default = "default_additive_partial_count")]
+    pub partial_count: u8,
+    #[serde(default)]
+    pub harmonic_spread: f32,
+    #[serde(default)]
+    pub odd_even_balance: f32,
+    #[serde(default)]
+    pub inharmonicity: f32,
+    #[serde(default)]
+    pub spectral_tilt: f32,
+    #[serde(default)]
+    pub random_detune_cents: f32,
+}
+
+impl Default for AdditivePatch {
+    fn default() -> Self {
+        Self {
+            level: 0.0,
+            partial_count: default_additive_partial_count(),
+            harmonic_spread: 0.0,
+            odd_even_balance: 0.0,
+            inharmonicity: 0.0,
+            spectral_tilt: 0.0,
+            random_detune_cents: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NoiseColor {
+    #[default]
+    White,
+    Pinkish,
+    Dark,
+    Bright,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ModDirection {
+    #[default]
+    Osc1ToOsc2,
+    Osc2ToOsc1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CrossMixMode {
+    #[default]
+    Sum,
+    Multiply,
+    Fold,
+    Max,
+    Difference,
+}
+
+fn default_half() -> f32 {
+    0.5
+}
+
+fn default_one() -> f32 {
+    1.0
+}
+
+fn default_source_pwm_rate_hz() -> f32 {
+    0.35
+}
+
+fn default_additive_partial_count() -> u8 {
+    6
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -325,6 +531,9 @@ pub fn validate_patch_v1(patch: &PatchFileV1) -> Result<(), PatchValidationError
 
     validate_osc1(&patch.engine.osc1)?;
     validate_osc2(&patch.engine.osc2)?;
+    validate_spectral(&patch.engine.spectral)?;
+    validate_additive(&patch.engine.additive)?;
+    validate_source_controls(&patch.engine)?;
     validate_sub(&patch.engine.sub)?;
     validate_mixer(&patch.engine.mixer)?;
     validate_filter(&patch.engine.filter)?;
@@ -355,6 +564,12 @@ fn validate_osc1(osc1: &Osc1Patch) -> Result<(), PatchValidationError> {
             100.0,
         )?;
     }
+    check_range("engine.osc1.pulse_width", osc1.pulse_width, 0.05, 0.95)?;
+    check_range("engine.osc1.pwm_depth", osc1.pwm_depth, 0.0, 1.0)?;
+    check_range("engine.osc1.start_phase", osc1.start_phase, 0.0, 1.0)?;
+    check_range("engine.osc1.saw_bend", osc1.saw_bend, -1.0, 1.0)?;
+    check_range("engine.osc1.triangle_fold", osc1.triangle_fold, 0.0, 1.0)?;
+    check_range("engine.osc1.pulse_edge", osc1.pulse_edge, 0.0, 1.0)?;
 
     Ok(())
 }
@@ -382,7 +597,94 @@ fn validate_osc2(osc2: &Osc2Patch) -> Result<(), PatchValidationError> {
         0.0,
         1.0,
     )?;
+    check_range("engine.osc2.pulse_width", osc2.pulse_width, 0.05, 0.95)?;
+    check_range("engine.osc2.pwm_depth", osc2.pwm_depth, 0.0, 1.0)?;
+    check_range("engine.osc2.start_phase", osc2.start_phase, 0.0, 1.0)?;
+    check_range("engine.osc2.level", osc2.level, 0.0, 2.0)?;
+    check_range("engine.osc2.ratio", osc2.ratio, 0.25, 4.0)?;
+    check_range("engine.osc2.saw_bend", osc2.saw_bend, -1.0, 1.0)?;
+    check_range("engine.osc2.triangle_fold", osc2.triangle_fold, 0.0, 1.0)?;
+    check_range("engine.osc2.pulse_edge", osc2.pulse_edge, 0.0, 1.0)?;
 
+    Ok(())
+}
+
+fn validate_spectral(spectral: &SpectralPatch) -> Result<(), PatchValidationError> {
+    check_range("engine.spectral.level", spectral.level, 0.0, 1.0)?;
+    check_range("engine.spectral.position", spectral.position, 0.0, 1.0)?;
+    check_range("engine.spectral.morph", spectral.morph, 0.0, 1.0)?;
+    check_range("engine.spectral.ratio", spectral.ratio, 0.25, 4.0)?;
+    check_range(
+        "engine.spectral.fine_tune_cents",
+        spectral.fine_tune_cents,
+        -100.0,
+        100.0,
+    )?;
+
+    Ok(())
+}
+
+fn validate_additive(additive: &AdditivePatch) -> Result<(), PatchValidationError> {
+    check_range("engine.additive.level", additive.level, 0.0, 1.0)?;
+    check_integer_range(
+        "engine.additive.partial_count",
+        additive.partial_count as i32,
+        4,
+        8,
+    )?;
+    check_range(
+        "engine.additive.harmonic_spread",
+        additive.harmonic_spread,
+        0.0,
+        1.0,
+    )?;
+    check_range(
+        "engine.additive.odd_even_balance",
+        additive.odd_even_balance,
+        -1.0,
+        1.0,
+    )?;
+    check_range(
+        "engine.additive.inharmonicity",
+        additive.inharmonicity,
+        0.0,
+        1.0,
+    )?;
+    check_range(
+        "engine.additive.spectral_tilt",
+        additive.spectral_tilt,
+        -1.0,
+        1.0,
+    )?;
+    check_range(
+        "engine.additive.random_detune_cents",
+        additive.random_detune_cents,
+        0.0,
+        35.0,
+    )?;
+
+    Ok(())
+}
+
+fn validate_source_controls(engine: &EnginePatchDefaults) -> Result<(), PatchValidationError> {
+    check_range(
+        "engine.source_pwm_rate_hz",
+        engine.source_pwm_rate_hz,
+        0.01,
+        20.0,
+    )?;
+    if let Some(noise_filter_level) = engine.noise_filter_level {
+        check_range("engine.noise_filter_level", noise_filter_level, 0.0, 1.0)?;
+    }
+    check_range("engine.noise_body_level", engine.noise_body_level, 0.0, 1.0)?;
+    check_range("engine.analog_drift", engine.analog_drift, 0.0, 1.0)?;
+    check_range("engine.micro_jitter", engine.micro_jitter, 0.0, 1.0)?;
+    check_range("engine.fm_amount", engine.fm_amount, 0.0, 1.0)?;
+    check_range("engine.phase_mod_amount", engine.phase_mod_amount, 0.0, 1.0)?;
+    check_range("engine.ring_mod_amount", engine.ring_mod_amount, 0.0, 1.0)?;
+    check_range("engine.am_amount", engine.am_amount, 0.0, 1.0)?;
+    check_range("engine.sync_softness", engine.sync_softness, 0.0, 1.0)?;
+    check_range("engine.cross_mix_amount", engine.cross_mix_amount, 0.0, 1.0)?;
     Ok(())
 }
 
@@ -676,6 +978,104 @@ mod tests {
         validate_patch_v1(&reparsed).expect("round trip must validate");
 
         assert_eq!(patch, reparsed);
+    }
+
+    #[test]
+    fn old_factory_patch_loads_neutral_source_expansion_defaults() {
+        let patch = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+
+        assert_eq!(patch.engine.osc1.pulse_width, 0.5);
+        assert_eq!(patch.engine.osc1.pwm_depth, 0.0);
+        assert_eq!(patch.engine.osc1.phase_mode, OscPhaseMode::Deterministic);
+        assert_eq!(patch.engine.osc2.level, 1.0);
+        assert_eq!(patch.engine.osc2.pitch_mode, Osc2PitchMode::Semitone);
+        assert_eq!(patch.engine.noise_color, NoiseColor::White);
+        assert_eq!(patch.engine.noise_filter_level, None);
+        assert_eq!(patch.engine.noise_body_level, 0.0);
+        assert_eq!(patch.engine.cross_mix_mode, CrossMixMode::Sum);
+        assert_eq!(patch.engine.spectral, SpectralPatch::default());
+        assert_eq!(patch.engine.additive, AdditivePatch::default());
+    }
+
+    #[test]
+    fn source_expansion_fields_validate_and_round_trip() {
+        let mut patch = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        patch.engine.osc1.pulse_width = 0.37;
+        patch.engine.osc1.pwm_depth = 0.42;
+        patch.engine.osc1.phase_mode = OscPhaseMode::Fixed;
+        patch.engine.osc1.start_phase = 0.25;
+        patch.engine.osc1.saw_bend = -0.35;
+        patch.engine.osc1.triangle_fold = 0.40;
+        patch.engine.osc1.pulse_edge = 0.30;
+        patch.engine.osc2.level = 1.35;
+        patch.engine.osc2.pitch_mode = Osc2PitchMode::Ratio;
+        patch.engine.osc2.ratio = 1.50;
+        patch.engine.noise_color = NoiseColor::Pinkish;
+        patch.engine.noise_filter_level = Some(0.18);
+        patch.engine.noise_body_level = 0.22;
+        patch.engine.fm_direction = ModDirection::Osc2ToOsc1;
+        patch.engine.phase_mod_amount = 0.25;
+        patch.engine.cross_mix_mode = CrossMixMode::Difference;
+        patch.engine.cross_mix_amount = 0.45;
+        patch.engine.spectral.level = 0.38;
+        patch.engine.spectral.table = SpectralTable::Metallic;
+        patch.engine.spectral.position = 0.72;
+        patch.engine.spectral.morph = 0.44;
+        patch.engine.spectral.ratio = 1.75;
+        patch.engine.spectral.fine_tune_cents = -11.0;
+        patch.engine.additive.level = 0.26;
+        patch.engine.additive.partial_count = 8;
+        patch.engine.additive.harmonic_spread = 0.35;
+        patch.engine.additive.odd_even_balance = -0.45;
+        patch.engine.additive.inharmonicity = 0.28;
+        patch.engine.additive.spectral_tilt = 0.62;
+        patch.engine.additive.random_detune_cents = 12.5;
+
+        validate_patch_v1(&patch).expect("source controls validate");
+        let serialized = save_patch_toml(&patch).expect("source controls serialize");
+        let reparsed = load_patch_toml(&serialized).expect("source controls parse");
+
+        assert_eq!(patch, reparsed);
+    }
+
+    #[test]
+    fn rejects_invalid_source_expansion_enum_and_range() {
+        let invalid_enum = MOLTEN_HORIZON.replace(
+            "[engine.osc1]",
+            "[engine]\nnoise_color = \"infrared\"\n\n[engine.osc1]",
+        );
+        assert!(load_patch_toml(&invalid_enum).is_err());
+        let invalid_spectral_enum = MOLTEN_HORIZON.replace(
+            "[engine.osc1]",
+            "[engine.spectral]\ntable = \"glass\"\n\n[engine.osc1]",
+        );
+        assert!(load_patch_toml(&invalid_spectral_enum).is_err());
+
+        let mut invalid_range = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        invalid_range.engine.osc2.ratio = 0.05;
+        assert!(validate_patch_v1(&invalid_range).is_err());
+
+        let mut invalid_spectral_range =
+            load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        invalid_spectral_range.engine.spectral.ratio = 8.0;
+        assert!(validate_patch_v1(&invalid_spectral_range).is_err());
+
+        let mut invalid_partial_count =
+            load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        invalid_partial_count.engine.additive.partial_count = 3;
+        assert!(validate_patch_v1(&invalid_partial_count).is_err());
+
+        invalid_partial_count.engine.additive.partial_count = 9;
+        assert!(validate_patch_v1(&invalid_partial_count).is_err());
+
+        let mut invalid_odd_even = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        invalid_odd_even.engine.additive.odd_even_balance = 1.5;
+        assert!(validate_patch_v1(&invalid_odd_even).is_err());
+
+        let mut invalid_random_detune =
+            load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        invalid_random_detune.engine.additive.random_detune_cents = 36.0;
+        assert!(validate_patch_v1(&invalid_random_detune).is_err());
     }
 
     #[test]

@@ -171,6 +171,10 @@ impl Oscillator {
         self.phase = phase.fract().abs();
     }
 
+    pub fn phase(&self) -> f32 {
+        self.phase
+    }
+
     pub fn hard_sync(&mut self, amount: f32) {
         self.phase *= (1.0 - amount.clamp(0.0, 1.0)).max(0.0);
     }

@@ -100,6 +100,25 @@ sub_freq = midi_note_hz(midi_note + pitch_bend + sub_octave_offset * 12)
 sub_mix = square(sub_phase) * sub_level
 ```
 
+## Additive Source
+
+`engine.additive` adds a quiet, blendable source before the shared filter and
+body path. It is neutral for old patches because `additive_level` defaults to
+zero.
+
+On note-on, each voice seeds up to eight fixed partial oscillators from voice
+slot, MIDI note, voice age, and partial index. The same seed also creates a
+stable per-partial detune offset bounded by `random_detune_cents`; no per-sample
+randomness is used.
+
+Per frame, `partial_count` is rounded and clamped to 4..8. Partial ratios start
+at harmonics 1..8. `harmonic_spread` and `inharmonicity` bend only higher
+partials upward, so the fundamental remains the pitch center. `odd_even_balance`
+weights odd and even partials against each other, and `spectral_tilt` darkens or
+brightens the higher partial weights. The weighted sum is normalized by total
+weight, scaled by `additive_level`, and added to the other sources before
+`pre_filter`.
+
 ## Pre-Filter Body And Pressure
 
 The sub body is made heavier by derived mass:
@@ -114,8 +133,9 @@ The oscillator body is then loaded before the filter:
 ```text
 pre_filter_gain = 1 + mixer_pre_filter_drive * 2
 strain_bias = baklja_edge * 0.18
+source_mix = osc1_mix + osc2_mix + spectral_mix + additive_mix
 pre_filter =
-  soft_clip((osc1_mix + osc2_mix + body_mix)
+  soft_clip((source_mix + body_mix)
             * (pre_filter_gain + filter_drive * 0.8),
             strain_bias)
 ```

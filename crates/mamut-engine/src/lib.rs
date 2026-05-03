@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use mamut_dsp::{
     AdsrEnvelope, AdsrTiming, DENORMAL_FLUSH_ABS, LinearSmoother, MASTER_SAFETY_KNEE, NoiseRng,
     Oscillator, SimpleChorus, SimpleReverb, StateVariableFilter, StereoBlockMut, StereoDcBlocker,
@@ -13,7 +15,10 @@ use mamut_identity::{
     DerivedState, IdentityState, MacroState, ResolvedIdentityFrame, resolve_identity,
 };
 use mamut_params::{MacroId, ParamId, param_spec};
-use mamut_patch::{PatchFileV1, PatchValidationError, validate_patch_v1};
+use mamut_patch::{
+    CrossMixMode, ModDirection, NoiseColor, Osc2PitchMode, OscPhaseMode, PatchFileV1,
+    PatchValidationError, SpectralTable, validate_patch_v1,
+};
 
 mod api;
 mod engine;
@@ -32,7 +37,8 @@ pub use gfm_layer::{
     select_gfm_program_for_patch,
 };
 pub use state::{
-    DirectParameters, EngineSnapshot, OutputSafetySnapshot, VoicePhase, VoiceSnapshot,
+    DirectParameters, EngineSnapshot, OutputSafetySnapshot, PerformanceResponseSnapshot,
+    VoicePhase, VoiceSnapshot,
 };
 
 pub(crate) use api::{

@@ -105,6 +105,10 @@ impl Engine {
         Ok(())
     }
 
+    pub fn export_patch(&self) -> PatchFileV1 {
+        self.patch.clone()
+    }
+
     pub fn panic(&mut self) {
         self.live_macros = MacroState::from_defaults(&self.patch.macros);
         self.reset_runtime_state();
@@ -403,6 +407,18 @@ impl Engine {
             identity: self.last_frame.identity,
             derived: self.last_frame.derived,
             direct: self.last_direct,
+            performance_response: PerformanceResponseSnapshot {
+                velocity_to_level: self.patch.performance_response.velocity_to_level,
+                velocity_to_filter: self.patch.performance_response.velocity_to_filter,
+                aftertouch_to_gravitacija: self
+                    .patch
+                    .performance_response
+                    .aftertouch_to_gravitacija,
+                aftertouch_to_baklja: self.patch.performance_response.aftertouch_to_baklja,
+                mod_wheel_to_bloom: self.patch.performance_response.mod_wheel_to_bloom,
+                mod_wheel_to_swarm: self.patch.performance_response.mod_wheel_to_swarm,
+                bend_range_semitones: self.patch.performance_response.bend_range_semitones,
+            },
             gfm_layer: self.gfm_layer_snapshot(),
             bcs_layer: self.bcs_layer_snapshot(),
             voices,
@@ -671,6 +687,11 @@ impl Engine {
             self.last_direct.amp_env,
             self.last_direct.filter_env,
             voice_index,
+            self.last_direct.osc1_phase_mode,
+            self.last_direct.osc1_start_phase,
+            self.last_direct.osc2_phase_mode,
+            self.last_direct.osc2_start_phase,
+            self.last_direct.additive_random_detune_cents,
         );
         self.refresh_bcs_layer_pitch();
     }
@@ -805,38 +826,172 @@ impl Engine {
             };
             let spread_detune_semitones =
                 spread_position * direct.detune_spread_cents * 0.5 / 100.0;
-            let pulse_width = (0.50 + identity.baklja_edge * 0.18 - identity.horizont_air * 0.05)
-                .clamp(0.08, 0.92);
+            let pwm_lfo = (voice.pwm_lfo.phase() * std::f32::consts::TAU).sin();
+            voice
+                .pwm_lfo
+                .advance(direct.source_pwm_rate_hz, sample_rate_hz);
+            let drift_lfo = (voice.drift_lfo.phase() * std::f32::consts::TAU).sin();
+            voice.drift_lfo.advance(0.083, sample_rate_hz);
+            let jitter = voice.jitter.next_bipolar();
+            let pitch_instability =
+                drift_lfo * direct.analog_drift * 0.018 + jitter * direct.micro_jitter * 0.006;
+            let pulse_bias = identity.baklja_edge * 0.18 - identity.horizont_air * 0.05;
+            let osc1_pulse_width =
+                (direct.osc1_pulse_width + pulse_bias + pwm_lfo * direct.osc1_pwm_depth * 0.40)
+                    .clamp(0.05, 0.95);
+            let osc2_pulse_width =
+                (direct.osc2_pulse_width + pulse_bias + pwm_lfo * direct.osc2_pwm_depth * 0.40)
+                    .clamp(0.05, 0.95);
+            let raw_noise = voice.noise.next_bipolar();
+            let colored_noise =
+                color_noise_sample(raw_noise, direct.noise_color, &mut voice.noise_color_state);
+            let osc2_preview = oscillator_preview_sample(
+                &voice.osc2,
+                osc2_pulse_width,
+                direct.osc2_saw_bend,
+                direct.osc2_triangle_fold,
+                direct.osc2_pulse_edge,
+            );
 
-            let osc1_note =
-                note as f32 + pitch_bend_semitones + osc1_fine + spread_detune_semitones;
-            let osc1_freq = midi_note_hz(osc1_note);
+            let osc1_note = note as f32
+                + pitch_bend_semitones
+                + osc1_fine
+                + spread_detune_semitones
+                + pitch_instability;
+            let mut osc1_freq = midi_note_hz(osc1_note);
+            if is_osc2_to_osc1(direct.fm_direction) && direct.fm_amount > 0.0 {
+                osc1_freq *= (1.0 + osc2_preview * direct.fm_amount * 0.25).clamp(0.25, 4.0);
+            }
+            let osc1_phase_mod =
+                if is_osc2_to_osc1(direct.phase_mod_direction) && direct.phase_mod_amount > 0.0 {
+                    osc2_preview * direct.phase_mod_amount * 0.080
+                } else {
+                    0.0
+                };
             let osc1_mix = mixed_wave(
                 &voice.osc1,
                 direct.osc1_wave_mix,
-                pulse_width,
-                &mut voice.noise,
+                osc1_pulse_width,
+                colored_noise,
+                osc1_phase_mod,
+                direct.osc1_saw_bend,
+                direct.osc1_triangle_fold,
+                direct.osc1_pulse_edge,
             );
             let osc1_wrapped = voice.osc1.advance(osc1_freq, sample_rate_hz);
 
-            if osc1_wrapped && direct.sync_amount > 0.0 {
-                voice.osc2.hard_sync(direct.sync_amount);
+            let effective_sync_amount =
+                direct.sync_amount * (1.0 - direct.sync_softness * 0.75).clamp(0.0, 1.0);
+            if osc1_wrapped
+                && effective_sync_amount > 0.0
+                && !is_osc2_to_osc1(direct.sync_direction)
+            {
+                voice.osc2.hard_sync(effective_sync_amount);
             }
 
-            let osc2_note =
-                note as f32 + direct.osc2_interval_semitones + osc2_fine + spread_detune_semitones;
-            let osc2_freq = midi_note_hz(osc2_note)
-                * (1.0 + osc1_mix * direct.crossmod_amount * 0.25).clamp(0.25, 4.0);
-            let osc2_mix = mixed_wave_osc2(&voice.osc2, direct.osc2_wave_mix, pulse_width);
-            voice.osc2.advance(osc2_freq, sample_rate_hz);
+            let osc2_freq_base = if direct.osc2_pitch_mode.round() as i32 == 1 {
+                midi_note_hz(note as f32 + pitch_bend_semitones + spread_detune_semitones)
+                    * direct.osc2_ratio
+                    * 2.0_f32.powf(osc2_fine / 12.0)
+            } else {
+                let osc2_note = note as f32
+                    + direct.osc2_interval_semitones
+                    + osc2_fine
+                    + spread_detune_semitones
+                    + pitch_instability;
+                midi_note_hz(osc2_note)
+            };
+            let crossmod = (1.0 + osc1_mix * direct.crossmod_amount * 0.25).clamp(0.25, 4.0);
+            let fm = if !is_osc2_to_osc1(direct.fm_direction) && direct.fm_amount > 0.0 {
+                (1.0 + osc1_mix * direct.fm_amount * 0.25).clamp(0.25, 4.0)
+            } else {
+                1.0
+            };
+            let osc2_freq = (osc2_freq_base * crossmod * fm).clamp(4.0, sample_rate_hz * 0.45);
+            let osc2_phase_mod =
+                if !is_osc2_to_osc1(direct.phase_mod_direction) && direct.phase_mod_amount > 0.0 {
+                    osc1_mix * direct.phase_mod_amount * 0.080
+                } else {
+                    0.0
+                };
+            let osc2_mix = mixed_wave_osc2(
+                &voice.osc2,
+                direct.osc2_wave_mix,
+                osc2_pulse_width,
+                osc2_phase_mod,
+                direct.osc2_saw_bend,
+                direct.osc2_triangle_fold,
+                direct.osc2_pulse_edge,
+            ) * direct.osc2_level;
+            let osc2_wrapped = voice.osc2.advance(osc2_freq, sample_rate_hz);
+            if osc2_wrapped && effective_sync_amount > 0.0 && is_osc2_to_osc1(direct.sync_direction)
+            {
+                voice.osc1.hard_sync(effective_sync_amount);
+            }
+
+            let spectral_note =
+                note as f32 + pitch_bend_semitones + spread_detune_semitones + pitch_instability;
+            let spectral_freq = (midi_note_hz(spectral_note)
+                * direct.spectral_ratio
+                * 2.0_f32.powf(direct.spectral_fine_tune_cents / 1200.0))
+            .clamp(4.0, sample_rate_hz * 0.45);
+            let spectral_mix = spectral_wavetable_sample(
+                &voice.spectral,
+                direct.spectral_table,
+                direct.spectral_position,
+                direct.spectral_morph,
+            ) * direct.spectral_level;
+            voice.spectral.advance(spectral_freq, sample_rate_hz);
+
+            let additive_mix = if direct.additive_level > f32::EPSILON {
+                let partial_count = additive_partial_count(direct.additive_partial_count);
+                let base_freq = midi_note_hz(spectral_note).clamp(4.0, sample_rate_hz * 0.45);
+                let mut sample_sum = 0.0_f32;
+                let mut weight_sum = 0.0_f32;
+                for index in 0..partial_count {
+                    let weight = additive_weight(
+                        index,
+                        partial_count,
+                        direct.additive_odd_even_balance,
+                        direct.additive_spectral_tilt,
+                    );
+                    sample_sum += sine_phase_sample(&voice.additive_partials[index]) * weight;
+                    weight_sum += weight;
+
+                    let ratio = additive_ratio(
+                        index,
+                        direct.additive_harmonic_spread,
+                        direct.additive_inharmonicity,
+                    );
+                    let detune_scale = 2.0_f32.powf(voice.additive_detune_cents[index] / 1200.0);
+                    let partial_freq =
+                        (base_freq * ratio * detune_scale).clamp(4.0, sample_rate_hz * 0.45);
+                    voice.additive_partials[index].advance(partial_freq, sample_rate_hz);
+                }
+                (sample_sum / weight_sum.max(0.001)) * direct.additive_level
+            } else {
+                0.0
+            };
 
             let sub_freq = midi_note_hz(note as f32 + pitch_bend_semitones + sub_octave);
             let sub_mix = voice.sub.square_sample() * direct.sub_level;
             voice.sub.advance(sub_freq, sample_rate_hz);
 
             let body_mix = sub_mix * mixer_body_gain * (0.62 + derived.mass * 0.46);
+            let am_gain = 1.0 - direct.am_amount * 0.50
+                + ((osc2_mix * 0.5 + 0.5).clamp(0.0, 1.0) * direct.am_amount);
+            let osc1_source = osc1_mix * am_gain;
+            let summed_source = osc1_source + osc2_mix + spectral_mix + additive_mix;
+            let crossed_source = cross_mix_sample(direct.cross_mix_mode, osc1_source, osc2_mix)
+                + spectral_mix
+                + additive_mix;
+            let cross_amount = direct.cross_mix_amount.clamp(0.0, 1.0);
+            let ring_amount = direct.ring_mod_amount.clamp(0.0, 1.0);
+            let source_mix = (summed_source * (1.0 - cross_amount) + crossed_source * cross_amount)
+                * (1.0 - ring_amount)
+                + (osc1_source * osc2_mix * 1.4) * ring_amount;
             let pre_filter = soft_clip(
-                (osc1_mix + osc2_mix + body_mix) * (pre_filter_gain + direct.filter_drive * 0.8),
+                (source_mix + body_mix) * (pre_filter_gain + direct.filter_drive * 0.8),
                 strain_bias,
             );
 
@@ -863,7 +1018,9 @@ impl Engine {
             let amp = voice.amp_env.next_sample();
             let velocity_gain =
                 1.0 - note_velocity_to_level + velocity_level * note_velocity_to_level;
-            let mut sample = filtered * amp * velocity_gain * voice_level_gain;
+            let body_noise =
+                colored_noise * direct.noise_body_level * (0.16 + derived.body_focus * 0.16);
+            let mut sample = (filtered + body_noise) * amp * velocity_gain * voice_level_gain;
             sample = soft_clip(sample * strain_drive, direct.final_asymmetry * 0.14);
 
             if voice.phase != VoicePhase::Held && voice.amp_env.is_idle() {
@@ -1020,8 +1177,20 @@ impl Engine {
             ParamId::Osc1SawLevel => self.patch.engine.osc1.saw_level = clamped,
             ParamId::Osc1PulseLevel => self.patch.engine.osc1.pulse_level = clamped,
             ParamId::Osc1TriangleLevel => self.patch.engine.osc1.triangle_level = clamped,
-            ParamId::Osc1NoiseLevel => self.patch.engine.osc1.noise_level = clamped,
+            ParamId::Osc1NoiseLevel => {
+                self.patch.engine.osc1.noise_level = clamped;
+                self.patch.engine.noise_filter_level = Some(clamped);
+            }
             ParamId::Osc1FineTuneCents => self.patch.engine.osc1.fine_tune_cents = Some(clamped),
+            ParamId::Osc1PulseWidth => self.patch.engine.osc1.pulse_width = clamped,
+            ParamId::Osc1PwmDepth => self.patch.engine.osc1.pwm_depth = clamped,
+            ParamId::Osc1PhaseMode => {
+                self.patch.engine.osc1.phase_mode = phase_mode_from_index(clamped)
+            }
+            ParamId::Osc1StartPhase => self.patch.engine.osc1.start_phase = clamped,
+            ParamId::Osc1SawBend => self.patch.engine.osc1.saw_bend = clamped,
+            ParamId::Osc1TriangleFold => self.patch.engine.osc1.triangle_fold = clamped,
+            ParamId::Osc1PulseEdge => self.patch.engine.osc1.pulse_edge = clamped,
             ParamId::Osc2SawLevel => self.patch.engine.osc2.saw_level = clamped,
             ParamId::Osc2PulseLevel => self.patch.engine.osc2.pulse_level = clamped,
             ParamId::Osc2TriangleLevel => self.patch.engine.osc2.triangle_level = clamped,
@@ -1031,6 +1200,65 @@ impl Engine {
             ParamId::Osc2FineTuneCents => self.patch.engine.osc2.fine_tune_cents = clamped,
             ParamId::Osc2SyncAmount => self.patch.engine.osc2.sync_amount = clamped,
             ParamId::Osc2CrossmodAmount => self.patch.engine.osc2.crossmod_amount = clamped,
+            ParamId::Osc2PulseWidth => self.patch.engine.osc2.pulse_width = clamped,
+            ParamId::Osc2PwmDepth => self.patch.engine.osc2.pwm_depth = clamped,
+            ParamId::Osc2PhaseMode => {
+                self.patch.engine.osc2.phase_mode = phase_mode_from_index(clamped)
+            }
+            ParamId::Osc2StartPhase => self.patch.engine.osc2.start_phase = clamped,
+            ParamId::Osc2Level => self.patch.engine.osc2.level = clamped,
+            ParamId::Osc2PitchMode => {
+                self.patch.engine.osc2.pitch_mode = osc2_pitch_mode_from_index(clamped)
+            }
+            ParamId::Osc2Ratio => self.patch.engine.osc2.ratio = clamped,
+            ParamId::Osc2SawBend => self.patch.engine.osc2.saw_bend = clamped,
+            ParamId::Osc2TriangleFold => self.patch.engine.osc2.triangle_fold = clamped,
+            ParamId::Osc2PulseEdge => self.patch.engine.osc2.pulse_edge = clamped,
+            ParamId::SpectralLevel => self.patch.engine.spectral.level = clamped,
+            ParamId::SpectralTable => {
+                self.patch.engine.spectral.table = spectral_table_from_index(clamped)
+            }
+            ParamId::SpectralPosition => self.patch.engine.spectral.position = clamped,
+            ParamId::SpectralMorph => self.patch.engine.spectral.morph = clamped,
+            ParamId::SpectralRatio => self.patch.engine.spectral.ratio = clamped,
+            ParamId::SpectralFineTuneCents => self.patch.engine.spectral.fine_tune_cents = clamped,
+            ParamId::AdditiveLevel => self.patch.engine.additive.level = clamped,
+            ParamId::AdditivePartialCount => {
+                self.patch.engine.additive.partial_count = clamped.round().clamp(4.0, 8.0) as u8
+            }
+            ParamId::AdditiveHarmonicSpread => self.patch.engine.additive.harmonic_spread = clamped,
+            ParamId::AdditiveOddEvenBalance => {
+                self.patch.engine.additive.odd_even_balance = clamped
+            }
+            ParamId::AdditiveInharmonicity => self.patch.engine.additive.inharmonicity = clamped,
+            ParamId::AdditiveSpectralTilt => self.patch.engine.additive.spectral_tilt = clamped,
+            ParamId::AdditiveRandomDetuneCents => {
+                self.patch.engine.additive.random_detune_cents = clamped
+            }
+            ParamId::SourcePwmRateHz => self.patch.engine.source_pwm_rate_hz = clamped,
+            ParamId::NoiseColor => self.patch.engine.noise_color = noise_color_from_index(clamped),
+            ParamId::NoiseFilterLevel => self.patch.engine.noise_filter_level = Some(clamped),
+            ParamId::NoiseBodyLevel => self.patch.engine.noise_body_level = clamped,
+            ParamId::AnalogDrift => self.patch.engine.analog_drift = clamped,
+            ParamId::MicroJitter => self.patch.engine.micro_jitter = clamped,
+            ParamId::FmAmount => self.patch.engine.fm_amount = clamped,
+            ParamId::FmDirection => {
+                self.patch.engine.fm_direction = mod_direction_from_index(clamped)
+            }
+            ParamId::PhaseModAmount => self.patch.engine.phase_mod_amount = clamped,
+            ParamId::PhaseModDirection => {
+                self.patch.engine.phase_mod_direction = mod_direction_from_index(clamped)
+            }
+            ParamId::RingModAmount => self.patch.engine.ring_mod_amount = clamped,
+            ParamId::AmAmount => self.patch.engine.am_amount = clamped,
+            ParamId::SyncDirection => {
+                self.patch.engine.sync_direction = mod_direction_from_index(clamped)
+            }
+            ParamId::SyncSoftness => self.patch.engine.sync_softness = clamped,
+            ParamId::CrossMixMode => {
+                self.patch.engine.cross_mix_mode = cross_mix_mode_from_index(clamped)
+            }
+            ParamId::CrossMixAmount => self.patch.engine.cross_mix_amount = clamped,
             ParamId::SubLevel => self.patch.engine.sub.level = clamped,
             ParamId::SubOctaveOffset => self.patch.engine.sub.octave_offset = clamped.round() as i8,
             ParamId::MixerPreFilterDrive => self.patch.engine.mixer.pre_filter_drive = clamped,
@@ -1074,6 +1302,77 @@ impl Engine {
             ParamId::ReverbMix => self.patch.engine.fx.reverb.mix = clamped,
             ParamId::ReverbSize => self.patch.engine.fx.reverb.size = clamped,
             ParamId::ReverbDamping => self.patch.engine.fx.reverb.damping = clamped,
+            ParamId::PerformanceVelocityToLevel => {
+                self.patch.performance_response.velocity_to_level = clamped
+            }
+            ParamId::PerformanceVelocityToFilter => {
+                self.patch.performance_response.velocity_to_filter = clamped
+            }
+            ParamId::PerformanceAftertouchToGravitacija => {
+                self.patch.performance_response.aftertouch_to_gravitacija = clamped
+            }
+            ParamId::PerformanceAftertouchToBaklja => {
+                self.patch.performance_response.aftertouch_to_baklja = clamped
+            }
+            ParamId::PerformanceModWheelToBloom => {
+                self.patch.performance_response.mod_wheel_to_bloom = clamped
+            }
+            ParamId::PerformanceModWheelToSwarm => {
+                self.patch.performance_response.mod_wheel_to_swarm = clamped
+            }
         }
+    }
+}
+
+fn phase_mode_from_index(value: f32) -> OscPhaseMode {
+    match value.round() as i32 {
+        1 => OscPhaseMode::Fixed,
+        2 => OscPhaseMode::FreeRun,
+        _ => OscPhaseMode::Deterministic,
+    }
+}
+
+fn osc2_pitch_mode_from_index(value: f32) -> Osc2PitchMode {
+    if value.round() as i32 >= 1 {
+        Osc2PitchMode::Ratio
+    } else {
+        Osc2PitchMode::Semitone
+    }
+}
+
+fn noise_color_from_index(value: f32) -> NoiseColor {
+    match value.round() as i32 {
+        1 => NoiseColor::Pinkish,
+        2 => NoiseColor::Dark,
+        3 => NoiseColor::Bright,
+        _ => NoiseColor::White,
+    }
+}
+
+fn spectral_table_from_index(value: f32) -> SpectralTable {
+    match value.round() as i32 {
+        1 => SpectralTable::Vocalish,
+        2 => SpectralTable::Metallic,
+        3 => SpectralTable::Hollow,
+        4 => SpectralTable::Formant,
+        _ => SpectralTable::Sineish,
+    }
+}
+
+fn mod_direction_from_index(value: f32) -> ModDirection {
+    if value.round() as i32 >= 1 {
+        ModDirection::Osc2ToOsc1
+    } else {
+        ModDirection::Osc1ToOsc2
+    }
+}
+
+fn cross_mix_mode_from_index(value: f32) -> CrossMixMode {
+    match value.round() as i32 {
+        1 => CrossMixMode::Multiply,
+        2 => CrossMixMode::Fold,
+        3 => CrossMixMode::Max,
+        4 => CrossMixMode::Difference,
+        _ => CrossMixMode::Sum,
     }
 }

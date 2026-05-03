@@ -5,7 +5,9 @@ use mamut_field::{
     GfmHealthHistogram, GfmLattice16, GfmPerformanceGesture, GfmPerformanceProgram, GfmProgramId,
     sample_to_pcm16,
 };
-use mamut_patch::load_patch_toml;
+use mamut_patch::{
+    CrossMixMode, NoiseColor, Osc2PitchMode, OscPhaseMode, SpectralTable, load_patch_toml,
+};
 
 const MOLTEN_HORIZON: &str = include_str!("../../../patches/factory/molten-horizon.toml");
 const CATHEDRAL_BLOOM: &str = include_str!("../../../patches/factory/cathedral-bloom.toml");
@@ -1048,6 +1050,8 @@ fn bcs_layer_defaults_to_disabled_snapshot() {
     assert!(!snapshot.bcs_layer.enabled);
     assert_eq!(snapshot.bcs_layer.amount, 0.0);
     assert_eq!(snapshot.bcs_layer.effective_amount, 0.0);
+    assert_eq!(snapshot.bcs_layer.gain, 0.0);
+    assert_eq!(snapshot.bcs_layer.effective_gain, 0.0);
 }
 
 #[test]
@@ -1107,6 +1111,8 @@ fn bcs_layer_mode_enabled_is_silent_until_playable_controls_open() {
     assert!(!layer_snapshot.enabled);
     assert_eq!(layer_snapshot.amount, 0.0);
     assert_eq!(layer_snapshot.effective_amount, 0.0);
+    assert_eq!(layer_snapshot.gain, 0.0);
+    assert_eq!(layer_snapshot.effective_gain, 0.0);
 
     let (layer_signature, layer_stats) =
         render_engine_layer_signature_for_engine(&mut engine, frames);
@@ -1129,6 +1135,7 @@ fn bcs_layer_mode_enabled_is_silent_until_playable_controls_open() {
     assert!(snapshot.bcs_layer.max_state_abs < 32.0);
     assert_eq!(snapshot.bcs_layer.pitch_note, Some(48));
     assert_eq!(snapshot.bcs_layer.effective_amount, 0.0);
+    assert_eq!(snapshot.bcs_layer.effective_gain, 0.0);
 }
 
 #[test]
@@ -1173,6 +1180,8 @@ fn bcs_layer_sw9_enable_with_zero_s9_amount_stays_silent() {
     assert!(snapshot.bcs_layer.enabled);
     assert_eq!(snapshot.bcs_layer.amount, 0.0);
     assert_eq!(snapshot.bcs_layer.effective_amount, 0.0);
+    assert_eq!(snapshot.bcs_layer.gain, 0.0);
+    assert_eq!(snapshot.bcs_layer.effective_gain, 0.0);
 }
 
 #[test]
@@ -1214,10 +1223,73 @@ fn bcs_layer_playable_controls_change_render_but_stay_bounded() {
     assert!(snapshot.bcs_layer.enabled);
     assert!(snapshot.bcs_layer.amount > 0.70);
     assert!(snapshot.bcs_layer.effective_amount > 0.70);
+    assert!(snapshot.bcs_layer.gain > 0.70);
+    assert!(snapshot.bcs_layer.effective_gain > 0.70);
     assert_eq!(snapshot.bcs_layer.pitch_note, Some(48));
     assert_eq!(snapshot.bcs_layer.unsafe_events, 0);
     assert!(!snapshot.bcs_layer.unsafe_state);
     assert!(snapshot.bcs_layer.max_state_abs < 32.0);
+}
+
+#[test]
+fn bcs_layer_full_amount_leaves_audible_single_note_residual() {
+    let frames = ENGINE_LAYER_TEST_RATE_HZ as usize * 3;
+    let note_events = [Scheduled {
+        frame_offset: 0,
+        event: NoteEvent::NoteOn {
+            note: 48,
+            velocity: 0.78,
+        },
+    }];
+    let patch = load_patch_toml(MOLTEN_HORIZON).expect("factory patch must parse");
+    let mut baseline_engine = Engine::new(
+        EngineConfig {
+            sample_rate_hz: ENGINE_LAYER_TEST_RATE_HZ as f32,
+            max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+            voice_count: 6,
+        },
+        patch.clone(),
+    )
+    .expect("engine must validate");
+    let (baseline, baseline_stats) =
+        render_engine_layer_mono_samples(&mut baseline_engine, frames, &note_events, &[]);
+
+    let mut bcs_engine = Engine::new(
+        EngineConfig {
+            sample_rate_hz: ENGINE_LAYER_TEST_RATE_HZ as f32,
+            max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+            voice_count: 6,
+        },
+        patch,
+    )
+    .expect("engine must validate");
+    bcs_engine.set_bcs_layer_mode(BcsLayerMode::Enabled {
+        scenario: BcsScenario::StableAnchor,
+    });
+    let (bcs, bcs_stats) = render_engine_layer_mono_samples(
+        &mut bcs_engine,
+        frames,
+        &note_events,
+        &bcs_layer_playable_controller_events(1.0),
+    );
+    let snapshot = bcs_engine.snapshot().bcs_layer;
+    let analysis_start = ENGINE_LAYER_TEST_RATE_HZ as usize / 2;
+    let baseline_rms = rms_window(&baseline[analysis_start..]);
+    let residual_rms = rms_delta_window(&baseline[analysis_start..], &bcs[analysis_start..]);
+    let residual_db = amplitude_ratio_db(residual_rms, baseline_rms);
+
+    assert!(baseline_stats.finite);
+    assert!(bcs_stats.finite);
+    assert!(
+        bcs_stats.peak_abs <= MASTER_SAFETY_CEILING,
+        "stats={bcs_stats:?}"
+    );
+    assert_eq!(snapshot.unsafe_events, 0);
+    assert!(!snapshot.unsafe_state);
+    assert!(
+        residual_db >= -14.0,
+        "baseline_rms={baseline_rms} residual_rms={residual_rms} residual_db={residual_db}"
+    );
 }
 
 #[test]
@@ -1955,6 +2027,302 @@ fn snapshot_exposes_patch_metadata() {
 }
 
 #[test]
+fn performance_response_direct_params_update_snapshot_and_exported_patch() {
+    let mut engine = fixture_engine();
+
+    engine.process_block(ProcessBlock {
+        frame_count: 1,
+        note_events: &[],
+        controller_events: &[Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::DirectParam {
+                id: ParamId::PerformanceAftertouchToBaklja,
+                value: 0.77,
+            },
+        }],
+        macro_state: None,
+        output: None,
+    });
+
+    let snapshot = engine.snapshot();
+    assert!((snapshot.performance_response.aftertouch_to_baklja - 0.77).abs() < 0.0001);
+    assert!(
+        (engine
+            .export_patch()
+            .performance_response
+            .aftertouch_to_baklja
+            - 0.77)
+            .abs()
+            < 0.0001
+    );
+}
+
+#[test]
+fn source_expansion_direct_params_update_snapshot_and_exported_patch() {
+    let mut engine = fixture_engine();
+
+    engine.process_block(ProcessBlock {
+        frame_count: 1,
+        note_events: &[],
+        controller_events: &[
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::Osc1PulseWidth,
+                    value: 0.37,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::Osc2Level,
+                    value: 1.42,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::Osc2PitchMode,
+                    value: 1.0,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::NoiseColor,
+                    value: 2.0,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::CrossMixMode,
+                    value: 4.0,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::SpectralLevel,
+                    value: 0.38,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::SpectralTable,
+                    value: 2.0,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::SpectralPosition,
+                    value: 0.72,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::SpectralMorph,
+                    value: 0.44,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::SpectralRatio,
+                    value: 1.75,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::SpectralFineTuneCents,
+                    value: -11.0,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::AdditiveLevel,
+                    value: 0.31,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::AdditivePartialCount,
+                    value: 7.0,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::AdditiveHarmonicSpread,
+                    value: 0.42,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::AdditiveOddEvenBalance,
+                    value: -0.35,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::AdditiveInharmonicity,
+                    value: 0.27,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::AdditiveSpectralTilt,
+                    value: 0.58,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::AdditiveRandomDetuneCents,
+                    value: 14.0,
+                },
+            },
+        ],
+        macro_state: None,
+        output: None,
+    });
+
+    let snapshot = engine.snapshot();
+    assert!((snapshot.direct.osc1_pulse_width - 0.37).abs() < 0.0001);
+    assert!((snapshot.direct.osc2_level - 1.42).abs() < 0.0001);
+    assert_eq!(snapshot.direct.osc2_pitch_mode, 1.0);
+    assert_eq!(snapshot.direct.noise_color, 2.0);
+    assert_eq!(snapshot.direct.cross_mix_mode, 4.0);
+    assert!((snapshot.direct.spectral_level - 0.38).abs() < 0.0001);
+    assert_eq!(snapshot.direct.spectral_table, 2.0);
+    assert!((snapshot.direct.spectral_position - 0.72).abs() < 0.0001);
+    assert!((snapshot.direct.spectral_morph - 0.44).abs() < 0.0001);
+    assert!((snapshot.direct.spectral_ratio - 1.75).abs() < 0.0001);
+    assert!((snapshot.direct.spectral_fine_tune_cents + 11.0).abs() < 0.0001);
+    assert!((snapshot.direct.additive_level - 0.31).abs() < 0.0001);
+    assert_eq!(snapshot.direct.additive_partial_count, 7.0);
+    assert!((snapshot.direct.additive_harmonic_spread - 0.42).abs() < 0.0001);
+    assert!((snapshot.direct.additive_odd_even_balance + 0.35).abs() < 0.0001);
+    assert!((snapshot.direct.additive_inharmonicity - 0.27).abs() < 0.0001);
+    assert!((snapshot.direct.additive_spectral_tilt - 0.58).abs() < 0.0001);
+    assert!((snapshot.direct.additive_random_detune_cents - 14.0).abs() < 0.0001);
+
+    let exported = engine.export_patch();
+    assert_eq!(exported.engine.osc1.pulse_width, 0.37);
+    assert_eq!(exported.engine.osc2.level, 1.42);
+    assert_eq!(exported.engine.osc2.pitch_mode, Osc2PitchMode::Ratio);
+    assert_eq!(exported.engine.noise_color, NoiseColor::Dark);
+    assert_eq!(exported.engine.cross_mix_mode, CrossMixMode::Difference);
+    assert_eq!(exported.engine.spectral.level, 0.38);
+    assert_eq!(exported.engine.spectral.table, SpectralTable::Metallic);
+    assert_eq!(exported.engine.spectral.position, 0.72);
+    assert_eq!(exported.engine.spectral.morph, 0.44);
+    assert_eq!(exported.engine.spectral.ratio, 1.75);
+    assert_eq!(exported.engine.spectral.fine_tune_cents, -11.0);
+    assert_eq!(exported.engine.additive.level, 0.31);
+    assert_eq!(exported.engine.additive.partial_count, 7);
+    assert_eq!(exported.engine.additive.harmonic_spread, 0.42);
+    assert_eq!(exported.engine.additive.odd_even_balance, -0.35);
+    assert_eq!(exported.engine.additive.inharmonicity, 0.27);
+    assert_eq!(exported.engine.additive.spectral_tilt, 0.58);
+    assert_eq!(exported.engine.additive.random_detune_cents, 14.0);
+}
+
+#[test]
+fn source_expansion_non_default_render_is_finite_and_changes_signature() {
+    let mut patch = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+    let (baseline_signature, _) = render_engine_layer_signature(patch.clone(), None, 2048);
+
+    patch.engine.osc1.pwm_depth = 0.42;
+    patch.engine.osc1.saw_bend = 0.55;
+    patch.engine.osc1.triangle_fold = 0.35;
+    patch.engine.osc1.pulse_edge = 0.25;
+    patch.engine.osc2.level = 1.45;
+    patch.engine.osc2.pitch_mode = Osc2PitchMode::Ratio;
+    patch.engine.osc2.ratio = 1.50;
+    patch.engine.osc2.phase_mode = OscPhaseMode::Fixed;
+    patch.engine.osc2.start_phase = 0.33;
+    patch.engine.noise_filter_level = Some(0.20);
+    patch.engine.noise_body_level = 0.16;
+    patch.engine.noise_color = NoiseColor::Bright;
+    patch.engine.fm_amount = 0.22;
+    patch.engine.phase_mod_amount = 0.18;
+    patch.engine.ring_mod_amount = 0.20;
+    patch.engine.cross_mix_mode = CrossMixMode::Fold;
+    patch.engine.cross_mix_amount = 0.35;
+    patch.engine.spectral.level = 0.44;
+    patch.engine.spectral.table = SpectralTable::Formant;
+    patch.engine.spectral.position = 0.82;
+    patch.engine.spectral.morph = 0.58;
+    patch.engine.spectral.ratio = 1.25;
+    patch.engine.spectral.fine_tune_cents = 7.0;
+    patch.engine.additive.level = 0.30;
+    patch.engine.additive.partial_count = 7;
+    patch.engine.additive.harmonic_spread = 0.38;
+    patch.engine.additive.odd_even_balance = 0.44;
+    patch.engine.additive.inharmonicity = 0.25;
+    patch.engine.additive.spectral_tilt = 0.52;
+    patch.engine.additive.random_detune_cents = 9.5;
+
+    let (source_signature, source_stats) = render_engine_layer_signature(patch, None, 2048);
+
+    assert!(source_stats.finite);
+    assert!(source_stats.peak_abs < 1.01);
+    assert_ne!(baseline_signature, source_signature);
+}
+
+#[test]
+fn additive_source_is_deterministic_and_changes_render_signature() {
+    let mut patch = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+    let (baseline_signature, baseline_stats) =
+        render_engine_layer_signature(patch.clone(), None, 2048);
+    assert!(baseline_stats.finite);
+
+    patch.engine.additive.level = 0.36;
+    patch.engine.additive.partial_count = 6;
+    patch.engine.additive.harmonic_spread = 0.32;
+    patch.engine.additive.odd_even_balance = 0.50;
+    patch.engine.additive.inharmonicity = 0.22;
+    patch.engine.additive.spectral_tilt = -0.42;
+    patch.engine.additive.random_detune_cents = 11.0;
+
+    let (first_signature, first_stats) = render_engine_layer_signature(patch.clone(), None, 2048);
+    let (second_signature, second_stats) = render_engine_layer_signature(patch, None, 2048);
+
+    assert!(first_stats.finite);
+    assert!(second_stats.finite);
+    assert!(first_stats.peak_abs < 1.01);
+    assert_eq!(first_signature, second_signature);
+    assert_ne!(baseline_signature, first_signature);
+}
+
+#[test]
+fn additive_extreme_valid_controls_stay_finite() {
+    let mut patch = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+    patch.engine.additive.level = 1.0;
+    patch.engine.additive.partial_count = 8;
+    patch.engine.additive.harmonic_spread = 1.0;
+    patch.engine.additive.odd_even_balance = -1.0;
+    patch.engine.additive.inharmonicity = 1.0;
+    patch.engine.additive.spectral_tilt = 1.0;
+    patch.engine.additive.random_detune_cents = 35.0;
+
+    let (_, stats) = render_engine_layer_signature(patch, None, 4096);
+
+    assert!(stats.finite);
+    assert!(stats.peak_abs <= 1.0);
+}
+
+#[test]
 fn load_patch_resets_runtime_state() {
     let mut engine = fixture_engine();
     let mut left = [0.0_f32; 128];
@@ -2167,6 +2535,87 @@ fn bcs_layer_playable_controller_events(amount: f32) -> [ScheduledControllerEven
             event: ControllerEvent::BcsLayerAmount { amount },
         },
     ]
+}
+
+fn render_engine_layer_mono_samples(
+    engine: &mut Engine,
+    frames: usize,
+    note_events: &[ScheduledNoteEvent],
+    initial_controller_events: &[ScheduledControllerEvent],
+) -> (Vec<f32>, EngineLayerRenderStats) {
+    let mut rendered = 0;
+    let mut finite = true;
+    let mut peak_abs = 0.0_f32;
+    let mut sum_squares = 0.0_f32;
+    let mut mono = Vec::with_capacity(frames);
+    let mut left = [0.0_f32; ENGINE_LAYER_BLOCK_FRAMES];
+    let mut right = [0.0_f32; ENGINE_LAYER_BLOCK_FRAMES];
+
+    while rendered < frames {
+        let frame_count = (frames - rendered).min(ENGINE_LAYER_BLOCK_FRAMES);
+
+        let (block_note_events, block_controller_events) = if rendered == 0 {
+            (note_events, initial_controller_events)
+        } else {
+            (&[][..], &[][..])
+        };
+        engine.process_block(ProcessBlock {
+            frame_count,
+            note_events: block_note_events,
+            controller_events: block_controller_events,
+            macro_state: None,
+            output: Some(StereoBlockMut::new(
+                &mut left[..frame_count],
+                &mut right[..frame_count],
+            )),
+        });
+
+        for index in 0..frame_count {
+            let left_sample = left[index];
+            let right_sample = right[index];
+            finite &= left_sample.is_finite() && right_sample.is_finite();
+            peak_abs = peak_abs.max(left_sample.abs().max(right_sample.abs()));
+            sum_squares += left_sample * left_sample + right_sample * right_sample;
+            mono.push((left_sample + right_sample) * 0.5);
+        }
+
+        rendered += frame_count;
+    }
+
+    let rms = (sum_squares / (frames.max(1) * 2) as f32).sqrt();
+    let gfm_layer = engine.snapshot().gfm_layer;
+    (
+        mono,
+        EngineLayerRenderStats {
+            finite,
+            rms,
+            peak_abs,
+            gfm_selection: gfm_layer.selection,
+            gfm_program_id: gfm_layer.active_program_id,
+            gfm_diagnostics: gfm_layer.diagnostics,
+        },
+    )
+}
+
+fn rms_window(samples: &[f32]) -> f32 {
+    let sum_squares = samples.iter().map(|sample| sample * sample).sum::<f32>();
+    (sum_squares / samples.len().max(1) as f32).sqrt()
+}
+
+fn rms_delta_window(left: &[f32], right: &[f32]) -> f32 {
+    let sum_squares = left
+        .iter()
+        .zip(right)
+        .map(|(left, right)| {
+            let delta = left - right;
+            delta * delta
+        })
+        .sum::<f32>();
+    (sum_squares / left.len().min(right.len()).max(1) as f32).sqrt()
+}
+
+fn amplitude_ratio_db(numerator: f32, denominator: f32) -> f32 {
+    20.0 * (numerator.max(f32::MIN_POSITIVE) / denominator.max(f32::MIN_POSITIVE)).log10()
 }
 
 fn render_engine_layer_signature_with_notes_and_controllers(
