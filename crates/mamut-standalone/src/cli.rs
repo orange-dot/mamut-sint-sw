@@ -4,6 +4,7 @@ pub(crate) fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
     let mut patch_arg: Option<String> = None;
     let mut force_demo = false;
     let mut audio_selector = None;
+    let mut sample_rate_hz = ALSA_PLAYBACK_SAMPLE_RATE_HZ;
     let mut alsa_period_frames = None;
     let mut alsa_buffer_frames = None;
     let mut alsa_start_threshold_frames = None;
@@ -31,6 +32,13 @@ pub(crate) fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
                     .get(index + 1)
                     .context("missing value after --audio-device")?;
                 audio_selector = Some(value.clone());
+                index += 2;
+            }
+            "--sample-rate" => {
+                let value = args
+                    .get(index + 1)
+                    .context("missing value after --sample-rate")?;
+                sample_rate_hz = parse_sample_rate_hz(value)?;
                 index += 2;
             }
             "--alsa-period-frames" => {
@@ -113,6 +121,7 @@ pub(crate) fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
         patch_path: resolve_patch_argument(patch_arg.as_deref())?,
         force_demo,
         audio_selector,
+        sample_rate_hz,
         alsa_period_frames,
         alsa_buffer_frames,
         alsa_start_threshold_frames,
@@ -168,6 +177,19 @@ pub(crate) fn parse_dry_run_options(args: &[String]) -> Result<DryRunOptions> {
         gfm_layer_seed,
         bcs_layer_scenario,
     })
+}
+
+pub(crate) fn parse_sample_rate_hz(value: &str) -> Result<u32> {
+    let sample_rate_hz = value
+        .parse::<u32>()
+        .with_context(|| format!("invalid sample rate `{value}`"))?;
+    if ALSA_PLAYBACK_SAMPLE_RATE_HZ_ALLOWED.contains(&sample_rate_hz) {
+        Ok(sample_rate_hz)
+    } else {
+        Err(anyhow!(
+            "unsupported sample rate `{sample_rate_hz}`; expected one of 44100, 48000, 88200, 96000, 176400, or 192000"
+        ))
+    }
 }
 
 pub(crate) fn parse_gfm_layer_seed(value: &str) -> Result<u64> {

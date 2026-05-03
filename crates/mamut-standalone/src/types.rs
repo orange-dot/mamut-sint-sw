@@ -11,6 +11,8 @@ pub(crate) const ENGINE_IDLE_SLEEP: Duration = Duration::from_millis(1);
 pub(crate) const ALSA_WAIT_TIMEOUT_MS: u32 = 100;
 pub(crate) const ALSA_PLAYBACK_CHANNELS: usize = 2;
 pub(crate) const ALSA_PLAYBACK_SAMPLE_RATE_HZ: u32 = 44_100;
+pub(crate) const ALSA_PLAYBACK_SAMPLE_RATE_HZ_ALLOWED: [u32; 6] =
+    [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 pub(crate) const ALSA_PERIOD_FRAMES_DEFAULT: usize = 256;
 pub(crate) const ALSA_BUFFER_FRAMES_DEFAULT: usize = 1_024;
 pub(crate) const ALSA_START_THRESHOLD_FRAMES_DEFAULT: usize = ALSA_BUFFER_FRAMES_DEFAULT;
@@ -725,6 +727,7 @@ pub(crate) struct PlayOptions {
     pub(crate) patch_path: PathBuf,
     pub(crate) force_demo: bool,
     pub(crate) audio_selector: Option<String>,
+    pub(crate) sample_rate_hz: u32,
     pub(crate) alsa_period_frames: Option<usize>,
     pub(crate) alsa_buffer_frames: Option<usize>,
     pub(crate) alsa_start_threshold_frames: Option<usize>,

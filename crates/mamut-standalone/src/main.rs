@@ -102,7 +102,7 @@ fn print_usage() {
   mamut-standalone list-midi
   mamut-standalone validate [factory-name-or-path]
   mamut-standalone dry-run [--gfm-layer-seed <u64-or-0xHEX>] [--bcs-layer-scenario <scenario>] [factory-name-or-path]
-  mamut-standalone play [--demo] [--headless] --audio-device <alsa-index-or-hw:card,device> [--alsa-period-frames <n>] [--alsa-buffer-frames <n>] [--alsa-start-threshold-frames <n>] [--midi-device <name-or-index>] [--midi-channel <1..16>] [--controller-profile <path>] [--trace-midi] [--gfm-layer-seed <u64-or-0xHEX>] [--bcs-layer-scenario <scenario>] [factory-name-or-path]
+  mamut-standalone play [--demo] [--headless] --audio-device <alsa-index-or-hw:card,device> [--sample-rate <hz>] [--alsa-period-frames <n>] [--alsa-buffer-frames <n>] [--alsa-start-threshold-frames <n>] [--midi-device <name-or-index>] [--midi-channel <1..16>] [--controller-profile <path>] [--trace-midi] [--gfm-layer-seed <u64-or-0xHEX>] [--bcs-layer-scenario <scenario>] [factory-name-or-path]
 
 interactive play controls:
   help

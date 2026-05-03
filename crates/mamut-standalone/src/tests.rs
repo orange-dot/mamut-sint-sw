@@ -74,6 +74,8 @@ fn parse_play_options_supports_device_selection() {
         "--headless".to_string(),
         "--audio-device".to_string(),
         "hw:4,0".to_string(),
+        "--sample-rate".to_string(),
+        "96000".to_string(),
         "--alsa-period-frames".to_string(),
         "256".to_string(),
         "--alsa-buffer-frames".to_string(),
@@ -99,6 +101,7 @@ fn parse_play_options_supports_device_selection() {
     assert!(options.headless);
     assert!(options.trace_midi);
     assert_eq!(options.audio_selector.as_deref(), Some("hw:4,0"));
+    assert_eq!(options.sample_rate_hz, 96_000);
     assert_eq!(options.alsa_period_frames, Some(256));
     assert_eq!(options.alsa_buffer_frames, Some(1024));
     assert_eq!(options.alsa_start_threshold_frames, Some(1024));
@@ -128,8 +131,35 @@ fn parse_play_options_defaults_gfm_layer_disabled() {
     let args = vec!["razor-thaw".to_string()];
     let options = parse_play_options(&args).expect("play options parse");
 
+    assert_eq!(options.sample_rate_hz, ALSA_PLAYBACK_SAMPLE_RATE_HZ);
     assert_eq!(options.gfm_layer_seed, None);
     assert_eq!(options.bcs_layer_scenario, None);
+}
+
+#[test]
+fn parse_play_options_accepts_supported_sample_rates() {
+    for sample_rate_hz in ALSA_PLAYBACK_SAMPLE_RATE_HZ_ALLOWED {
+        let args = vec![
+            "--sample-rate".to_string(),
+            sample_rate_hz.to_string(),
+            "razor-thaw".to_string(),
+        ];
+        let options = parse_play_options(&args).expect("sample rate parses");
+        assert_eq!(options.sample_rate_hz, sample_rate_hz);
+    }
+}
+
+#[test]
+fn parse_play_options_rejects_unsupported_sample_rates() {
+    for sample_rate_hz in ["0", "98000", "196000", "forty-eight"] {
+        let args = vec![
+            "--sample-rate".to_string(),
+            sample_rate_hz.to_string(),
+            "razor-thaw".to_string(),
+        ];
+        assert!(parse_play_options(&args).is_err());
+    }
+    assert!(parse_play_options(&["--sample-rate".to_string()]).is_err());
 }
 
 #[test]
