@@ -503,7 +503,7 @@ impl PerformanceApp {
                     ui.label(epm_body(description));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    render_metric_tile(
+                    render_metric_tile_sized(
                         ui,
                         false,
                         "TRANSPORT",
@@ -512,20 +512,23 @@ impl PerformanceApp {
                             "target {} / xruns {}",
                             transport.queue_target_frames, transport.xrun_recoveries
                         ),
+                        260.0,
                     );
-                    render_metric_tile(
+                    render_metric_tile_sized(
                         ui,
                         Instant::now() <= self.midi_hot_until,
                         "MIDI",
                         &format!("{}", self.session.input_metrics_snapshot().midi_messages),
                         &self.session.driver.detail(),
+                        330.0,
                     );
-                    render_metric_tile(
+                    render_metric_tile_sized(
                         ui,
                         favorite,
                         "LIVE SLOT",
                         &current_slot,
                         &format!("0..{}", LIVE_SET_STEMS.len().saturating_sub(1)),
+                        140.0,
                     );
                 });
             });
@@ -577,29 +580,39 @@ impl PerformanceApp {
 
         epm_frame(epm_panel_deep()).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                render_metric_tile(ui, false, "PATCH", &self.session.patch_name, "current");
-                render_metric_tile(
+                render_metric_tile_sized(
+                    ui,
+                    false,
+                    "PATCH",
+                    &self.session.patch_name,
+                    "current",
+                    245.0,
+                );
+                render_metric_tile_sized(
                     ui,
                     false,
                     "AUDIO",
                     &format!("{} Hz", self.session.sample_rate_hz),
                     &self.session.audio_device_name,
+                    325.0,
                 );
-                render_metric_tile(
+                render_metric_tile_sized(
                     ui,
                     Instant::now() <= self.midi_hot_until,
                     "MIDI",
                     &format!("ch {midi_channel}"),
                     midi,
+                    175.0,
                 );
-                render_metric_tile(
+                render_metric_tile_sized(
                     ui,
                     voices > 0,
                     "VOICES",
                     &voices.to_string(),
                     &format!("peak {peak:.3} clip {}", on_off_bool(clip)),
+                    205.0,
                 );
-                render_metric_tile(
+                render_metric_tile_sized(
                     ui,
                     transport.xrun_recoveries > 0,
                     "XRUN",
@@ -608,17 +621,26 @@ impl PerformanceApp {
                         "und {} / {}f",
                         transport.underrun_batches, transport.underrun_frames
                     ),
+                    205.0,
                 );
-                render_metric_tile(
+                render_metric_tile_sized(
                     ui,
                     recording.state == RecordingState::Active,
                     "REC",
                     recording.state.label(),
                     &format!("drop {}", recording.frames_dropped),
+                    130.0,
                 );
-                render_metric_tile(ui, false, "MIDI IN", &input.midi_messages.to_string(), "");
+                render_metric_tile_sized(
+                    ui,
+                    false,
+                    "MIDI IN",
+                    &input.midi_messages.to_string(),
+                    "",
+                    130.0,
+                );
                 if let Some(macros) = macros {
-                    render_metric_tile(
+                    render_metric_tile_sized(
                         ui,
                         false,
                         "G/B/H",
@@ -627,6 +649,7 @@ impl PerformanceApp {
                             macros.gravitacija, macros.bloom, macros.heat
                         ),
                         &format!("R {:.2} S {:.2}", macros.ruin, macros.swarm),
+                        210.0,
                     );
                 }
             });
@@ -2364,7 +2387,7 @@ impl eframe::App for PerformanceApp {
         self.session.set_sound_lab_midi_focus(
             (self.selected_tab == PerformanceTab::SoundLab).then_some(self.sound_lab_page),
         );
-        ctx.request_repaint_after(Duration::from_millis(16));
+        ctx.request_repaint_after(PERFORMANCE_UI_REFRESH);
     }
 }
 
@@ -2631,8 +2654,20 @@ pub(crate) fn render_metric_tile(
     value: &str,
     detail: &str,
 ) {
+    render_metric_tile_sized(ui, highlighted, title, value, detail, 112.0);
+}
+
+pub(crate) fn render_metric_tile_sized(
+    ui: &mut egui::Ui,
+    highlighted: bool,
+    title: &str,
+    value: &str,
+    detail: &str,
+    width: f32,
+) {
     epm_tile_frame(highlighted).show(ui, |ui| {
-        ui.set_min_width(112.0);
+        ui.set_width(width);
+        ui.set_min_width(width);
         ui.label(epm_eyebrow(title));
         ui.label(epm_value(value));
         if !detail.is_empty() {
