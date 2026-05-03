@@ -7,6 +7,7 @@ pub(crate) fn build_audio_runtime(
     alsa_tuning: AlsaPlaybackTuning,
     gfm_layer_seed: Option<u64>,
     bcs_layer_scenario: Option<BcsScenario>,
+    input_metrics: Arc<InputMetrics>,
     recording_metrics: Arc<RecordingMetrics>,
 ) -> Result<PreparedAudioRuntime> {
     let patch = load_patch_from_path(patch_path)?;
@@ -40,6 +41,7 @@ pub(crate) fn build_audio_runtime(
         Arc::clone(&midi_input_queue),
         Arc::clone(&priority_actions),
         Arc::clone(&transport_metrics),
+        input_metrics,
         recording_metrics,
     ));
     Ok(PreparedAudioRuntime {

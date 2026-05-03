@@ -9,8 +9,10 @@ pub(crate) fn open_driver_for_selector(
     controller_profile: Option<Arc<ControllerProfile>>,
     trace_midi: bool,
     runtime_control_queue: Arc<ArrayQueue<RuntimeControlMessage>>,
+    priority_actions: Arc<PriorityActions>,
     input_metrics: Arc<InputMetrics>,
     midi_trace_log: Arc<MidiTraceLog>,
+    midi_trace_publisher: MidiTracePublisher,
     sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
     force_demo: bool,
 ) -> Result<PerformanceDriver> {
@@ -26,8 +28,10 @@ pub(crate) fn open_driver_for_selector(
         controller_profile,
         trace_midi,
         runtime_control_queue,
+        priority_actions,
         input_metrics,
         midi_trace_log,
+        midi_trace_publisher,
         sound_lab_midi_focus,
     )? {
         Ok(PerformanceDriver::Midi(connection))
@@ -45,8 +49,10 @@ pub(crate) fn restore_driver_state(
     controller_profile: Option<Arc<ControllerProfile>>,
     trace_midi: bool,
     runtime_control_queue: Arc<ArrayQueue<RuntimeControlMessage>>,
+    priority_actions: Arc<PriorityActions>,
     input_metrics: Arc<InputMetrics>,
     midi_trace_log: Arc<MidiTraceLog>,
+    midi_trace_publisher: MidiTracePublisher,
     sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
     old_mode_was_demo: bool,
 ) -> PerformanceDriver {
@@ -62,8 +68,10 @@ pub(crate) fn restore_driver_state(
         controller_profile,
         trace_midi,
         runtime_control_queue,
+        priority_actions,
         input_metrics,
         midi_trace_log,
+        midi_trace_publisher,
         sound_lab_midi_focus,
     ) {
         Ok(Some(connection)) => PerformanceDriver::Midi(connection),

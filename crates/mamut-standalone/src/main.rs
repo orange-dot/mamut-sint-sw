@@ -37,6 +37,7 @@ mod cli;
 mod commands;
 mod devices;
 mod gui;
+mod midi_trace;
 mod runtime;
 mod session;
 mod types;
@@ -46,6 +47,7 @@ pub(crate) use cli::*;
 pub(crate) use commands::*;
 pub(crate) use devices::*;
 pub(crate) use gui::*;
+pub(crate) use midi_trace::*;
 pub(crate) use runtime::*;
 pub(crate) use types::*;
 

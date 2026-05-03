@@ -796,8 +796,10 @@ pub(crate) fn open_midi_input(
     controller_profile: Option<Arc<ControllerProfile>>,
     trace_midi: bool,
     runtime_control_queue: Arc<ArrayQueue<RuntimeControlMessage>>,
+    priority_actions: Arc<PriorityActions>,
     input_metrics: Arc<InputMetrics>,
     midi_trace_log: Arc<MidiTraceLog>,
+    midi_trace_publisher: MidiTracePublisher,
     sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
 ) -> Result<Option<OpenedMidiConnection>> {
     let mut midi_input = match MidiInput::new("mamut-standalone") {
@@ -862,64 +864,50 @@ pub(crate) fn open_midi_input(
                     )
                 };
                 let routed = if startup_suppressed { None } else { parsed };
-                if let Some(event) = last_control_event(
-                    message,
-                    midi_channel,
-                    controller_profile.as_deref(),
-                    routed,
-                    received_at,
-                    startup_suppressed,
-                ) {
-                    input_metrics.record_last_control(event);
-                }
-                let trace_to_sidecar = midi_trace_log.is_active();
-                if trace_midi || trace_to_sidecar {
+                if trace_midi
+                    || midi_trace_log.is_active()
+                    || midi_message_can_update_last_control(
+                        message,
+                        midi_channel,
+                        controller_profile.as_deref(),
+                    )
+                {
                     let trace_timing = MidiTraceTiming::from_received_at(
                         trace_started_at,
                         &mut previous_trace_at,
                         received_at,
                     );
-                    let mut line = if startup_suppressed {
-                        format_midi_trace_startup_suppressed(
-                            message,
-                            midi_channel,
-                            controller_profile.as_deref(),
-                            parsed,
-                            trace_timing,
-                        )
-                    } else {
-                        format_midi_trace_message(
-                            message,
-                            midi_channel,
-                            controller_profile.as_deref(),
-                            parsed,
-                            trace_timing,
-                        )
-                    };
-                    if let Some(overlay) = overlay {
-                        line.push_str(" -> ");
-                        line.push_str(&overlay.trace_summary());
-                    }
-                    if trace_midi {
-                        eprintln!("{line}");
-                    }
-                    if trace_to_sidecar {
-                        midi_trace_log.write_line(received_at, &line);
-                    }
+                    midi_trace_publisher.publish(RawMidiTraceRecord::new(
+                        message,
+                        received_at,
+                        trace_timing,
+                        parsed,
+                        overlay,
+                        startup_suppressed,
+                    ));
                 }
                 if let Some(overlay) = overlay {
                     input_metrics.record_midi_message();
                     for event in overlay.iter() {
-                        let _ = midi_input_queue.push(RealtimeMidiMessage::Controller(event));
+                        publish_realtime_midi(
+                            &midi_input_queue,
+                            &input_metrics,
+                            RealtimeMidiMessage::Controller(event),
+                        );
                     }
                 } else if let Some(parsed) = routed {
                     input_metrics.record_midi_message();
                     match parsed {
                         ParsedMidiMessage::Realtime(message) => {
-                            let _ = midi_input_queue.push(message);
+                            publish_realtime_midi(&midi_input_queue, &input_metrics, message);
                         }
                         ParsedMidiMessage::Runtime(command) => {
-                            let _ = runtime_control_queue.push(command);
+                            publish_runtime_control(
+                                &runtime_control_queue,
+                                &priority_actions,
+                                &input_metrics,
+                                command,
+                            );
                         }
                         ParsedMidiMessage::Reserved => {}
                     }
@@ -935,6 +923,71 @@ pub(crate) fn open_midi_input(
     }))
 }
 
+pub(crate) fn midi_message_can_update_last_control(
+    message: &[u8],
+    midi_channel: Option<u8>,
+    controller_profile: Option<&ControllerProfile>,
+) -> bool {
+    let Some(raw_status) = message.first().copied() else {
+        return false;
+    };
+    let status = raw_status & 0xF0;
+    let channel = (raw_status & 0x0F) + 1;
+    if status < 0xF0 && midi_channel.is_some_and(|expected| channel != expected) {
+        return true;
+    }
+    match status {
+        0xB0 if message.len() >= 3 => {
+            let cc = message[1];
+            controller_profile
+                .and_then(|profile| profile.binding_for_cc(cc))
+                .is_some()
+                || matches!(cc, 1 | 64 | 16 | 17 | 18 | 19 | 20)
+        }
+        0xC0 if message.len() >= 2 => true,
+        0xD0 if message.len() >= 2 => true,
+        0xE0 if message.len() >= 3 => true,
+        _ => false,
+    }
+}
+
+pub(crate) fn publish_realtime_midi(
+    midi_input_queue: &ArrayQueue<RealtimeMidiMessage>,
+    input_metrics: &InputMetrics,
+    message: RealtimeMidiMessage,
+) {
+    if midi_input_queue.push(message).is_ok() {
+        input_metrics.record_midi_message_accepted();
+    } else {
+        input_metrics.record_midi_message_dropped();
+    }
+}
+
+pub(crate) fn publish_runtime_control(
+    runtime_control_queue: &ArrayQueue<RuntimeControlMessage>,
+    priority_actions: &PriorityActions,
+    input_metrics: &InputMetrics,
+    command: RuntimeControlMessage,
+) {
+    match command {
+        RuntimeControlMessage::Panic => {
+            priority_actions.request_panic();
+            input_metrics.record_midi_message_accepted();
+        }
+        RuntimeControlMessage::ResetControllers => {
+            priority_actions.request_reset_controllers();
+            input_metrics.record_midi_message_accepted();
+        }
+        command => {
+            if runtime_control_queue.push(command).is_ok() {
+                input_metrics.record_midi_message_accepted();
+            } else {
+                input_metrics.record_runtime_control_dropped();
+            }
+        }
+    }
+}
+
 pub(crate) fn startup_guard_suppresses_message(
     parsed: Option<ParsedMidiMessage>,
     received_at: Instant,
@@ -948,35 +1001,6 @@ pub(crate) fn startup_guard_suppresses_message(
         parsed,
         Some(ParsedMidiMessage::Realtime(_)) | Some(ParsedMidiMessage::Runtime(_))
     )
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct MidiTraceTiming {
-    pub(crate) elapsed_seconds: f64,
-    pub(crate) delta_millis: f64,
-}
-
-impl MidiTraceTiming {
-    pub(crate) fn from_received_at(
-        started_at: Instant,
-        previous_trace_at: &mut Option<Instant>,
-        received_at: Instant,
-    ) -> Self {
-        let elapsed_seconds = received_at
-            .checked_duration_since(started_at)
-            .unwrap_or_default()
-            .as_secs_f64();
-        let delta_millis = previous_trace_at
-            .and_then(|previous| received_at.checked_duration_since(previous))
-            .unwrap_or_default()
-            .as_secs_f64()
-            * 1000.0;
-        *previous_trace_at = Some(received_at);
-        Self {
-            elapsed_seconds,
-            delta_millis,
-        }
-    }
 }
 
 pub(crate) fn format_midi_trace_startup_suppressed(

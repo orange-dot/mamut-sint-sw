@@ -203,6 +203,7 @@ pub(crate) struct EngineThreadState {
     pub(crate) midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
     pub(crate) priority_actions: Arc<PriorityActions>,
     pub(crate) transport_metrics: Arc<TransportMetrics>,
+    pub(crate) input_metrics: Arc<InputMetrics>,
     pub(crate) recording_metrics: Arc<RecordingMetrics>,
     pub(crate) left: Vec<f32>,
     pub(crate) right: Vec<f32>,
@@ -221,6 +222,7 @@ impl EngineThreadState {
         midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
         priority_actions: Arc<PriorityActions>,
         transport_metrics: Arc<TransportMetrics>,
+        input_metrics: Arc<InputMetrics>,
         recording_metrics: Arc<RecordingMetrics>,
     ) -> Self {
         Self {
@@ -230,11 +232,12 @@ impl EngineThreadState {
             midi_input_queue,
             priority_actions,
             transport_metrics,
+            input_metrics,
             recording_metrics,
             left: vec![0.0; ENGINE_RENDER_BLOCK_FRAMES],
             right: vec![0.0; ENGINE_RENDER_BLOCK_FRAMES],
-            note_events: Vec::with_capacity(32),
-            controller_events: Vec::with_capacity(64),
+            note_events: Vec::with_capacity(MIDI_INPUT_QUEUE_CAPACITY),
+            controller_events: Vec::with_capacity(MIDI_INPUT_QUEUE_CAPACITY),
             snapshot_requests: Vec::with_capacity(4),
             output_recorder: None,
             recording_workers: Vec::new(),
@@ -395,6 +398,9 @@ impl EngineThreadState {
     }
 
     pub(crate) fn render_audio_block(&mut self) {
+        let controllers_coalesced = coalesce_controller_events(&mut self.controller_events);
+        self.input_metrics
+            .record_controllers_coalesced(controllers_coalesced);
         self.engine.process_block(ProcessBlock {
             frame_count: ENGINE_RENDER_BLOCK_FRAMES,
             note_events: &self.note_events,
@@ -482,6 +488,55 @@ impl EngineThreadState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ControllerCoalesceKey {
+    PitchBend,
+    ModWheel,
+    ChannelAftertouch,
+    GfmLayerAmount,
+    BcsLayerAmount,
+    Macro(MacroId),
+    DirectParam(ParamId),
+}
+
+pub(crate) fn controller_coalesce_key(event: ControllerEvent) -> Option<ControllerCoalesceKey> {
+    match event {
+        ControllerEvent::PitchBend { .. } => Some(ControllerCoalesceKey::PitchBend),
+        ControllerEvent::ModWheel { .. } => Some(ControllerCoalesceKey::ModWheel),
+        ControllerEvent::ChannelAftertouch { .. } => Some(ControllerCoalesceKey::ChannelAftertouch),
+        ControllerEvent::GfmLayerAmount { .. } => Some(ControllerCoalesceKey::GfmLayerAmount),
+        ControllerEvent::BcsLayerAmount { .. } => Some(ControllerCoalesceKey::BcsLayerAmount),
+        ControllerEvent::Macro { id, .. } => Some(ControllerCoalesceKey::Macro(id)),
+        ControllerEvent::DirectParam { id, .. } => Some(ControllerCoalesceKey::DirectParam(id)),
+        ControllerEvent::Sustain { .. } | ControllerEvent::BcsLayerEnabled { .. } => None,
+    }
+}
+
+pub(crate) fn coalesce_controller_events(events: &mut Vec<Scheduled<ControllerEvent>>) -> usize {
+    let original_len = events.len();
+    let mut write_len = 0;
+    let mut coalesced = 0;
+    for read_index in 0..original_len {
+        let event = events[read_index];
+        let Some(key) = controller_coalesce_key(event.event) else {
+            events[write_len] = event;
+            write_len += 1;
+            continue;
+        };
+        if let Some(existing_index) =
+            (0..write_len).find(|index| controller_coalesce_key(events[*index].event) == Some(key))
+        {
+            events[existing_index] = event;
+            coalesced += 1;
+        } else {
+            events[write_len] = event;
+            write_len += 1;
+        }
+    }
+    events.truncate(write_len);
+    coalesced
+}
+
 pub(crate) fn spawn_engine_thread(
     engine: Engine,
     rx: mpsc::Receiver<EngineCommand>,
@@ -489,6 +544,7 @@ pub(crate) fn spawn_engine_thread(
     midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
     priority_actions: Arc<PriorityActions>,
     transport_metrics: Arc<TransportMetrics>,
+    input_metrics: Arc<InputMetrics>,
     recording_metrics: Arc<RecordingMetrics>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
@@ -499,6 +555,7 @@ pub(crate) fn spawn_engine_thread(
             midi_input_queue,
             priority_actions,
             transport_metrics,
+            input_metrics,
             recording_metrics,
         )
         .run()
@@ -926,13 +983,6 @@ impl OutputRecorder {
         self.worker.request_stop();
         self.worker
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum ParsedMidiMessage {
-    Realtime(RealtimeMidiMessage),
-    Runtime(RuntimeControlMessage),
-    Reserved,
 }
 
 pub(crate) fn parse_midi_message(

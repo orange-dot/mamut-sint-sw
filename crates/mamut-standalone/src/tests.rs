@@ -28,6 +28,7 @@ fn test_engine_thread_state_with_patch_path(path: &Path) -> EngineThreadState {
         Arc::new(ArrayQueue::new(MIDI_INPUT_QUEUE_CAPACITY)),
         Arc::new(PriorityActions::default()),
         Arc::new(TransportMetrics::default()),
+        Arc::new(InputMetrics::default()),
         Arc::new(RecordingMetrics::default()),
     )
 }
@@ -1368,6 +1369,185 @@ fn midi_trace_sidecar_writes_header_lines_footer_and_stops() {
     assert!(!text.contains("raw=[90 41 60]"));
     assert!(text.contains("# finish: test finished"));
     assert!(text.contains("# midi_lines: 2"));
+}
+
+#[test]
+fn midi_trace_worker_drains_records_and_writes_footer_on_shutdown() {
+    let wav_path = std::env::temp_dir().join(format!(
+        "mamut-midi-worker-{}.wav",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time after unix epoch")
+            .as_nanos()
+    ));
+    let log_path = output_recording_midi_log_path(&wav_path);
+    let log = Arc::new(MidiTraceLog::default());
+    let metrics = Arc::new(InputMetrics::default());
+    log.start(MidiTraceLogStart {
+        wav_path: wav_path.clone(),
+        log_path: log_path.clone(),
+        patch_path: PathBuf::from("patches/factory/molten-horizon.toml"),
+        patch_name: "Molten Horizon".to_string(),
+        sample_rate_hz: 96_000,
+        max_frames: Some(96_000),
+        midi_channel: Some(1),
+        controller_profile: None,
+    })
+    .expect("sidecar starts");
+    let mut worker = MidiTraceWorker::spawn(false, Some(1), None, Arc::clone(&metrics), log);
+    let now = Instant::now();
+    worker.publisher().publish(RawMidiTraceRecord::new(
+        &[0x90, 64, 96],
+        now,
+        MidiTraceTiming {
+            elapsed_seconds: 0.1,
+            delta_millis: 0.0,
+        },
+        Some(ParsedMidiMessage::Realtime(RealtimeMidiMessage::Note(
+            NoteEvent::NoteOn {
+                note: 64,
+                velocity: 96.0 / 127.0,
+            },
+        ))),
+        None,
+        false,
+    ));
+    worker.shutdown();
+
+    let text = fs::read_to_string(&log_path).expect("sidecar reads");
+    let _ = fs::remove_file(&log_path);
+    assert!(text.contains("raw=[90 40 60]"));
+    assert!(text.contains("# finish: midi trace worker shutdown"));
+    assert!(text.contains("# midi_lines: 1"));
+    assert_eq!(metrics.snapshot().trace_records_dropped, 0);
+}
+
+#[test]
+fn runtime_panic_bypasses_full_runtime_control_queue() {
+    let queue = ArrayQueue::new(1);
+    let priority = PriorityActions::default();
+    let metrics = InputMetrics::default();
+    queue
+        .push(RuntimeControlMessage::NextFavorite)
+        .expect("queue accepts first command");
+
+    publish_runtime_control(&queue, &priority, &metrics, RuntimeControlMessage::Panic);
+
+    assert!(priority.panic_requested.load(Ordering::Relaxed));
+    assert_eq!(metrics.snapshot().midi_messages_accepted, 1);
+    assert_eq!(metrics.snapshot().runtime_controls_dropped, 0);
+    assert_eq!(queue.len(), 1);
+}
+
+#[test]
+fn non_priority_runtime_control_drop_is_counted() {
+    let queue = ArrayQueue::new(1);
+    let priority = PriorityActions::default();
+    let metrics = InputMetrics::default();
+    queue
+        .push(RuntimeControlMessage::NextFavorite)
+        .expect("queue accepts first command");
+
+    publish_runtime_control(
+        &queue,
+        &priority,
+        &metrics,
+        RuntimeControlMessage::PrevFavorite,
+    );
+
+    assert!(!priority.panic_requested.load(Ordering::Relaxed));
+    assert_eq!(metrics.snapshot().midi_messages_accepted, 0);
+    assert_eq!(metrics.snapshot().runtime_controls_dropped, 1);
+}
+
+#[test]
+fn controller_coalescing_keeps_fifo_edge_controls() {
+    let mut events = vec![
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::ModWheel { amount: 0.1 },
+        },
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::Sustain { down: true },
+        },
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::ModWheel { amount: 0.9 },
+        },
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::BcsLayerEnabled { enabled: true },
+        },
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::BcsLayerEnabled { enabled: false },
+        },
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::DirectParam {
+                id: ParamId::Osc1SawLevel,
+                value: 0.2,
+            },
+        },
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::DirectParam {
+                id: ParamId::Osc1SawLevel,
+                value: 0.7,
+            },
+        },
+    ];
+
+    let coalesced = coalesce_controller_events(&mut events);
+
+    assert_eq!(coalesced, 2);
+    assert_eq!(events.len(), 5);
+    assert_eq!(events[0].event, ControllerEvent::ModWheel { amount: 0.9 });
+    assert_eq!(events[1].event, ControllerEvent::Sustain { down: true });
+    assert_eq!(
+        events[2].event,
+        ControllerEvent::BcsLayerEnabled { enabled: true }
+    );
+    assert_eq!(
+        events[3].event,
+        ControllerEvent::BcsLayerEnabled { enabled: false }
+    );
+    assert_eq!(
+        events[4].event,
+        ControllerEvent::DirectParam {
+            id: ParamId::Osc1SawLevel,
+            value: 0.7,
+        }
+    );
+}
+
+#[test]
+fn realtime_midi_drain_keeps_preallocated_capacity() {
+    let state = test_engine_thread_state();
+    let initial_capacity = state.controller_events.capacity();
+    for index in 0..MIDI_INPUT_QUEUE_CAPACITY {
+        state
+            .midi_input_queue
+            .push(RealtimeMidiMessage::Controller(ControllerEvent::ModWheel {
+                amount: index as f32 / MIDI_INPUT_QUEUE_CAPACITY as f32,
+            }))
+            .expect("queue accepts synthetic controller event");
+    }
+    let mut state = state;
+    state.drain_realtime_midi_nonblocking();
+
+    assert_eq!(initial_capacity, MIDI_INPUT_QUEUE_CAPACITY);
+    assert_eq!(state.controller_events.capacity(), initial_capacity);
+    assert_eq!(state.controller_events.len(), MIDI_INPUT_QUEUE_CAPACITY);
+}
+
+#[test]
+fn system_realtime_messages_do_not_enter_runtime_queue() {
+    assert!(parse_midi_message(&[0xF8], 2.0, None, None).is_none());
+    assert!(parse_midi_message(&[0xFE], 2.0, None, None).is_none());
+    assert!(!midi_message_can_update_last_control(&[0xF8], None, None));
+    assert!(!midi_message_can_update_last_control(&[0xFE], None, None));
 }
 
 #[test]

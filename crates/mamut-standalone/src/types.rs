@@ -20,6 +20,8 @@ pub(crate) const PERFORMANCE_UI_REFRESH: Duration = Duration::from_millis(75);
 pub(crate) const MIDI_ACTIVITY_FLASH: Duration = Duration::from_millis(700);
 pub(crate) const MIDI_STARTUP_GUARD: Duration = MIDI_ACTIVITY_FLASH;
 pub(crate) const MIDI_INPUT_QUEUE_CAPACITY: usize = 512;
+pub(crate) const MIDI_TRACE_QUEUE_CAPACITY: usize = 4096;
+pub(crate) const MIDI_TRACE_RAW_BYTES: usize = 4;
 pub(crate) const RUNTIME_CONTROL_QUEUE_CAPACITY: usize = 64;
 pub(crate) const RECORDING_QUEUE_CAPACITY_FRAMES: usize = 192_000 * 4;
 pub(crate) const RECORDING_REPLY_TIMEOUT: Duration = Duration::from_millis(500);
@@ -161,7 +163,16 @@ impl MidiTraceLog {
         active.lines_written += 1;
     }
 
+    #[cfg(test)]
     pub(crate) fn finish(&self, reason: &str) -> Option<PathBuf> {
+        self.finish_with_trace_drops(reason, 0)
+    }
+
+    pub(crate) fn finish_with_trace_drops(
+        &self,
+        reason: &str,
+        trace_records_dropped: u64,
+    ) -> Option<PathBuf> {
         self.active_flag.store(false, Ordering::Relaxed);
         let Ok(mut active) = self.active.lock() else {
             return None;
@@ -173,11 +184,22 @@ impl MidiTraceLog {
         let _ = writeln!(active.writer, "#");
         let _ = writeln!(active.writer, "# finish: {reason}");
         let _ = writeln!(active.writer, "# midi_lines: {}", active.lines_written);
+        if trace_records_dropped > 0 {
+            let _ = writeln!(
+                active.writer,
+                "# trace_records_dropped: {trace_records_dropped}"
+            );
+        }
         let _ = active.writer.flush();
         Some(active.path)
     }
 
-    pub(crate) fn finish_generation(&self, generation: u64, reason: &str) -> Option<PathBuf> {
+    pub(crate) fn finish_generation_with_trace_drops(
+        &self,
+        generation: u64,
+        reason: &str,
+        trace_records_dropped: u64,
+    ) -> Option<PathBuf> {
         let Ok(mut active) = self.active.lock() else {
             return None;
         };
@@ -195,6 +217,12 @@ impl MidiTraceLog {
         let _ = writeln!(active.writer, "#");
         let _ = writeln!(active.writer, "# finish: {reason}");
         let _ = writeln!(active.writer, "# midi_lines: {}", active.lines_written);
+        if trace_records_dropped > 0 {
+            let _ = writeln!(
+                active.writer,
+                "# trace_records_dropped: {trace_records_dropped}"
+            );
+        }
         let _ = active.writer.flush();
         Some(active.path)
     }
@@ -289,6 +317,42 @@ impl AlsaPlaybackSampleFormat {
 pub(crate) enum RealtimeMidiMessage {
     Note(NoteEvent),
     Controller(ControllerEvent),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ParsedMidiMessage {
+    Realtime(RealtimeMidiMessage),
+    Runtime(RuntimeControlMessage),
+    Reserved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct MidiTraceTiming {
+    pub(crate) elapsed_seconds: f64,
+    pub(crate) delta_millis: f64,
+}
+
+impl MidiTraceTiming {
+    pub(crate) fn from_received_at(
+        started_at: Instant,
+        previous_trace_at: &mut Option<Instant>,
+        received_at: Instant,
+    ) -> Self {
+        let elapsed_seconds = received_at
+            .checked_duration_since(started_at)
+            .unwrap_or_default()
+            .as_secs_f64();
+        let delta_millis = previous_trace_at
+            .and_then(|previous| received_at.checked_duration_since(previous))
+            .unwrap_or_default()
+            .as_secs_f64()
+            * 1000.0;
+        *previous_trace_at = Some(received_at);
+        Self {
+            elapsed_seconds,
+            delta_millis,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -994,6 +1058,11 @@ pub(crate) struct RecordingMetricsSnapshot {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct InputMetricsSnapshot {
     pub(crate) midi_messages: u64,
+    pub(crate) midi_messages_accepted: u64,
+    pub(crate) midi_messages_dropped: u64,
+    pub(crate) runtime_controls_dropped: u64,
+    pub(crate) trace_records_dropped: u64,
+    pub(crate) controllers_coalesced: u64,
     pub(crate) last_control: Option<LastControlEvent>,
 }
 
@@ -1175,6 +1244,11 @@ impl RecordingMetrics {
 #[derive(Debug, Default)]
 pub(crate) struct InputMetrics {
     pub(crate) midi_messages: AtomicU64,
+    pub(crate) midi_messages_accepted: AtomicU64,
+    pub(crate) midi_messages_dropped: AtomicU64,
+    pub(crate) runtime_controls_dropped: AtomicU64,
+    pub(crate) trace_records_dropped: AtomicU64,
+    pub(crate) controllers_coalesced: AtomicU64,
     pub(crate) last_control: Mutex<Option<LastControlEvent>>,
 }
 
@@ -1182,6 +1256,11 @@ impl InputMetrics {
     pub(crate) fn snapshot(&self) -> InputMetricsSnapshot {
         InputMetricsSnapshot {
             midi_messages: self.midi_messages.load(Ordering::Relaxed),
+            midi_messages_accepted: self.midi_messages_accepted.load(Ordering::Relaxed),
+            midi_messages_dropped: self.midi_messages_dropped.load(Ordering::Relaxed),
+            runtime_controls_dropped: self.runtime_controls_dropped.load(Ordering::Relaxed),
+            trace_records_dropped: self.trace_records_dropped.load(Ordering::Relaxed),
+            controllers_coalesced: self.controllers_coalesced.load(Ordering::Relaxed),
             last_control: self
                 .last_control
                 .lock()
@@ -1192,6 +1271,30 @@ impl InputMetrics {
 
     pub(crate) fn record_midi_message(&self) {
         self.midi_messages.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_midi_message_accepted(&self) {
+        self.midi_messages_accepted.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_midi_message_dropped(&self) {
+        self.midi_messages_dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_runtime_control_dropped(&self) {
+        self.runtime_controls_dropped
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_trace_record_dropped(&self) {
+        self.trace_records_dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_controllers_coalesced(&self, count: usize) {
+        if count > 0 {
+            self.controllers_coalesced
+                .fetch_add(count as u64, Ordering::Relaxed);
+        }
     }
 
     pub(crate) fn record_last_control(&self, event: LastControlEvent) {
@@ -1388,6 +1491,7 @@ pub(crate) struct RuntimeSession {
     pub(crate) input_metrics: Arc<InputMetrics>,
     pub(crate) recording_metrics: Arc<RecordingMetrics>,
     pub(crate) midi_trace_log: Arc<MidiTraceLog>,
+    pub(crate) midi_trace_worker: MidiTraceWorker,
     pub(crate) sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
 }
 

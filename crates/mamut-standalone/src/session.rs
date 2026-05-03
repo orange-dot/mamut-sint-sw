@@ -11,6 +11,7 @@ impl RuntimeSession {
             .map(load_controller_profile)
             .transpose()?
             .map(Arc::new);
+        let input_metrics = Arc::new(InputMetrics::default());
         let prepared_runtime = build_audio_runtime(
             &options.patch_path,
             options.audio_selector.as_deref(),
@@ -18,10 +19,17 @@ impl RuntimeSession {
             alsa_tuning,
             options.gfm_layer_seed,
             options.bcs_layer_scenario,
+            Arc::clone(&input_metrics),
             Arc::clone(&recording_metrics),
         )?;
         let runtime = start_prepared_audio_runtime(prepared_runtime)?;
-        let input_metrics = Arc::new(InputMetrics::default());
+        let midi_trace_worker = MidiTraceWorker::spawn(
+            options.trace_midi,
+            options.midi_channel,
+            controller_profile.clone(),
+            Arc::clone(&input_metrics),
+            Arc::clone(&midi_trace_log),
+        );
         let runtime_control_queue = Arc::new(ArrayQueue::new(RUNTIME_CONTROL_QUEUE_CAPACITY));
         let sound_lab_midi_focus = Arc::new(SoundLabMidiFocus::default());
         let mut session = Self {
@@ -50,6 +58,7 @@ impl RuntimeSession {
             input_metrics,
             recording_metrics,
             midi_trace_log,
+            midi_trace_worker,
             sound_lab_midi_focus,
         };
         session.driver = session.open_driver_for_tx(
@@ -57,7 +66,9 @@ impl RuntimeSession {
             Arc::clone(&session.midi_input_queue),
             session.bend_range,
             Arc::clone(&session.runtime_control_queue),
+            Arc::clone(&session.priority_actions),
             Arc::clone(&session.input_metrics),
+            session.midi_trace_worker.publisher(),
             options.force_demo,
         )?;
         Ok(session)
@@ -69,7 +80,9 @@ impl RuntimeSession {
         midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
         bend_range: f32,
         runtime_control_queue: Arc<ArrayQueue<RuntimeControlMessage>>,
+        priority_actions: Arc<PriorityActions>,
         input_metrics: Arc<InputMetrics>,
+        midi_trace_publisher: MidiTracePublisher,
         force_demo: bool,
     ) -> Result<PerformanceDriver> {
         open_driver_for_selector(
@@ -81,8 +94,10 @@ impl RuntimeSession {
             self.controller_profile.clone(),
             self.trace_midi,
             runtime_control_queue,
+            priority_actions,
             input_metrics,
             Arc::clone(&self.midi_trace_log),
+            midi_trace_publisher,
             Arc::clone(&self.sound_lab_midi_focus),
             force_demo,
         )
@@ -257,6 +272,7 @@ impl RuntimeSession {
             self.alsa_tuning,
             self.gfm_layer_seed,
             self.bcs_layer_scenario,
+            Arc::clone(&self.input_metrics),
             Arc::clone(&self.recording_metrics),
         )?;
         self.install_runtime(path.clone(), runtime, keep_demo)?;
@@ -362,7 +378,15 @@ impl RuntimeSession {
             snapshot.peak_output,
             snapshot.clip_detected
         );
-        println!("midi activity: messages={}", input.midi_messages);
+        println!(
+            "midi activity: messages={} accepted={} midi_dropped={} runtime_dropped={} trace_dropped={} controllers_coalesced={}",
+            input.midi_messages,
+            input.midi_messages_accepted,
+            input.midi_messages_dropped,
+            input.runtime_controls_dropped,
+            input.trace_records_dropped,
+            input.controllers_coalesced
+        );
         println!(
             "transport: queued={} target={} write_hint={} underrun_batches={} underrun_frames={} xrun_recoveries={} overflow_batches={} overflow_frames={}",
             transport.queued_frames,
@@ -561,7 +585,10 @@ impl RuntimeSession {
             .recv_timeout(RECORDING_REPLY_TIMEOUT)
             .map_err(|_| anyhow!("timed out stopping output recording"))?
             .map_err(|error| anyhow!(error))?;
-        self.midi_trace_log.finish("record-stop requested");
+        self.midi_trace_log.finish_with_trace_drops(
+            "record-stop requested",
+            self.input_metrics.snapshot().trace_records_dropped,
+        );
         Ok(path)
     }
 
@@ -592,11 +619,16 @@ impl RuntimeSession {
             })?;
         if let Some(max_frames) = max_frames {
             let midi_trace_log = Arc::clone(&self.midi_trace_log);
+            let input_metrics = Arc::clone(&self.input_metrics);
             let generation = started.generation;
             let seconds = max_frames as f64 / f64::from(self.sample_rate_hz.max(1));
             thread::spawn(move || {
                 thread::sleep(Duration::from_secs_f64(seconds) + MIDI_ACTIVITY_FLASH);
-                midi_trace_log.finish_generation(generation, "recording target duration elapsed");
+                midi_trace_log.finish_generation_with_trace_drops(
+                    generation,
+                    "recording target duration elapsed",
+                    input_metrics.snapshot().trace_records_dropped,
+                );
             });
         }
         Ok(started.path)
@@ -604,8 +636,10 @@ impl RuntimeSession {
 
     pub(crate) fn reconcile_midi_trace_recording_log(&self, recording: &RecordingMetricsSnapshot) {
         if recording.state != RecordingState::Active {
-            self.midi_trace_log
-                .finish(&format!("recording state {}", recording.state.label()));
+            self.midi_trace_log.finish_with_trace_drops(
+                &format!("recording state {}", recording.state.label()),
+                self.input_metrics.snapshot().trace_records_dropped,
+            );
         }
     }
 
@@ -671,6 +705,7 @@ impl RuntimeSession {
             self.alsa_tuning,
             self.gfm_layer_seed,
             self.bcs_layer_scenario,
+            Arc::clone(&self.input_metrics),
             Arc::clone(&self.recording_metrics),
         )?;
         self.install_runtime(self.patch_path.clone(), runtime, keep_demo)?;
@@ -703,8 +738,10 @@ impl RuntimeSession {
             self.controller_profile.clone(),
             self.trace_midi,
             Arc::clone(&self.runtime_control_queue),
+            Arc::clone(&self.priority_actions),
             Arc::clone(&self.input_metrics),
             Arc::clone(&self.midi_trace_log),
+            self.midi_trace_worker.publisher(),
             Arc::clone(&self.sound_lab_midi_focus),
         ) {
             Ok(Some(connection)) => connection,
@@ -718,8 +755,10 @@ impl RuntimeSession {
                     self.controller_profile.clone(),
                     self.trace_midi,
                     Arc::clone(&self.runtime_control_queue),
+                    Arc::clone(&self.priority_actions),
                     Arc::clone(&self.input_metrics),
                     Arc::clone(&self.midi_trace_log),
+                    self.midi_trace_worker.publisher(),
                     Arc::clone(&self.sound_lab_midi_focus),
                     old_mode_was_demo,
                 );
@@ -735,8 +774,10 @@ impl RuntimeSession {
                     self.controller_profile.clone(),
                     self.trace_midi,
                     Arc::clone(&self.runtime_control_queue),
+                    Arc::clone(&self.priority_actions),
                     Arc::clone(&self.input_metrics),
                     Arc::clone(&self.midi_trace_log),
+                    self.midi_trace_worker.publisher(),
                     Arc::clone(&self.sound_lab_midi_focus),
                     old_mode_was_demo,
                 );
@@ -773,8 +814,10 @@ impl RuntimeSession {
         prepared_runtime: PreparedAudioRuntime,
         keep_demo: bool,
     ) -> Result<()> {
-        self.midi_trace_log
-            .finish("runtime replaced while recording");
+        self.midi_trace_log.finish_with_trace_drops(
+            "runtime replaced while recording",
+            self.input_metrics.snapshot().trace_records_dropped,
+        );
         let same_hw_device = same_hw_selector(
             self.audio_selector.as_deref(),
             &prepared_runtime.audio_selector,
@@ -813,8 +856,10 @@ impl RuntimeSession {
                         self.controller_profile.clone(),
                         self.trace_midi,
                         Arc::clone(&self.runtime_control_queue),
+                        Arc::clone(&self.priority_actions),
                         Arc::clone(&self.input_metrics),
                         Arc::clone(&self.midi_trace_log),
+                        self.midi_trace_worker.publisher(),
                         Arc::clone(&self.sound_lab_midi_focus),
                         old_mode_was_demo,
                     );
@@ -844,7 +889,9 @@ impl RuntimeSession {
             Arc::clone(&midi_input_queue),
             bend_range,
             Arc::clone(&self.runtime_control_queue),
+            Arc::clone(&priority_actions),
             Arc::clone(&self.input_metrics),
+            self.midi_trace_worker.publisher(),
             keep_demo,
         ) {
             Ok(driver) => driver,
@@ -870,8 +917,10 @@ impl RuntimeSession {
                     self.controller_profile.clone(),
                     self.trace_midi,
                     Arc::clone(&self.runtime_control_queue),
+                    Arc::clone(&self.priority_actions),
                     Arc::clone(&self.input_metrics),
                     Arc::clone(&self.midi_trace_log),
+                    self.midi_trace_worker.publisher(),
                     Arc::clone(&self.sound_lab_midi_focus),
                     old_mode_was_demo,
                 );
@@ -913,6 +962,7 @@ impl RuntimeSession {
             self.alsa_tuning,
             self.gfm_layer_seed,
             self.bcs_layer_scenario,
+            Arc::clone(&self.input_metrics),
             Arc::clone(&self.recording_metrics),
         )
         .context("failed to rebuild previous runtime")?;
@@ -957,8 +1007,10 @@ impl RuntimeSession {
             self.controller_profile.clone(),
             self.trace_midi,
             Arc::clone(&self.runtime_control_queue),
+            Arc::clone(&self.priority_actions),
             Arc::clone(&self.input_metrics),
             Arc::clone(&self.midi_trace_log),
+            self.midi_trace_worker.publisher(),
             Arc::clone(&self.sound_lab_midi_focus),
             old_mode_was_demo,
         );

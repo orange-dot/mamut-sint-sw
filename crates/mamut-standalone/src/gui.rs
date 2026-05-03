@@ -503,6 +503,7 @@ impl PerformanceApp {
                     ui.label(epm_body(description));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    let input = self.session.input_metrics_snapshot();
                     render_metric_tile_sized(
                         ui,
                         false,
@@ -518,8 +519,12 @@ impl PerformanceApp {
                         ui,
                         Instant::now() <= self.midi_hot_until,
                         "MIDI",
-                        &format!("{}", self.session.input_metrics_snapshot().midi_messages),
-                        &self.session.driver.detail(),
+                        &format!("{}", input.midi_messages),
+                        &format!(
+                            "acc {} / drop {}",
+                            input.midi_messages_accepted,
+                            input.midi_messages_dropped + input.runtime_controls_dropped
+                        ),
                         330.0,
                     );
                     render_metric_tile_sized(
@@ -633,10 +638,22 @@ impl PerformanceApp {
                 );
                 render_metric_tile_sized(
                     ui,
-                    false,
+                    input.midi_messages_dropped > 0 || input.runtime_controls_dropped > 0,
                     "MIDI IN",
-                    &input.midi_messages.to_string(),
-                    "",
+                    &input.midi_messages_accepted.to_string(),
+                    &format!(
+                        "rx {} drop {}",
+                        input.midi_messages,
+                        input.midi_messages_dropped + input.runtime_controls_dropped
+                    ),
+                    165.0,
+                );
+                render_metric_tile_sized(
+                    ui,
+                    input.trace_records_dropped > 0,
+                    "TRACE",
+                    &input.trace_records_dropped.to_string(),
+                    &format!("coal {}", input.controllers_coalesced),
                     130.0,
                 );
                 if let Some(macros) = macros {
@@ -2225,6 +2242,23 @@ impl PerformanceApp {
 
                     ui.label(epm_small("MESSAGES"));
                     ui.label(epm_value(input.midi_messages.to_string()));
+                    ui.end_row();
+
+                    ui.label(epm_small("ACCEPTED"));
+                    ui.label(epm_value(input.midi_messages_accepted.to_string()));
+                    ui.end_row();
+
+                    ui.label(epm_small("DROPS"));
+                    ui.label(epm_body(format!(
+                        "midi {} / runtime {} / trace {}",
+                        input.midi_messages_dropped,
+                        input.runtime_controls_dropped,
+                        input.trace_records_dropped
+                    )));
+                    ui.end_row();
+
+                    ui.label(epm_small("COALESCED"));
+                    ui.label(epm_value(input.controllers_coalesced.to_string()));
                     ui.end_row();
                 });
         });
