@@ -258,6 +258,7 @@ pub(crate) enum ControllerBindingKind {
     DirectParam,
     GfmLayerAmount,
     BcsLayerAmount,
+    BcsLayerGain,
     BcsLayerEnabled,
     RuntimeAction,
     ToggleParam,

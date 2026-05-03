@@ -557,13 +557,18 @@ impl Engine {
                 .clamp(1.0, u32::MAX as f32) as u32
         });
 
+        let amount = self.control.bcs_layer_amount;
+        let effective_amount = self.bcs_layer_mix.current();
+
         BcsLayerSnapshot {
             mode: self.bcs_layer_mode,
             active_scenario,
             sample_rate_hz,
             enabled: self.control.bcs_layer_enabled,
-            amount: self.control.bcs_layer_amount,
-            effective_amount: self.bcs_layer_mix.current(),
+            amount,
+            effective_amount,
+            gain: amount * BCS_ENGINE_LAYER_GAIN,
+            effective_gain: effective_amount * BCS_ENGINE_LAYER_GAIN,
             pitch_note: if mode_enabled {
                 self.bcs_layer_note
             } else {
@@ -985,7 +990,8 @@ impl Engine {
         }
 
         let gate = (0.18 + activity * 0.82).clamp(0.0, 1.0);
-        let layer = bcs_sample * BCS_ENGINE_LAYER_GAIN * gate * effective_amount;
+        let layer_gain = BCS_ENGINE_LAYER_GAIN * effective_amount;
+        let layer = bcs_sample * layer_gain * gate;
         let spread = (direct.stereo_width * 0.10 + direct.stereo_crossfeed * 0.03).clamp(0.0, 0.16);
         let left = soft_clip(left + layer * (1.0 - spread), direct.final_asymmetry * 0.16);
         let right = soft_clip(

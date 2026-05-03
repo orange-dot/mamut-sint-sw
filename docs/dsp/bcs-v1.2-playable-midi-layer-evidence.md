@@ -24,7 +24,7 @@ The GUI now has a `BCS LAYER` panel with:
 
 - runtime enable/disable for the BCS scenario mode
 - direct scenario buttons
-- `SW9` / `S9` MIDI amount status
+- `SW9` / `S9` MIDI gain status
 - note/frequency status
 - boundedness and unsafe-state status
 
@@ -32,14 +32,14 @@ The GUI now has a `BCS LAYER` panel with:
 
 `profiles/pc4-full.toml` now maps:
 
-- `S9` / CC `28` -> `bcs_layer_amount`
+- `S9` / CC `28` -> `bcs_layer_gain`
 - `SW9` / CC `90` -> `bcs_layer_enabled`
 
 Audible BCS mix target is nonzero only when all of these are true:
 
 - BCS scenario mode is enabled
 - `SW9` reports enabled
-- `S9` is above the BCS control deadzone
+- `S9` gain is above the BCS control deadzone
 - at least one note is physically held
 
 The layer follows the lowest held note. Releasing the final held note targets
@@ -51,7 +51,7 @@ included when the BCS voice is rebuilt for the current held note.
 `mamut-engine` now exposes two realtime controller events:
 
 - `ControllerEvent::BcsLayerEnabled { enabled }`
-- `ControllerEvent::BcsLayerAmount { amount }`
+- `ControllerEvent::BcsLayerAmount { amount }` (`bcs_layer_gain` in the PC4 profile maps here)
 
 `BcsLayerSnapshot` now reports:
 
@@ -106,7 +106,7 @@ Patch/schema boundary search: no matches in crates/mamut-patch or patches
 Observed release dry-run BCS line:
 
 ```text
-bcs: mode=enabled scenario=subharmonic-pressure active=subharmonic-pressure playable=off amount=0.000 effective=0.000 pitch=- sample_rate=48000 max_state=0.026979 unsafe_events=0 unsafe=false
+bcs: mode=enabled scenario=subharmonic-pressure active=subharmonic-pressure playable=off knob=0.000 gain=0.000 effective_gain=0.000 pitch=- sample_rate=48000 max_state=0.026979 unsafe_events=0 unsafe=false
 ```
 
 ## Boundary

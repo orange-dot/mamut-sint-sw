@@ -235,7 +235,7 @@ fn bcs_layer_status_line_reports_disabled_and_enabled_modes() {
     let disabled = bcs_layer_status_line(&test_snapshot());
     assert_eq!(
         disabled,
-        "bcs: mode=disabled playable=off amount=0.000 effective=0.000"
+        "bcs: mode=disabled playable=off knob=0.000 gain=0.000 effective_gain=0.000"
     );
 
     let path = resolve_patch_argument(Some("ember-vault")).expect("factory patch resolves");
@@ -250,8 +250,9 @@ fn bcs_layer_status_line_reports_disabled_and_enabled_modes() {
     assert!(enabled.contains("scenario=subharmonic-pressure"));
     assert!(enabled.contains("active=subharmonic-pressure"));
     assert!(enabled.contains("playable=off"));
-    assert!(enabled.contains("amount=0.000"));
-    assert!(enabled.contains("effective=0.000"));
+    assert!(enabled.contains("knob=0.000"));
+    assert!(enabled.contains("gain=0.000"));
+    assert!(enabled.contains("effective_gain=0.000"));
     assert!(enabled.contains("unsafe_events=0"));
 }
 
@@ -736,7 +737,7 @@ fn controller_profile_loads_pc4_full_bindings() {
     assert_eq!(switches.len(), 9);
     assert_eq!(knobs[0].control, "K1 Filter 1");
     assert_eq!(sliders[6].control, "S7");
-    assert_eq!(sliders[8].control, "S9 BCS Amount");
+    assert_eq!(sliders[8].control, "S9 BCS Gain");
     assert_eq!(switches[8].control, "SW9 BCS Enable");
 }
 

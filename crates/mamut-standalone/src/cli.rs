@@ -516,7 +516,9 @@ pub(crate) fn controller_binding_action(
             })
         }
         ControllerBindingKind::GfmLayerAmount => Ok(ControllerBindingAction::GfmLayerAmount),
-        ControllerBindingKind::BcsLayerAmount => Ok(ControllerBindingAction::BcsLayerAmount),
+        ControllerBindingKind::BcsLayerAmount | ControllerBindingKind::BcsLayerGain => {
+            Ok(ControllerBindingAction::BcsLayerAmount)
+        }
         ControllerBindingKind::BcsLayerEnabled => Ok(ControllerBindingAction::BcsLayerEnabled),
         ControllerBindingKind::RuntimeAction => {
             let action = binding
@@ -1141,7 +1143,7 @@ pub(crate) fn describe_binding_action(action: ControllerBindingAction) -> String
             format!("direct param {}", param_spec(id).name)
         }
         ControllerBindingAction::GfmLayerAmount => "gfm layer gate".to_string(),
-        ControllerBindingAction::BcsLayerAmount => "bcs layer amount".to_string(),
+        ControllerBindingAction::BcsLayerAmount => "bcs layer gain".to_string(),
         ControllerBindingAction::BcsLayerEnabled => "bcs layer enable".to_string(),
         ControllerBindingAction::Runtime(message) => describe_runtime_control_message(message),
         ControllerBindingAction::ToggleParam(id) => format!("toggle {}", param_spec(id).name),
@@ -1191,7 +1193,7 @@ pub(crate) fn describe_parsed_midi_message(parsed: ParsedMidiMessage) -> String 
         )) => format!("gfm layer gate={amount:.3}"),
         ParsedMidiMessage::Realtime(RealtimeMidiMessage::Controller(
             ControllerEvent::BcsLayerAmount { amount },
-        )) => format!("bcs layer amount={amount:.3}"),
+        )) => format!("bcs layer gain={amount:.3}"),
         ParsedMidiMessage::Realtime(RealtimeMidiMessage::Controller(
             ControllerEvent::BcsLayerEnabled { enabled },
         )) => format!("bcs layer enable={enabled}"),

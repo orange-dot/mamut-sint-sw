@@ -140,11 +140,11 @@ kind = "direct_param"
 target = "chorus_mix"
 
 [[binding]]
-control = "S9 BCS Amount"
+control = "S9 BCS Gain"
 cc = 28
 section = "slider"
 index = 9
-kind = "bcs_layer_amount"
+kind = "bcs_layer_gain"
 
 [[binding]]
 control = "SW1"

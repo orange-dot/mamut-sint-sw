@@ -9,7 +9,7 @@ pub(crate) const GFM_LAYER_PRESSURE_RELEASE_MS: f32 = 90.0;
 pub(crate) const BCS_LAYER_CONTROL_DEADZONE: f32 = 0.01;
 pub(crate) const BCS_LAYER_MIX_ATTACK_MS: f32 = 45.0;
 pub(crate) const BCS_LAYER_MIX_RELEASE_MS: f32 = 100.0;
-pub(crate) const BCS_ENGINE_LAYER_GAIN: f32 = 0.24;
+pub(crate) const BCS_ENGINE_LAYER_GAIN: f32 = 1.0;
 pub const DEFAULT_GFM_LAYER_SEED: u64 = 0x6A46_4D40;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -142,6 +142,8 @@ pub struct BcsLayerSnapshot {
     pub enabled: bool,
     pub amount: f32,
     pub effective_amount: f32,
+    pub gain: f32,
+    pub effective_gain: f32,
     pub pitch_note: Option<u8>,
     pub pitch_frequency_hz: Option<f32>,
     pub max_state_abs: f32,
@@ -158,6 +160,8 @@ impl Default for BcsLayerSnapshot {
             enabled: false,
             amount: 0.0,
             effective_amount: 0.0,
+            gain: 0.0,
+            effective_gain: 0.0,
             pitch_note: None,
             pitch_frequency_hz: None,
             max_state_abs: 0.0,

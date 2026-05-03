@@ -133,10 +133,11 @@ pub(crate) fn bcs_layer_status_line(snapshot: &EngineSnapshot) -> String {
 pub(crate) fn bcs_layer_status_line_from_layer(layer: BcsLayerSnapshot) -> String {
     match layer.mode {
         BcsLayerMode::Disabled => format!(
-            "bcs: mode=disabled playable={} amount={:.3} effective={:.3}",
+            "bcs: mode=disabled playable={} knob={:.3} gain={:.3} effective_gain={:.3}",
             on_off_bool(layer.enabled),
             layer.amount,
-            layer.effective_amount
+            layer.gain,
+            layer.effective_gain
         ),
         BcsLayerMode::Enabled { scenario } => {
             let active = layer
@@ -158,12 +159,13 @@ pub(crate) fn bcs_layer_status_line_from_layer(layer: BcsLayerSnapshot) -> Strin
                 })
                 .unwrap_or_else(|| "-".to_string());
             format!(
-                "bcs: mode=enabled scenario={} active={} playable={} amount={:.3} effective={:.3} pitch={} sample_rate={} max_state={:.6} unsafe_events={} unsafe={}",
+                "bcs: mode=enabled scenario={} active={} playable={} knob={:.3} gain={:.3} effective_gain={:.3} pitch={} sample_rate={} max_state={:.6} unsafe_events={} unsafe={}",
                 format_bcs_scenario(scenario),
                 active,
                 on_off_bool(layer.enabled),
                 layer.amount,
-                layer.effective_amount,
+                layer.gain,
+                layer.effective_gain,
                 pitch,
                 sample_rate,
                 layer.max_state_abs,

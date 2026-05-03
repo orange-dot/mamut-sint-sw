@@ -808,13 +808,13 @@ impl PerformanceApp {
                     );
                     render_metric_tile(
                         ui,
-                        snapshot.effective_amount > 0.001,
-                        "MIDI",
-                        &format!("{:.2}", snapshot.effective_amount),
+                        snapshot.effective_gain > 0.001,
+                        "GAIN",
+                        &format!("{:.2}", snapshot.effective_gain),
                         &format!(
                             "SW9 {} S9 {:.2}",
                             on_off_bool(snapshot.enabled),
-                            snapshot.amount
+                            snapshot.gain
                         ),
                     );
                     render_metric_tile(ui, snapshot.pitch_note.is_some(), "PITCH", &pitch, "note");
