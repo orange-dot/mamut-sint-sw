@@ -26,6 +26,8 @@ Start here:
 - `dsp/primitives-math.md` - formula companion for the low-level Rust DSP primitives
 - `dsp/render-path-math.md` - frame-level math for voice allocation, mixing, filtering, and final render stages
 - `dsp/control-identity-math.md` - macro, identity, and direct-parameter resolution math
+- `dsp/masnoca.md` - curated tonal-architecture note for mass, warmth, power,
+  and analog-inspired DSP direction
 - `live-sessions/` - lab evidence from real hardware runs; exact device names,
   ALSA selectors, and raw MIDI snippets are preserved as evidence, not portable
   defaults
@@ -39,17 +41,12 @@ Start here:
 - `live-sessions/2026-04-30-direct-output-dc-blocker-validation.md` - direct-output f32 WAV validation after the master DC blocker, with the remaining headroom and denormal follow-ups
 - `EXTERNAL_DSP_REFERENCES.md` - local notes on external DSP references such as
   `AudioNoise` and `dspc`
-- `dsp/next-generation-dsp-research-tracks.md` - index for non-contract
-  next-generation DSP research directions
 - `dsp/implementation-language-strategy.md` - Rust plus narrow C strategy for
   next-generation DSP implementation
 - `dsp/dsp-core-polish-v0.1-output-safety-evidence.md` - core output safety
   polish evidence for headroom limiter and denormal flush
 - `dsp/dsp-core-polish-v0.2-output-safety-sweep-evidence.md` - output safety
   telemetry and factory sweep evidence
-- `dsp/material-core-idea.md` - exploratory material-memory stage idea
-- `dsp/gravitational-phase-lattice-idea.md` - `GFM` radical alternate voice
-  engine idea
 - `dsp/gfm-v0.1-baseline.md` - first accepted audible `mamut-field` evidence
   baseline
 - `dsp/gfm-v0.2-gesture-evidence.md` - attack-hold-release `mamut-field`

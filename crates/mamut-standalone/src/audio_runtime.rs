@@ -77,8 +77,6 @@ pub(crate) fn run_alsa_playback_loop(
         };
 
         let frames_to_write = available_frames.min(tuning.period_frames).max(1);
-        transport_metrics.record_write_request(frames_to_write);
-
         let sample_count = frames_to_write * channel_count;
         drain_queue_into_output(
             &mut consumer,

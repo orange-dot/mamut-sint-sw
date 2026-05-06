@@ -3,3 +3,16 @@
 .codex/
 .playwright-mcp/
 **/__pycache__/
+
+# Local research drafts and generated survey reports.
+# Evidence notes, live sessions, ADRs, and curated DSP docs stay tracked.
+masnoca-claude.md
+masnoca-codex.md
+docs/**/*research*.md
+docs/**/*Research*.md
+docs/**/deep-research-report.md
+docs/**/State of the Art*.md
+docs/dsp/DSP_ Edge, Unsolved Problems, Ecosystems.md
+docs/dsp/*-idea.md
+docs/dsp/*additional-directions.md
+docs/dsp/*foundations.md

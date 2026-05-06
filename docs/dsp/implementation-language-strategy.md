@@ -4,11 +4,8 @@
 
 This is an implementation strategy note for next-generation DSP work.
 
-It applies to:
-
-- `material-core-idea.md`
-- `gravitational-phase-lattice-idea.md`
-- `next-generation-dsp-research-tracks.md`
+It applies to local next-generation DSP experiments once they are promoted out
+of ignored research notes and into implementation planning.
 
 It is not a commitment that every experiment becomes product code.
 

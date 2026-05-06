@@ -6,10 +6,9 @@ This freezes the first offline-only `Bifurcation-Coordinate Synthesis` playgroun
 inside `mamut-field`. It is a regime proof for a deterministic nonlinear voice,
 not a production tone or runtime integration.
 
-Foundation notes:
-
-- `bifurcation-coordinate-synthesis-math-foundations.md`
-- `bifurcation-coordinate-synthesis-physical-psychoacoustic-foundations.md`
+The mathematical and psychoacoustic foundation notes that led to this pass are
+local research inputs and are intentionally ignored by git. This file records
+the accepted evidence surface.
 
 ## Render Contract
 

@@ -10,8 +10,9 @@ default synth, patch schema, standalone UI, MIDI map, or factory patches.
 Foundation evidence:
 
 - `bcs-v0.1-hopf-duffing-playground-evidence.md`
-- `bifurcation-coordinate-synthesis-math-foundations.md`
-- `bifurcation-coordinate-synthesis-physical-psychoacoustic-foundations.md`
+
+The earlier BCS foundation notes are local research inputs and are intentionally
+ignored by git. This file records the accepted engine-layer evidence surface.
 
 ## Engine Contract
 
