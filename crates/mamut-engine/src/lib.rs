@@ -18,7 +18,7 @@ use mamut_identity::{
 };
 use mamut_params::{MacroId, ParamId, param_spec};
 use mamut_patch::{
-    CrossMixMode, ModDirection, NoiseColor, Osc2PitchMode, OscPhaseMode, PatchFileV1,
+    CrossMixMode, FilterModel, ModDirection, NoiseColor, Osc2PitchMode, OscPhaseMode, PatchFileV1,
     PatchValidationError, SpectralTable, validate_patch_v1,
 };
 

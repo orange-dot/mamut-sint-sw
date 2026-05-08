@@ -1,6 +1,7 @@
 mod additive;
 mod bandlimited;
 mod block;
+mod delay;
 mod envelope;
 mod filter;
 mod fx;
@@ -13,6 +14,7 @@ mod phase;
 mod safety;
 mod smoother;
 mod waveform;
+mod waveshaper;
 mod wavetable;
 
 pub use additive::{additive_partial_count, additive_ratio, additive_weight};
@@ -20,8 +22,9 @@ pub use bandlimited::{
     BandlimitedTriangle, poly_blep, poly_blep_pulse_sample, poly_blep_saw_sample,
 };
 pub use block::{MonoBlockMut, StereoBlockMut};
+pub use delay::{AllpassFilter, CombFilter, DelayLine, OnePoleDamping};
 pub use envelope::{AdsrEnvelope, AdsrTiming, EnvelopeStage};
-pub use filter::StateVariableFilter;
+pub use filter::{ResonantMatterFilter, StateVariableFilter, TptStateVariableFilter, TptSvfOutput};
 pub use fx::{SimpleChorus, SimpleReverb};
 pub use math::{
     bipolar_to_unipolar, cents_to_ratio, db_to_gain, equal_power_pan, gain_to_db, lerp,
@@ -44,6 +47,10 @@ pub use smoother::LinearSmoother;
 pub use waveform::{
     mixed_wave, mixed_wave_bandlimited, mixed_wave_osc2, mixed_wave_osc2_bandlimited,
     oscillator_preview_sample, sine_phase_sample,
+};
+pub use waveshaper::{
+    asymmetric_diode, cubic_soft_clip, cubic_soft_clip_compensated, drive_gain_compensated,
+    foldback, tanh_drive, tanh_drive_compensated,
 };
 pub use wavetable::{SPECTRAL_WAVETABLE_COUNT, SPECTRAL_WAVETABLE_SIZE, spectral_wavetable_sample};
 

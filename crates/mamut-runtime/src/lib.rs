@@ -139,6 +139,7 @@ pub fn direct_param_raw_value(snapshot: &EngineSnapshot, id: ParamId) -> Option<
         ParamId::FilterResonance => snapshot.direct.resonance,
         ParamId::FilterDrive => snapshot.direct.filter_drive,
         ParamId::FilterKeytrack => snapshot.direct.filter_tracking,
+        ParamId::FilterModel => snapshot.direct.filter_model,
         ParamId::AmpEnvAttackMs => snapshot.direct.amp_env.attack_ms,
         ParamId::AmpEnvDecayMs => snapshot.direct.amp_env.decay_ms,
         ParamId::AmpEnvSustain => snapshot.direct.amp_env.sustain,
@@ -233,6 +234,11 @@ pub fn indexed_param_value_label(id: ParamId, value: f32) -> String {
             2 => "dark",
             3 => "bright",
             _ => "white",
+        },
+        ParamId::FilterModel => match index {
+            1 => "tpt",
+            2 => "matter",
+            _ => "legacy",
         },
         ParamId::SpectralTable => match index {
             1 => "vocal",

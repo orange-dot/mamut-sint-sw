@@ -37,6 +37,7 @@ Start here:
 - `live-sessions/2026-04-29-pc4-ag03-noteoff-fix-validated.md` - hardware validation that the repeated-pitch note-off fix clears the stuck-note failure
 - `live-sessions/2026-04-29-pc4-ag03-full-controller-map.md` - full one-way `PC4` sustain/K/S/SW/wheels/aftertouch hardware map validation into Mamut
 - `live-sessions/2026-04-29-pc4-ag03-windowed-gui-redesign-live-take.md` - windowed GUI redesign live take, layout regression/fix, and real PC4 control evidence
+- `live-sessions/2026-05-08-cathedral-bloom-gravitacija-live-take.md` - 60-second `Cathedral Bloom` direct-output live take with MIDI sidecar and full audio/control analysis
 - `live-sessions/2026-04-30-direct-output-capture-analysis.md` - first direct-output f32 WAV analysis, including valid recorder evidence and the DC-offset follow-up
 - `live-sessions/2026-04-30-direct-output-dc-blocker-validation.md` - direct-output f32 WAV validation after the master DC blocker, with the remaining headroom and denormal follow-ups
 - `EXTERNAL_DSP_REFERENCES.md` - local notes on external DSP references such as

@@ -189,6 +189,13 @@ fn source_expansion_direct_params_update_snapshot_and_exported_patch() {
                     value: 0.20,
                 },
             },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::FilterModel,
+                    value: 2.0,
+                },
+            },
         ],
         macro_state: None,
         output: None,
@@ -202,6 +209,7 @@ fn source_expansion_direct_params_update_snapshot_and_exported_patch() {
     assert_eq!(snapshot.direct.osc2_pitch_mode, 1.0);
     assert_eq!(snapshot.direct.noise_color, 2.0);
     assert_eq!(snapshot.direct.cross_mix_mode, 4.0);
+    assert_eq!(snapshot.direct.filter_model, 2.0);
     assert!((snapshot.direct.spectral_level - 0.38).abs() < 0.0001);
     assert_eq!(snapshot.direct.spectral_table, 2.0);
     assert!((snapshot.direct.spectral_position - 0.72).abs() < 0.0001);
@@ -224,6 +232,7 @@ fn source_expansion_direct_params_update_snapshot_and_exported_patch() {
     assert_eq!(exported.engine.osc2.bandlimit, 0.20);
     assert_eq!(exported.engine.noise_color, NoiseColor::Dark);
     assert_eq!(exported.engine.cross_mix_mode, CrossMixMode::Difference);
+    assert_eq!(exported.engine.filter.model, FilterModel::MatterDriven);
     assert_eq!(exported.engine.spectral.level, 0.38);
     assert_eq!(exported.engine.spectral.table, SpectralTable::Metallic);
     assert_eq!(exported.engine.spectral.position, 0.72);

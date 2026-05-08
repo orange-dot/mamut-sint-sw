@@ -11,6 +11,9 @@ playbooks under `docs/`.
 
 Recent sessions:
 
+- `2026-05-08-cathedral-bloom-gravitacija-live-take.md` - 60-second
+  `Cathedral Bloom` direct-output live take with MIDI sidecar, full level,
+  spectrum, stereo, timeline, and ignored-CC analysis.
 - `2026-05-03-audionoise-loopback-pedal.md` - first Mamut standalone run
   through the external AudioNoise ALSA live pedal sidecar, validating the
   `snd-aloop` chain, Yamaha output, bypass, `svfdrive --wet 0.25`, and echo.

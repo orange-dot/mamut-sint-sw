@@ -412,11 +412,12 @@ const BODY_FILTER_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
     k!(7, FilterDrive),
     k!(9, FilterKeytrack),
 ];
-const BODY_FILTER_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 4] = [
+const BODY_FILTER_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 5] = [
     s!(1, FinalStageBodyDrive),
     s!(2, FinalStageAsymmetry),
     s!(3, FinalStageLowMidEmphasis),
     s!(4, FinalStageOutputTrimDb),
+    s!(5, FilterModel),
 ];
 const MOTION_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
     k!(1, AmpEnvAttackMs),

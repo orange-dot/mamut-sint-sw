@@ -84,6 +84,7 @@ pub struct DirectParameters {
     pub filter_drive: f32,
     pub filter_env_depth: f32,
     pub filter_tracking: f32,
+    pub filter_model: f32,
     pub amp_env: AdsrTiming,
     pub filter_env: AdsrTiming,
     pub voice_level: f32,

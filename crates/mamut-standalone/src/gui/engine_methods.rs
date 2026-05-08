@@ -19,11 +19,30 @@ const ENGINE_PARAM_SECTIONS: [ParamSection; 15] = [
 ];
 
 impl PerformanceApp {
+    pub(crate) fn render_sticky_scope_panel(&mut self, ui: &mut egui::Ui) {
+        let snapshot = self.snapshot.clone();
+        match self.selected_tab {
+            PerformanceTab::Live => {
+                self.render_output_scope_panel(ui, snapshot.as_ref(), "LIVE OSCILLOSCOPE", 150.0);
+            }
+            PerformanceTab::SoundLab => {
+                self.render_output_scope_panel(
+                    ui,
+                    snapshot.as_ref(),
+                    "SOUND LAB OSCILLOSCOPE",
+                    150.0,
+                );
+            }
+            PerformanceTab::Engine => {
+                self.render_output_scope_panel(ui, snapshot.as_ref(), "MASTER OSCILLOSCOPE", 220.0);
+            }
+            PerformanceTab::Pc4 | PerformanceTab::Debug => {}
+        }
+    }
+
     pub(crate) fn render_engine_tab(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         let snapshot = self.snapshot.clone();
         self.render_engine_signal_flow(ui, snapshot.as_ref());
-        ui.add_space(12.0);
-        self.render_engine_scope_panel(ui, snapshot.as_ref());
         ui.add_space(12.0);
 
         ui.columns(2, |columns| {
@@ -92,23 +111,6 @@ impl PerformanceApp {
                 );
             });
         });
-    }
-
-    pub(crate) fn render_engine_scope_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        snapshot: Option<&EngineSnapshot>,
-    ) {
-        self.render_output_scope_panel(ui, snapshot, "MASTER OSCILLOSCOPE", 280.0);
-    }
-
-    pub(crate) fn render_compact_scope_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        snapshot: Option<&EngineSnapshot>,
-        eyebrow: &str,
-    ) {
-        self.render_output_scope_panel(ui, snapshot, eyebrow, 190.0);
     }
 
     pub(crate) fn render_output_scope_panel(

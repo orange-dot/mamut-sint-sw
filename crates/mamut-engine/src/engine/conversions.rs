@@ -25,6 +25,14 @@ pub(super) fn noise_color_from_index(value: f32) -> NoiseColor {
     }
 }
 
+pub(super) fn filter_model_from_index(value: f32) -> FilterModel {
+    match value.round() as i32 {
+        1 => FilterModel::TptClean,
+        2 => FilterModel::MatterDriven,
+        _ => FilterModel::Legacy,
+    }
+}
+
 pub(super) fn spectral_table_from_index(value: f32) -> SpectralTable {
     match value.round() as i32 {
         1 => SpectralTable::Vocalish,

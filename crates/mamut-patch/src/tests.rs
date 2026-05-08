@@ -36,6 +36,7 @@ mod tests {
         assert_eq!(patch.engine.noise_color, NoiseColor::White);
         assert_eq!(patch.engine.noise_filter_level, None);
         assert_eq!(patch.engine.noise_body_level, 0.0);
+        assert_eq!(patch.engine.filter.model, FilterModel::Legacy);
         assert_eq!(patch.engine.cross_mix_mode, CrossMixMode::Sum);
         assert_eq!(patch.engine.spectral, SpectralPatch::default());
         assert_eq!(patch.engine.additive, AdditivePatch::default());
@@ -76,6 +77,7 @@ mod tests {
         patch.engine.additive.inharmonicity = 0.28;
         patch.engine.additive.spectral_tilt = 0.62;
         patch.engine.additive.random_detune_cents = 12.5;
+        patch.engine.filter.model = FilterModel::MatterDriven;
 
         validate_patch_v1(&patch).expect("source controls validate");
         let serialized = save_patch_toml(&patch).expect("source controls serialize");
@@ -96,6 +98,11 @@ mod tests {
             "[engine.spectral]\ntable = \"glass\"\n\n[engine.osc1]",
         );
         assert!(load_patch_toml(&invalid_spectral_enum).is_err());
+        let invalid_filter_model = MOLTEN_HORIZON.replace(
+            "[engine.filter]",
+            "[engine.filter]\nmodel = \"unstable_ladder\"",
+        );
+        assert!(load_patch_toml(&invalid_filter_model).is_err());
 
         let mut invalid_range = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
         invalid_range.engine.osc2.ratio = 0.05;

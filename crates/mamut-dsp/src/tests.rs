@@ -412,6 +412,95 @@ fn filter_survives_extreme_drive_and_strain() {
 }
 
 #[test]
+fn tpt_svf_outputs_stay_finite_under_modulation() {
+    let mut filter = TptStateVariableFilter::new();
+    for step in 0..12_000 {
+        let phase = step as f32 * 0.017;
+        let cutoff = 40.0 + (phase.sin() * 0.5 + 0.5) * 18_000.0;
+        let resonance = phase.cos() * 0.5 + 0.5;
+        let output = filter.process(phase.sin() * 0.8, cutoff, resonance, 48_000.0);
+        assert!(output.low.is_finite());
+        assert!(output.band.is_finite());
+        assert!(output.high.is_finite());
+        assert!(output.notch.is_finite());
+        assert!(output.peak.is_finite());
+    }
+
+    let output = filter.process(f32::NAN, f32::INFINITY, f32::NAN, 1.0);
+    assert!(output.low.is_finite());
+    assert!(output.band.is_finite());
+    assert!(output.high.is_finite());
+}
+
+#[test]
+fn resonant_matter_filter_stays_finite_and_bounded() {
+    let mut filter = ResonantMatterFilter::new();
+    for step in 0..16_000 {
+        let phase = step as f32 * 0.023;
+        let sample = filter.process(
+            phase.sin() * 0.9,
+            120.0 + (phase * 0.11).sin().abs() * 11_000.0,
+            0.92,
+            0.82,
+            0.74,
+            0.88,
+            96_000.0,
+        );
+        assert!(sample.is_finite());
+        assert!(sample.abs() <= 1.0);
+    }
+}
+
+#[test]
+fn filter_model_zero_preserves_legacy_process() {
+    let mut legacy = StateVariableFilter::new();
+    let mut modeled = StateVariableFilter::new();
+    for step in 0..2048 {
+        let input = (step as f32 * 0.037).sin() * 0.7;
+        let legacy_sample = legacy.process(input, 1_800.0, 0.42, 0.31, 0.23, 48_000.0);
+        let modeled_sample =
+            modeled.process_model(input, 1_800.0, 0.42, 0.31, 0.23, 0.0, 0.0, 48_000.0);
+        assert_eq!(legacy_sample.to_bits(), modeled_sample.to_bits());
+    }
+
+    let sample = modeled.process_model(
+        f32::NAN,
+        f32::NAN,
+        f32::INFINITY,
+        f32::NAN,
+        f32::NAN,
+        0.0,
+        0.0,
+        f32::NAN,
+    );
+    assert!(sample.is_finite());
+}
+
+#[test]
+fn waveshapers_stay_finite_and_declare_compensation_behavior() {
+    for sample in [
+        -4.0,
+        -1.0,
+        -0.2,
+        0.0,
+        0.2,
+        1.0,
+        4.0,
+        f32::NAN,
+        f32::INFINITY,
+    ] {
+        assert!(tanh_drive(sample, f32::NAN).is_finite());
+        assert!(tanh_drive(sample, 0.75).abs() <= 1.0);
+        assert!(tanh_drive_compensated(sample, 0.75).abs() <= 1.0);
+        assert!(cubic_soft_clip(sample).is_finite());
+        assert!(cubic_soft_clip_compensated(sample).abs() <= 1.0);
+        assert!(asymmetric_diode(sample, 0.80, 0.35).abs() <= 1.0);
+        assert!(foldback(sample, f32::NAN).abs() <= 1.0);
+        assert!(drive_gain_compensated(sample, f32::INFINITY).is_finite());
+    }
+}
+
+#[test]
 fn mixed_wave_helpers_stay_finite_and_bounded() {
     let mut oscillator = Oscillator::new();
     oscillator.set_phase(0.37);
@@ -665,4 +754,37 @@ fn reverb_output_stays_finite_over_long_run() {
         assert!(left.is_finite());
         assert!(right.is_finite());
     }
+}
+
+#[test]
+fn delay_line_reads_fractional_delays_without_allocation_in_process() {
+    let mut delay = DelayLine::new(16);
+    for step in 0..16 {
+        delay.push(step as f32 / 16.0);
+    }
+
+    let delayed = delay.read_linear(3.5);
+    assert!(delayed.is_finite());
+    assert!((0.0..=1.0).contains(&delayed));
+    assert_eq!(delay.len(), 16);
+    assert!(delay.read_linear(f32::NAN).is_finite());
+}
+
+#[test]
+fn comb_and_allpass_filters_stay_finite_over_long_run() {
+    let mut comb = CombFilter::new(2048);
+    let mut allpass = AllpassFilter::new(1024);
+    for step in 0..24_000 {
+        let impulse = if step % 2000 == 0 { 0.8 } else { 0.0 };
+        let combed = comb.process(impulse, 733.4, 0.72, 0.45);
+        let diffused = allpass.process(combed, 211.7, 0.58);
+        assert!(combed.is_finite());
+        assert!(diffused.is_finite());
+    }
+
+    assert!(
+        comb.process(f32::NAN, f32::NAN, f32::NAN, f32::NAN)
+            .is_finite()
+    );
+    assert!(allpass.process(f32::NAN, f32::NAN, f32::NAN).is_finite());
 }

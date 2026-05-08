@@ -58,6 +58,14 @@ pub(crate) fn noise_color_index(color: NoiseColor) -> f32 {
     }
 }
 
+pub(crate) fn filter_model_index(model: FilterModel) -> f32 {
+    match model {
+        FilterModel::Legacy => 0.0,
+        FilterModel::TptClean => 1.0,
+        FilterModel::MatterDriven => 2.0,
+    }
+}
+
 pub(crate) fn spectral_table_index(table: SpectralTable) -> f32 {
     match table {
         SpectralTable::Sineish => 0.0,
@@ -217,6 +225,7 @@ pub(crate) fn resolve_direct_parameters(
             .clamp(0.0, 1.0),
         filter_env_depth: (engine.filter_env.depth + identity.horizont_open * 0.12).clamp(0.0, 1.0),
         filter_tracking: (engine.filter.keytrack * (0.92 - derived.mass * 0.12)).clamp(0.0, 1.0),
+        filter_model: filter_model_index(engine.filter.model),
         amp_env: AdsrTiming {
             attack_ms: engine.amp_env.attack_ms,
             decay_ms: engine.amp_env.decay_ms,

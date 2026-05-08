@@ -180,6 +180,7 @@ pub enum ParamId {
     AdditiveRandomDetuneCents = 101,
     Osc1Bandlimit = 102,
     Osc2Bandlimit = 103,
+    FilterModel = 104,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -209,7 +210,7 @@ const fn spec(
     }
 }
 
-const PARAM_SPECS: [ParamSpec; 104] = [
+const PARAM_SPECS: [ParamSpec; 105] = [
     spec(
         ParamId::GravitacijaMacro,
         "gravitacija",
@@ -1458,6 +1459,18 @@ const PARAM_SPECS: [ParamSpec; 104] = [
         true,
         None,
     ),
+    spec(
+        ParamId::FilterModel,
+        "filter_model",
+        "Filter Model",
+        ParamSection::Filter,
+        0.0,
+        0.0,
+        2.0,
+        ParamUnit::Indexed,
+        true,
+        None,
+    ),
 ];
 
 pub fn all_params() -> &'static [ParamSpec] {
@@ -1562,9 +1575,13 @@ mod tests {
         assert_eq!(ParamId::AdditiveRandomDetuneCents as usize, 101);
         assert_eq!(ParamId::Osc1Bandlimit as usize, 102);
         assert_eq!(ParamId::Osc2Bandlimit as usize, 103);
+        assert_eq!(ParamId::FilterModel as usize, 104);
         assert_eq!(param_spec(ParamId::NoiseColor).unit, ParamUnit::Indexed);
         assert_eq!(param_by_key("osc1_bandlimit"), Some(ParamId::Osc1Bandlimit));
         assert_eq!(param_by_key("osc2_bandlimit"), Some(ParamId::Osc2Bandlimit));
+        assert_eq!(param_by_key("filter_model"), Some(ParamId::FilterModel));
+        assert_eq!(param_spec(ParamId::FilterModel).unit, ParamUnit::Indexed);
+        assert_eq!(param_spec(ParamId::FilterModel).max, 2.0);
         assert_eq!(param_spec(ParamId::CrossMixMode).max, 4.0);
         assert_eq!(param_spec(ParamId::SpectralTable).unit, ParamUnit::Indexed);
         assert_eq!(param_spec(ParamId::SpectralRatio).min, 0.25);

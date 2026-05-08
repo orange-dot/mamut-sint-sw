@@ -251,12 +251,17 @@ impl Engine {
                 * keytrack
                 * velocity_filter)
                 .clamp(20.0, sample_rate_hz * 0.42);
-            let filtered = voice.filter.process(
+            let filter_matter =
+                (derived.mass * 0.48 + identity.grav_pull * 0.34 + derived.body_focus * 0.18)
+                    .clamp(0.0, 1.0);
+            let filtered = voice.filter.process_model(
                 pre_filter,
                 cutoff_hz,
                 direct.resonance,
                 direct.filter_drive,
                 derived.strain,
+                filter_matter,
+                direct.filter_model,
                 sample_rate_hz,
             );
 

@@ -111,6 +111,9 @@ impl Engine {
             ParamId::FilterResonance => self.patch.engine.filter.resonance = clamped,
             ParamId::FilterDrive => self.patch.engine.filter.drive = clamped,
             ParamId::FilterKeytrack => self.patch.engine.filter.keytrack = clamped,
+            ParamId::FilterModel => {
+                self.patch.engine.filter.model = filter_model_from_index(clamped)
+            }
             ParamId::AmpEnvAttackMs => self.patch.engine.amp_env.attack_ms = clamped,
             ParamId::AmpEnvDecayMs => self.patch.engine.amp_env.decay_ms = clamped,
             ParamId::AmpEnvSustain => self.patch.engine.amp_env.sustain = clamped,

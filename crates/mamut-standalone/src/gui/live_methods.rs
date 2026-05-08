@@ -521,11 +521,10 @@ impl PerformanceApp {
         effective_value: f32,
     ) {
         epm_tile_frame(false).show(ui, |ui| {
-            ui.set_min_width(150.0);
             ui.label(epm_eyebrow(label.to_ascii_uppercase()));
             ui.add(
                 egui::ProgressBar::new(live_value.clamp(0.0, 1.0))
-                    .desired_width(132.0)
+                    .desired_width((ui.available_width() - 4.0).clamp(82.0, 180.0))
                     .fill(epm_orange())
                     .text(format!("{live_value:.2}")),
             );
@@ -573,11 +572,23 @@ impl PerformanceApp {
         epm_frame(epm_panel()).show(ui, |ui| {
             ui.label(epm_eyebrow("MACROS"));
             ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                for (label, live_value, effective_value) in macro_values {
-                    Self::render_macro_meter(ui, label, live_value, effective_value);
-                }
-            });
+            let column_count = if ui.available_width() >= 900.0 {
+                5
+            } else if ui.available_width() >= 560.0 {
+                3
+            } else {
+                2
+            };
+            for row in macro_values.chunks(column_count) {
+                ui.columns(column_count, |columns| {
+                    for (column, (label, live_value, effective_value)) in
+                        columns.iter_mut().zip(row.iter())
+                    {
+                        Self::render_macro_meter(column, label, *live_value, *effective_value);
+                    }
+                });
+                ui.add_space(6.0);
+            }
         });
     }
 
@@ -638,12 +649,9 @@ impl PerformanceApp {
     }
 
     pub(crate) fn render_live_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let snapshot = self.snapshot.clone();
         self.render_header(ui);
         ui.add_space(12.0);
         self.render_performance_status_strip(ui);
-        ui.add_space(12.0);
-        self.render_compact_scope_panel(ui, snapshot.as_ref(), "LIVE OSCILLOSCOPE");
         ui.add_space(12.0);
         self.render_gfm_layer_panel(ui);
         ui.add_space(12.0);

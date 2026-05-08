@@ -106,7 +106,13 @@ impl eframe::App for PerformanceApp {
             )
             .show(ctx, |ui| {
                 self.render_tabs(ui);
-                ui.add_space(14.0);
+                ui.add_space(10.0);
+                if self.selected_tab.uses_live_scope() {
+                    self.render_sticky_scope_panel(ui);
+                    ui.add_space(12.0);
+                } else {
+                    ui.add_space(4.0);
+                }
                 match self.selected_tab {
                     PerformanceTab::Pc4 => self.render_pc4_tab(ui),
                     PerformanceTab::Live

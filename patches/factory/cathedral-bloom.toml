@@ -29,6 +29,7 @@ pre_filter_drive = 0.18
 body_mix = 0.30
 
 [engine.filter]
+model = "matter_driven"
 cutoff_hz = 5200.0
 resonance = 0.16
 drive = 0.12

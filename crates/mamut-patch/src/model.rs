@@ -295,10 +295,21 @@ pub struct MixerPatch {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FilterPatch {
+    #[serde(default)]
+    pub model: FilterModel,
     pub cutoff_hz: f32,
     pub resonance: f32,
     pub drive: f32,
     pub keytrack: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterModel {
+    #[default]
+    Legacy,
+    TptClean,
+    MatterDriven,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

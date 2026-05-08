@@ -115,6 +115,10 @@ fn direct_param_raw_value_exposes_sound_lab_values() {
         Some(snapshot.direct.cross_mix_mode)
     );
     assert_eq!(
+        direct_param_raw_value(&snapshot, ParamId::FilterModel),
+        Some(snapshot.direct.filter_model)
+    );
+    assert_eq!(
         direct_param_raw_value(&snapshot, ParamId::SpectralLevel),
         Some(snapshot.direct.spectral_level)
     );
@@ -190,6 +194,10 @@ fn sound_lab_interactive_mapping_uses_param_units() {
     );
     assert_eq!(
         sound_lab_param_value_from_normalized(ParamId::NoiseColor, 0.60),
+        2.0
+    );
+    assert_eq!(
+        sound_lab_param_value_from_normalized(ParamId::FilterModel, 0.99),
         2.0
     );
     assert_eq!(
