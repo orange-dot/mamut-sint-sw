@@ -1,13 +1,14 @@
-use std::f32::consts::TAU;
-
-use crate::safety::sanitize_sample;
+use crate::{
+    modulation::{Lfo, LfoShape},
+    safety::sanitize_sample,
+};
 
 #[derive(Debug, Clone)]
 pub struct SimpleChorus {
     left_buffer: Vec<f32>,
     right_buffer: Vec<f32>,
     write_index: usize,
-    lfo_phase: f32,
+    lfo: Lfo,
     sample_rate_hz: f32,
 }
 
@@ -18,7 +19,7 @@ impl SimpleChorus {
             left_buffer: vec![0.0; buffer_len],
             right_buffer: vec![0.0; buffer_len],
             write_index: 0,
-            lfo_phase: 0.0,
+            lfo: Lfo::new(sample_rate_hz, LfoShape::Sine),
             sample_rate_hz,
         }
     }
@@ -35,9 +36,9 @@ impl SimpleChorus {
         let depth = depth.clamp(0.0, 1.0);
         let base_delay = self.sample_rate_hz * 0.014;
         let modulation = self.sample_rate_hz * 0.006 * depth;
-        let lfo_a = (self.lfo_phase * TAU).sin();
-        let lfo_b = ((self.lfo_phase + 0.31).fract() * TAU).sin();
-        let lfo_c = ((self.lfo_phase + 0.63).fract() * TAU).sin();
+        let lfo_a = self.lfo.sample_bipolar();
+        let lfo_b = self.lfo.sample_bipolar_offset(0.31);
+        let lfo_c = self.lfo.sample_bipolar_offset(0.63);
         let left_delay = base_delay + modulation * lfo_a;
         let right_delay = base_delay + modulation * lfo_b;
         let cross_delay = base_delay * 0.74 + modulation * 0.45 * lfo_c;
@@ -51,7 +52,7 @@ impl SimpleChorus {
         self.left_buffer[self.write_index] = sanitize_sample(left + delayed_left * feedback);
         self.right_buffer[self.write_index] = sanitize_sample(right + delayed_right * feedback);
         self.write_index = (self.write_index + 1) % self.left_buffer.len();
-        self.lfo_phase = (self.lfo_phase + rate_hz.max(0.01) / self.sample_rate_hz).fract();
+        self.lfo.advance(rate_hz.max(0.01));
 
         let wet_left = delayed_left * 0.66 + cross_left * 0.22 + center * 0.12;
         let wet_right = delayed_right * 0.66 + cross_right * 0.22 + center * 0.12;

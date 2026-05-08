@@ -2,6 +2,7 @@ use std::fs::{File, create_dir_all};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
+use mamut_dsp::MonoBlockMut;
 use mamut_engine::GfmFieldVoice;
 use mamut_field::{GFM_PERFORMANCE_BASELINE_SEED, GfmProgramId, sample_to_pcm16};
 
@@ -39,10 +40,11 @@ fn render_wav(path: impl AsRef<Path>, program_id: GfmProgramId) -> std::io::Resu
     while rendered < frames {
         let frame_count = (frames - rendered).min(block.len());
         voice.render_mono_block(&mut block[..frame_count]);
-        for sample in &block[..frame_count] {
-            finite &= sample.is_finite();
-            peak_abs = peak_abs.max(sample.abs());
-            sum_squares += sample * sample;
+        let block = MonoBlockMut::new(&mut block[..frame_count]);
+        finite &= block.is_finite();
+        peak_abs = peak_abs.max(block.peak_abs());
+        sum_squares += block.rms().powi(2) * block.frames() as f32;
+        for sample in block.samples.iter() {
             writer.write_all(&sample_to_pcm16(*sample).to_le_bytes())?;
         }
         rendered += frame_count;

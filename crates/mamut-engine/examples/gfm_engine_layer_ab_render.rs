@@ -127,14 +127,13 @@ fn render_wav(
             process_block(&mut engine, frame_count, &[], &mut left, &mut right);
         }
 
-        for index in 0..frame_count {
-            let left_sample = left[index];
-            let right_sample = right[index];
-            finite &= left_sample.is_finite() && right_sample.is_finite();
-            peak_abs = peak_abs.max(left_sample.abs().max(right_sample.abs()));
-            sum_squares += left_sample * left_sample + right_sample * right_sample;
-            writer.write_all(&sample_to_pcm16(left_sample).to_le_bytes())?;
-            writer.write_all(&sample_to_pcm16(right_sample).to_le_bytes())?;
+        let block = StereoBlockMut::new(&mut left[..frame_count], &mut right[..frame_count]);
+        finite &= block.is_finite();
+        peak_abs = peak_abs.max(block.peak_abs());
+        sum_squares += block.rms().powi(2) * (block.frames() * 2) as f32;
+        for index in 0..block.frames() {
+            writer.write_all(&sample_to_pcm16(block.left[index]).to_le_bytes())?;
+            writer.write_all(&sample_to_pcm16(block.right[index]).to_le_bytes())?;
         }
 
         rendered += frame_count;

@@ -65,12 +65,8 @@ impl Engine {
             };
             let spread_detune_semitones =
                 spread_position * direct.detune_spread_cents * 0.5 / 100.0;
-            let pwm_lfo = (voice.pwm_lfo.phase() * std::f32::consts::TAU).sin();
-            voice
-                .pwm_lfo
-                .advance(direct.source_pwm_rate_hz, sample_rate_hz);
-            let drift_lfo = (voice.drift_lfo.phase() * std::f32::consts::TAU).sin();
-            voice.drift_lfo.advance(0.083, sample_rate_hz);
+            let pwm_lfo = voice.pwm_lfo.next_bipolar(direct.source_pwm_rate_hz);
+            let drift_lfo = voice.drift_lfo.next_bipolar(0.083);
             let jitter = voice.jitter.next_bipolar();
             let pitch_instability =
                 drift_lfo * direct.analog_drift * 0.018 + jitter * direct.micro_jitter * 0.006;
@@ -268,8 +264,7 @@ impl Engine {
             }
 
             let pan = spread_position * stereo_width;
-            let left_gain = ((1.0 - pan) * 0.5).clamp(0.0, 1.0).sqrt();
-            let right_gain = ((1.0 + pan) * 0.5).clamp(0.0, 1.0).sqrt();
+            let (left_gain, right_gain) = equal_power_pan(pan);
             left += sample * left_gain;
             right += sample * right_gain;
         }

@@ -2,17 +2,7 @@ use std::f32::consts::TAU;
 
 use crate::block::StereoBlockMut;
 
-pub fn midi_note_hz(note: f32) -> f32 {
-    440.0 * 2.0_f32.powf((note - 69.0) / 12.0)
-}
-
-pub fn db_to_gain(db: f32) -> f32 {
-    10.0_f32.powf(db / 20.0)
-}
-
-pub fn mix(a: f32, b: f32, amount: f32) -> f32 {
-    a + (b - a) * amount.clamp(0.0, 1.0)
-}
+pub use crate::math::{mix, soft_clip};
 
 pub const DENORMAL_FLUSH_ABS: f32 = 1.0e-20;
 pub const MASTER_SAFETY_KNEE: f32 = 0.92;
@@ -83,11 +73,6 @@ impl StereoDcBlocker {
     pub fn process(&mut self, left: f32, right: f32) -> (f32, f32) {
         (self.left.process(left), self.right.process(right))
     }
-}
-
-pub fn soft_clip(sample: f32, asymmetry: f32) -> f32 {
-    let offset = asymmetry.clamp(-1.0, 1.0) * 0.35;
-    ((sample + offset) * 1.25).tanh()
 }
 
 pub fn master_safety_limit(sample: f32) -> f32 {

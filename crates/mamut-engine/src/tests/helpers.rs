@@ -196,13 +196,12 @@ pub(super) fn render_engine_layer_mono_samples(
             )),
         });
 
-        for index in 0..frame_count {
-            let left_sample = left[index];
-            let right_sample = right[index];
-            finite &= left_sample.is_finite() && right_sample.is_finite();
-            peak_abs = peak_abs.max(left_sample.abs().max(right_sample.abs()));
-            sum_squares += left_sample * left_sample + right_sample * right_sample;
-            mono.push((left_sample + right_sample) * 0.5);
+        let block = StereoBlockMut::new(&mut left[..frame_count], &mut right[..frame_count]);
+        finite &= block.is_finite();
+        peak_abs = peak_abs.max(block.peak_abs());
+        sum_squares += block.rms().powi(2) * (block.frames() * 2) as f32;
+        for index in 0..block.frames() {
+            mono.push((block.left[index] + block.right[index]) * 0.5);
         }
 
         rendered += frame_count;
@@ -285,13 +284,15 @@ pub(super) fn render_engine_layer_signature_with_notes_and_controllers(
             });
         }
 
-        for index in 0..frame_count {
-            let left_sample = left[index];
-            let right_sample = right[index];
-            finite &= left_sample.is_finite() && right_sample.is_finite();
-            peak_abs = peak_abs.max(left_sample.abs().max(right_sample.abs()));
-            sum_squares += left_sample * left_sample + right_sample * right_sample;
-            for pcm in [sample_to_pcm16(left_sample), sample_to_pcm16(right_sample)] {
+        let block = StereoBlockMut::new(&mut left[..frame_count], &mut right[..frame_count]);
+        finite &= block.is_finite();
+        peak_abs = peak_abs.max(block.peak_abs());
+        sum_squares += block.rms().powi(2) * (block.frames() * 2) as f32;
+        for index in 0..block.frames() {
+            for pcm in [
+                sample_to_pcm16(block.left[index]),
+                sample_to_pcm16(block.right[index]),
+            ] {
                 signature ^= pcm as u16 as u64;
                 signature = signature.wrapping_mul(0x100_0000_01b3);
             }
@@ -437,9 +438,10 @@ pub(super) fn render_gfm_voice_block_signature(mut voice: GfmFieldVoice) -> (u64
     while rendered < frames {
         let frame_count = (frames - rendered).min(block.len());
         voice.render_mono_block(&mut block[..frame_count]);
-        for sample in &block[..frame_count] {
-            finite &= sample.is_finite();
-            peak_abs = peak_abs.max(sample.abs());
+        let block = MonoBlockMut::new(&mut block[..frame_count]);
+        finite &= block.is_finite();
+        peak_abs = peak_abs.max(block.peak_abs());
+        for sample in block.samples.iter() {
             let pcm = sample_to_pcm16(*sample);
             signature ^= pcm as u16 as u64;
             signature = signature.wrapping_mul(0x100_0000_01b3);
@@ -479,9 +481,10 @@ pub(super) fn render_gfm_chunked_signature(
     while rendered < frames {
         let frame_count = (frames - rendered).min(chunk_size);
         voice.render_mono_block(&mut block[..frame_count]);
-        for sample in &block[..frame_count] {
-            finite &= sample.is_finite();
-            peak_abs = peak_abs.max(sample.abs());
+        let block = MonoBlockMut::new(&mut block[..frame_count]);
+        finite &= block.is_finite();
+        peak_abs = peak_abs.max(block.peak_abs());
+        for sample in block.samples.iter() {
             let pcm = sample_to_pcm16(*sample);
             signature ^= pcm as u16 as u64;
             signature = signature.wrapping_mul(0x100_0000_01b3);

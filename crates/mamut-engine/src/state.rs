@@ -447,8 +447,8 @@ pub(crate) struct VoiceState {
     pub(crate) additive_partials: [Oscillator; 8],
     pub(crate) additive_detune_cents: [f32; 8],
     pub(crate) sub: Oscillator,
-    pub(crate) pwm_lfo: Oscillator,
-    pub(crate) drift_lfo: Oscillator,
+    pub(crate) pwm_lfo: Lfo,
+    pub(crate) drift_lfo: Lfo,
     pub(crate) noise: NoiseRng,
     pub(crate) jitter: NoiseRng,
     pub(crate) noise_color_state: f32,
@@ -471,8 +471,8 @@ impl VoiceState {
             additive_partials: [Oscillator::new(); 8],
             additive_detune_cents: [0.0; 8],
             sub: Oscillator::new(),
-            pwm_lfo: Oscillator::new(),
-            drift_lfo: Oscillator::new(),
+            pwm_lfo: Lfo::new(sample_rate_hz, LfoShape::Sine),
+            drift_lfo: Lfo::new(sample_rate_hz, LfoShape::Sine),
             noise: NoiseRng::new(seed),
             jitter: NoiseRng::new(seed ^ 0xA5A5_5A5A),
             noise_color_state: 0.0,
@@ -551,9 +551,9 @@ impl VoiceState {
         self.sub
             .set_phase((((slot as f32) * 0.089) + note as f32 * 0.013).fract());
         self.pwm_lfo
-            .set_phase((((slot as f32) * 0.191) + note as f32 * 0.011).fract());
+            .reset_to((((slot as f32) * 0.191) + note as f32 * 0.011).fract());
         self.drift_lfo
-            .set_phase((((slot as f32) * 0.071) + note as f32 * 0.019).fract());
+            .reset_to((((slot as f32) * 0.071) + note as f32 * 0.019).fract());
         self.noise_color_state = 0.0;
     }
 

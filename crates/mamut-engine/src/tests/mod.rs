@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use super::*;
-use mamut_dsp::{DENORMAL_FLUSH_ABS, MASTER_SAFETY_CEILING};
+use mamut_dsp::{DENORMAL_FLUSH_ABS, MASTER_SAFETY_CEILING, MonoBlockMut};
 use mamut_field::{
     GFM_PERFORMANCE_BASELINE_SEED, GFM_PERFORMANCE_DURATION_SECONDS, GFM_V1_HEIGHT, GFM_V1_WIDTH,
     GfmHealthHistogram, GfmLattice16, GfmPerformanceGesture, GfmPerformanceProgram, GfmProgramId,

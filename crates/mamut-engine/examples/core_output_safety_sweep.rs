@@ -186,12 +186,9 @@ fn render_scenario(
             )),
         });
 
-        for index in 0..frame_count {
-            let left_sample = left[index];
-            let right_sample = right[index];
-            finite &= left_sample.is_finite() && right_sample.is_finite();
-            sum_squares += left_sample * left_sample + right_sample * right_sample;
-        }
+        let block = StereoBlockMut::new(&mut left[..frame_count], &mut right[..frame_count]);
+        finite &= block.is_finite();
+        sum_squares += block.rms().powi(2) * (block.frames() * 2) as f32;
         accumulate_safety(&mut safety, engine.snapshot().output_safety);
 
         rendered += frame_count;
