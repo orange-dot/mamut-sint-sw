@@ -638,9 +638,12 @@ impl PerformanceApp {
     }
 
     pub(crate) fn render_live_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let snapshot = self.snapshot.clone();
         self.render_header(ui);
         ui.add_space(12.0);
         self.render_performance_status_strip(ui);
+        ui.add_space(12.0);
+        self.render_compact_scope_panel(ui, snapshot.as_ref(), "LIVE OSCILLOSCOPE");
         ui.add_space(12.0);
         self.render_gfm_layer_panel(ui);
         ui.add_space(12.0);

@@ -53,6 +53,10 @@ impl PerformanceTab {
             Self::Debug => "Debug",
         }
     }
+
+    pub(crate) fn uses_live_scope(self) -> bool {
+        matches!(self, Self::Live | Self::SoundLab | Self::Engine)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,13 +85,16 @@ impl RecordDurationPreset {
     }
 }
 
-impl PerformanceApp {}
+impl PerformanceApp {
+    pub(crate) fn scope_enabled_for_selected_tab(&self) -> bool {
+        self.selected_tab.uses_live_scope() && !self.engine_scope_frozen
+    }
+}
 
 impl eframe::App for PerformanceApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.session.set_scope_enabled(
-            self.selected_tab == PerformanceTab::Engine && !self.engine_scope_frozen,
-        );
+        self.session
+            .set_scope_enabled(self.scope_enabled_for_selected_tab());
         self.handle_shortcuts(ctx);
         self.poll_runtime();
 
@@ -122,9 +129,8 @@ impl eframe::App for PerformanceApp {
         self.session.set_sound_lab_midi_focus(
             (self.selected_tab == PerformanceTab::SoundLab).then_some(self.sound_lab_page),
         );
-        self.session.set_scope_enabled(
-            self.selected_tab == PerformanceTab::Engine && !self.engine_scope_frozen,
-        );
+        self.session
+            .set_scope_enabled(self.scope_enabled_for_selected_tab());
         ctx.request_repaint_after(PERFORMANCE_UI_REFRESH);
     }
 }

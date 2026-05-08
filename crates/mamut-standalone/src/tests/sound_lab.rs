@@ -49,6 +49,15 @@ fn performance_tabs_include_sound_lab() {
 }
 
 #[test]
+fn performance_tabs_with_real_time_scope_are_explicit() {
+    assert!(PerformanceTab::Live.uses_live_scope());
+    assert!(PerformanceTab::SoundLab.uses_live_scope());
+    assert!(PerformanceTab::Engine.uses_live_scope());
+    assert!(!PerformanceTab::Pc4.uses_live_scope());
+    assert!(!PerformanceTab::Debug.uses_live_scope());
+}
+
+#[test]
 fn request_patch_command_returns_current_engine_patch() {
     let mut state = test_engine_thread_state();
     let (reply_tx, reply_rx) = mpsc::channel();

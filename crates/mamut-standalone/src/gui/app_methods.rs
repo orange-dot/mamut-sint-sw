@@ -89,7 +89,7 @@ impl PerformanceApp {
     }
 
     pub(crate) fn drain_engine_scope(&mut self) {
-        if self.selected_tab != PerformanceTab::Engine || self.engine_scope_frozen {
+        if !self.scope_enabled_for_selected_tab() {
             return;
         }
         self.engine_scope_drain.clear();

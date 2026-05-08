@@ -99,10 +99,29 @@ impl PerformanceApp {
         ui: &mut egui::Ui,
         snapshot: Option<&EngineSnapshot>,
     ) {
+        self.render_output_scope_panel(ui, snapshot, "MASTER OSCILLOSCOPE", 280.0);
+    }
+
+    pub(crate) fn render_compact_scope_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        snapshot: Option<&EngineSnapshot>,
+        eyebrow: &str,
+    ) {
+        self.render_output_scope_panel(ui, snapshot, eyebrow, 190.0);
+    }
+
+    pub(crate) fn render_output_scope_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        snapshot: Option<&EngineSnapshot>,
+        eyebrow: &str,
+        height: f32,
+    ) {
         epm_frame(epm_panel_deep()).show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(epm_eyebrow("MASTER OSCILLOSCOPE"));
+                    ui.label(epm_eyebrow(eyebrow));
                     ui.label(epm_heading("Stereo Output"));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
@@ -120,10 +139,8 @@ impl PerformanceApp {
                         .clicked()
                     {
                         self.engine_scope_frozen = !self.engine_scope_frozen;
-                        self.session.set_scope_enabled(
-                            self.selected_tab == PerformanceTab::Engine
-                                && !self.engine_scope_frozen,
-                        );
+                        self.session
+                            .set_scope_enabled(self.scope_enabled_for_selected_tab());
                     }
                     if ui.add(epm_command_button("CLEAR", false, false)).clicked() {
                         self.engine_scope_frames.clear();
@@ -144,12 +161,17 @@ impl PerformanceApp {
             });
 
             ui.add_space(10.0);
-            self.draw_engine_scope(ui, snapshot);
+            self.draw_engine_scope(ui, snapshot, height);
         });
     }
 
-    pub(crate) fn draw_engine_scope(&self, ui: &mut egui::Ui, snapshot: Option<&EngineSnapshot>) {
-        let desired_size = egui::vec2(ui.available_width(), 280.0);
+    pub(crate) fn draw_engine_scope(
+        &self,
+        ui: &mut egui::Ui,
+        snapshot: Option<&EngineSnapshot>,
+        height: f32,
+    ) {
+        let desired_size = egui::vec2(ui.available_width(), height);
         let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, egui::CornerRadius::same(4), epm_bg());

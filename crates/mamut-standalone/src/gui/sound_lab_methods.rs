@@ -19,6 +19,8 @@ impl PerformanceApp {
 
         self.render_sound_lab_export_panel(ui, &snapshot);
         ui.add_space(12.0);
+        self.render_compact_scope_panel(ui, Some(&snapshot), "SOUND LAB OSCILLOSCOPE");
+        ui.add_space(12.0);
         self.render_sound_lab_identity_panel(ui, &snapshot);
         ui.add_space(12.0);
         self.render_sound_lab_page_selector(ui);
