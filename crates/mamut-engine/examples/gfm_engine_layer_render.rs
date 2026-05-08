@@ -121,9 +121,11 @@ fn render_wav(path: impl AsRef<Path>, patch: PatchFileV1) -> std::io::Result<()>
     }
 
     let rms = (sum_squares / (frames * 2) as f32).sqrt();
-    let diagnostics = engine
-        .gfm_layer_diagnostics()
-        .expect("enabled GFM layer should keep diagnostics");
+    let Some(diagnostics) = engine.gfm_layer_diagnostics() else {
+        return Err(std::io::Error::other(
+            "enabled GFM layer did not keep diagnostics",
+        ));
+    };
     println!(
         "{} patch=\"{}\" program={:?} scores=({:.4},{:.4},{:.4}) rms={:.4} peak={:.4} max_ruptures={} health={:?}",
         path.display(),

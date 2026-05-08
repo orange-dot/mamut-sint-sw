@@ -207,7 +207,7 @@ impl BcsGesture {
                     edge: 0.85 + attack * 0.45,
                     duffing_mix: 1.0,
                     output_gain: 0.96,
-                    hopf_mu_bias: -1.0 * attack,
+                    hopf_mu_bias: -attack,
                     duffing_frequency_scale: 1.0,
                 }
             }
@@ -680,6 +680,8 @@ fn soft_limit(sample: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic)]
+
     use super::*;
 
     #[test]

@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub fn open_driver_for_selector(
     tx: mpsc::Sender<EngineCommand>,
     midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
@@ -40,6 +41,7 @@ pub fn open_driver_for_selector(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn restore_driver_state(
     tx: mpsc::Sender<EngineCommand>,
     midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,

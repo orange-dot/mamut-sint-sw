@@ -180,6 +180,7 @@ pub enum ParamId {
     AdditiveRandomDetuneCents = 101,
 }
 
+#[allow(clippy::too_many_arguments)]
 const fn spec(
     id: ParamId,
     key: &'static str,
@@ -1460,6 +1461,8 @@ pub fn param_by_key(key: &str) -> Option<ParamId> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)]
+
     use super::*;
 
     #[test]

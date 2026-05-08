@@ -99,16 +99,13 @@ impl GfmVoiceProgramSelection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum GfmLayerMode {
+    #[default]
     Disabled,
-    Enabled { seed: u64 },
-}
-
-impl Default for GfmLayerMode {
-    fn default() -> Self {
-        Self::Disabled
-    }
+    Enabled {
+        seed: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -122,16 +119,13 @@ pub struct GfmLayerSnapshot {
     pub effective_amount: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum BcsLayerMode {
+    #[default]
     Disabled,
-    Enabled { scenario: BcsScenario },
-}
-
-impl Default for BcsLayerMode {
-    fn default() -> Self {
-        Self::Disabled
-    }
+    Enabled {
+        scenario: BcsScenario,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -66,6 +66,7 @@ impl RawMidiTraceRecord {
 pub struct MidiTraceWorker {
     publisher: MidiTracePublisher,
     stop: Arc<AtomicBool>,
+    terminal_trace: Arc<AtomicBool>,
     join_handle: Option<JoinHandle<()>>,
 }
 
@@ -79,12 +80,14 @@ impl MidiTraceWorker {
     ) -> Self {
         let queue = Arc::new(ArrayQueue::new(MIDI_TRACE_QUEUE_CAPACITY));
         let stop = Arc::new(AtomicBool::new(false));
+        let terminal_trace = Arc::new(AtomicBool::new(trace_midi));
         let thread_queue = Arc::clone(&queue);
         let thread_stop = Arc::clone(&stop);
+        let thread_terminal_trace = Arc::clone(&terminal_trace);
         let thread_metrics = Arc::clone(&input_metrics);
         let join_handle = thread::spawn(move || {
             run_midi_trace_worker(
-                trace_midi,
+                thread_terminal_trace,
                 midi_channel,
                 controller_profile,
                 thread_metrics,
@@ -99,12 +102,17 @@ impl MidiTraceWorker {
                 input_metrics,
             },
             stop,
+            terminal_trace,
             join_handle: Some(join_handle),
         }
     }
 
     pub fn publisher(&self) -> MidiTracePublisher {
         self.publisher.clone()
+    }
+
+    pub fn set_terminal_trace_enabled(&self, enabled: bool) {
+        self.terminal_trace.store(enabled, Ordering::Relaxed);
     }
 
     pub fn shutdown(&mut self) {
@@ -122,7 +130,7 @@ impl Drop for MidiTraceWorker {
 }
 
 pub fn run_midi_trace_worker(
-    trace_midi: bool,
+    terminal_trace: Arc<AtomicBool>,
     midi_channel: Option<u8>,
     controller_profile: Option<Arc<ControllerProfile>>,
     input_metrics: Arc<InputMetrics>,
@@ -140,7 +148,7 @@ pub fn run_midi_trace_worker(
         };
         handle_midi_trace_record(
             record,
-            trace_midi,
+            terminal_trace.load(Ordering::Relaxed),
             midi_channel,
             controller_profile.as_deref(),
             &input_metrics,
@@ -151,7 +159,7 @@ pub fn run_midi_trace_worker(
     while let Some(record) = queue.pop() {
         handle_midi_trace_record(
             record,
-            trace_midi,
+            terminal_trace.load(Ordering::Relaxed),
             midi_channel,
             controller_profile.as_deref(),
             &input_metrics,

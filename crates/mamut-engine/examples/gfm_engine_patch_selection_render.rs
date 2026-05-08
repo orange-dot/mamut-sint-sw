@@ -79,12 +79,18 @@ fn render_wav(
 ) -> std::io::Result<()> {
     let path = path.as_ref();
     let selection = decision.selection();
-    let program_id = selection
-        .program_id
-        .expect("enabled patch voice decision should carry a selected program");
-    let mut voice = decision
-        .into_voice()
-        .expect("enabled patch voice decision should carry a GFM voice");
+    let Some(program_id) = selection.program_id else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "enabled patch voice decision did not select a program",
+        ));
+    };
+    let Some(mut voice) = decision.into_voice() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "enabled patch voice decision did not build a GFM voice",
+        ));
+    };
     let frames = voice.frames();
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);

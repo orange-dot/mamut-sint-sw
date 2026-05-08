@@ -30,6 +30,7 @@ pub(crate) fn patch_switch_mute_frames(sample_rate_hz: f32) -> usize {
     ((sample_rate_hz * 0.004).round() as usize).clamp(32, 256)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn mixed_wave(
     oscillator: &Oscillator,
     mix_levels: [f32; 4],
@@ -159,16 +160,16 @@ fn sample_spectral_table(table: usize, phase: f32) -> f32 {
 
 fn build_spectral_wavetables() -> [[f32; SPECTRAL_WAVETABLE_SIZE]; SPECTRAL_WAVETABLE_COUNT] {
     let mut tables = [[0.0; SPECTRAL_WAVETABLE_SIZE]; SPECTRAL_WAVETABLE_COUNT];
-    for table in 0..SPECTRAL_WAVETABLE_COUNT {
+    for (table, table_samples) in tables.iter_mut().enumerate() {
         let mut peak: f32 = 0.0;
-        for index in 0..SPECTRAL_WAVETABLE_SIZE {
+        for (index, sample_slot) in table_samples.iter_mut().enumerate() {
             let phase = index as f32 / SPECTRAL_WAVETABLE_SIZE as f32;
             let sample = analytic_spectral_sample(table, phase);
-            tables[table][index] = sample;
+            *sample_slot = sample;
             peak = peak.max(sample.abs());
         }
         let normalizer = peak.max(0.001);
-        for sample in &mut tables[table] {
+        for sample in table_samples {
             *sample = (*sample / normalizer).clamp(-1.0, 1.0);
         }
     }
@@ -361,7 +362,7 @@ fn triangle_sample_folded(phase: f32, fold: f32) -> f32 {
 
 pub(crate) fn control_smoothing_samples(sample_rate_hz: f32) -> usize {
     let smoothing_window = (sample_rate_hz * 0.006).round() as usize;
-    smoothing_window.max(8).min(512)
+    smoothing_window.clamp(8, 512)
 }
 
 pub(crate) fn smoothing_sample_count(sample_rate_hz: f32, milliseconds: f32) -> usize {

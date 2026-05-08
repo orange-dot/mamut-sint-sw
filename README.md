@@ -186,11 +186,13 @@ Live set slots:
 
 ## Review Gates
 
-Strict Claude `seL4` review agents are vendored in:
+Strict `seL4` review disciplines are vendored in:
 
 - `.claude/agents/`
 
-These are development-time review prompts, not runtime dependencies.
+The `claude` directory name is historical. These are development-time review
+prompts, not runtime dependencies, and Codex agents in this repo should apply
+the same disciplines when the task matches them.
 
 Repo-local workflow docs and helpers:
 

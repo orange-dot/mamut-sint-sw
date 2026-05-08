@@ -1,7 +1,8 @@
 # Review Gates
 
-This repo vendors a strict Claude `seL4` review discipline under
-`.claude/agents/`.
+This repo vendors a strict `seL4` review discipline under `.claude/agents/`.
+The `claude` directory name is historical; the same discipline applies to
+Codex agents working in this repo.
 
 These reviews are used here as an engineering bar for:
 
@@ -46,6 +47,7 @@ Required for changes in:
 
 - `crates/mamut-engine`
 - `crates/mamut-dsp`
+- `crates/mamut-runtime`
 - `crates/mamut-standalone`
 - `crates/mamut-patch`
 
@@ -62,6 +64,7 @@ Required for:
 
 - render loop changes
 - audio callback changes
+- runtime audio queue and MIDI callback boundary changes
 - voice allocator timing-sensitive changes
 - filter/oscillator/final-stage fast paths
 

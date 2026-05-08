@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_audio_runtime(
     patch_path: &Path,
     audio_selector: Option<&str>,
@@ -34,10 +35,15 @@ pub fn build_audio_runtime(
     engine.set_gfm_layer_mode(gfm_layer_mode_from_seed(gfm_layer_seed));
     engine.set_bcs_layer_mode(bcs_layer_mode_from_scenario(bcs_layer_scenario));
     let (producer, consumer) = RingBuffer::<StereoFrame>::new(AUDIO_QUEUE_CAPACITY_FRAMES);
+    let (scope_producer, scope_consumer) =
+        RingBuffer::<StereoFrame>::new(SCOPE_QUEUE_CAPACITY_FRAMES);
+    let scope_enabled = Arc::new(AtomicBool::new(false));
     let worker = EngineWorker::new(spawn_engine_thread(
         engine,
         rx,
         producer,
+        scope_producer,
+        Arc::clone(&scope_enabled),
         Arc::clone(&midi_input_queue),
         Arc::clone(&priority_actions),
         Arc::clone(&transport_metrics),
@@ -59,6 +65,8 @@ pub fn build_audio_runtime(
         midi_input_queue,
         priority_actions,
         transport_metrics,
+        scope_consumer,
+        scope_enabled,
     })
 }
 
@@ -78,6 +86,8 @@ pub fn start_prepared_audio_runtime(prepared: PreparedAudioRuntime) -> Result<Au
         midi_input_queue,
         priority_actions,
         transport_metrics,
+        scope_consumer,
+        scope_enabled,
     } = prepared;
 
     let opened_playback =
@@ -106,6 +116,8 @@ pub fn start_prepared_audio_runtime(prepared: PreparedAudioRuntime) -> Result<Au
         midi_input_queue,
         priority_actions,
         transport_metrics,
+        scope_consumer,
+        scope_enabled,
     })
 }
 

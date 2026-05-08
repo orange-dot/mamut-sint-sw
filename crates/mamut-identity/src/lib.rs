@@ -233,6 +233,8 @@ fn clamp01(value: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)]
+
     use super::*;
     use mamut_patch::load_patch_toml;
 

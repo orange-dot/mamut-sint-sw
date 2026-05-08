@@ -498,6 +498,7 @@ impl VoiceState {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn trigger(
         &mut self,
         note: u8,
