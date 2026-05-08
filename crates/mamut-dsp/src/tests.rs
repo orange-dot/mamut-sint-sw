@@ -437,6 +437,73 @@ fn mixed_wave_helpers_stay_finite_and_bounded() {
 }
 
 #[test]
+fn poly_blep_helpers_stay_finite_and_reduce_discontinuity_edges() {
+    let phase_step = 440.0 / 48_000.0;
+    let saw_before_wrap = poly_blep_saw_sample(1.0 - phase_step * 0.5, phase_step);
+    let saw_after_wrap = poly_blep_saw_sample(phase_step * 0.5, phase_step);
+    let raw_before_wrap = (1.0 - phase_step * 0.5) * 2.0 - 1.0;
+    let raw_after_wrap = phase_step * 0.5 * 2.0 - 1.0;
+
+    assert!(poly_blep(0.0, phase_step).is_finite());
+    assert!(saw_before_wrap.is_finite());
+    assert!(saw_after_wrap.is_finite());
+    assert!((saw_before_wrap - saw_after_wrap).abs() < (raw_before_wrap - raw_after_wrap).abs());
+
+    for phase in [0.0, 0.25, 0.5, 0.75, 0.99] {
+        let pulse = poly_blep_pulse_sample(phase, 0.42, phase_step);
+        assert!(pulse.is_finite());
+        assert!(pulse.abs() <= 1.25);
+    }
+}
+
+#[test]
+fn bandlimited_triangle_resets_and_remains_bounded() {
+    let mut triangle = BandlimitedTriangle::new();
+    triangle.reset_to_phase(0.25);
+    let first = triangle.next_sample(0.25, 440.0 / 48_000.0);
+    assert!((first - 0.0).abs() < 0.0001);
+
+    for frame in 0..4096 {
+        let phase = (frame as f32 * 440.0 / 48_000.0).fract();
+        let sample = triangle.next_sample(phase, 440.0 / 48_000.0);
+        assert!(sample.is_finite());
+        assert!(sample.abs() <= 1.0);
+    }
+}
+
+#[test]
+fn bandlimited_mixed_wave_zero_amount_matches_raw_path() {
+    let mut oscillator = Oscillator::new();
+    oscillator.set_phase(0.37);
+    let mut triangle = BandlimitedTriangle::new();
+    let raw = mixed_wave(
+        &oscillator,
+        [0.7, 0.4, 0.3, 0.2],
+        0.42,
+        -0.35,
+        0.08,
+        0.55,
+        0.36,
+        0.25,
+    );
+    let bandlimited = mixed_wave_bandlimited(
+        &oscillator,
+        &mut triangle,
+        [0.7, 0.4, 0.3, 0.2],
+        0.42,
+        -0.35,
+        0.08,
+        440.0 / 48_000.0,
+        0.0,
+        0.55,
+        0.36,
+        0.25,
+    );
+
+    assert_eq!(raw, bandlimited);
+}
+
+#[test]
 fn spectral_wavetable_samples_are_bounded_and_deterministic() {
     let mut oscillator = Oscillator::new();
     oscillator.set_phase(0.618);

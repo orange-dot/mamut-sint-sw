@@ -60,6 +60,7 @@ fn validate_osc1(osc1: &Osc1Patch) -> Result<(), PatchValidationError> {
     check_range("engine.osc1.saw_bend", osc1.saw_bend, -1.0, 1.0)?;
     check_range("engine.osc1.triangle_fold", osc1.triangle_fold, 0.0, 1.0)?;
     check_range("engine.osc1.pulse_edge", osc1.pulse_edge, 0.0, 1.0)?;
+    check_range("engine.osc1.bandlimit", osc1.bandlimit, 0.0, 1.0)?;
 
     Ok(())
 }
@@ -95,6 +96,7 @@ fn validate_osc2(osc2: &Osc2Patch) -> Result<(), PatchValidationError> {
     check_range("engine.osc2.saw_bend", osc2.saw_bend, -1.0, 1.0)?;
     check_range("engine.osc2.triangle_fold", osc2.triangle_fold, 0.0, 1.0)?;
     check_range("engine.osc2.pulse_edge", osc2.pulse_edge, 0.0, 1.0)?;
+    check_range("engine.osc2.bandlimit", osc2.bandlimit, 0.0, 1.0)?;
 
     Ok(())
 }

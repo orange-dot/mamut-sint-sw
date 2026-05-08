@@ -99,6 +99,14 @@ fn direct_param_raw_value_exposes_sound_lab_values() {
         Some(snapshot.direct.osc1_pulse_width)
     );
     assert_eq!(
+        direct_param_raw_value(&snapshot, ParamId::Osc1Bandlimit),
+        Some(snapshot.direct.osc1_bandlimit)
+    );
+    assert_eq!(
+        direct_param_raw_value(&snapshot, ParamId::Osc2Bandlimit),
+        Some(snapshot.direct.osc2_bandlimit)
+    );
+    assert_eq!(
         direct_param_raw_value(&snapshot, ParamId::NoiseColor),
         Some(snapshot.direct.noise_color)
     );

@@ -103,12 +103,16 @@ impl Engine {
                 } else {
                     0.0
                 };
-            let osc1_mix = mixed_wave(
+            let osc1_phase_step = voice.osc1.phase_step(osc1_freq, sample_rate_hz);
+            let osc1_mix = mixed_wave_bandlimited(
                 &voice.osc1,
+                &mut voice.osc1_triangle,
                 direct.osc1_wave_mix,
                 osc1_pulse_width,
                 colored_noise,
                 osc1_phase_mod,
+                osc1_phase_step,
+                direct.osc1_bandlimit,
                 direct.osc1_saw_bend,
                 direct.osc1_triangle_fold,
                 direct.osc1_pulse_edge,
@@ -122,6 +126,7 @@ impl Engine {
                 && !is_osc2_to_osc1(direct.sync_direction)
             {
                 voice.osc2.hard_sync(effective_sync_amount);
+                voice.osc2_triangle.reset_to_phase(voice.osc2.phase());
             }
 
             let osc2_freq_base = if direct.osc2_pitch_mode.round() as i32 == 1 {
@@ -149,11 +154,15 @@ impl Engine {
                 } else {
                     0.0
                 };
-            let osc2_mix = mixed_wave_osc2(
+            let osc2_phase_step = voice.osc2.phase_step(osc2_freq, sample_rate_hz);
+            let osc2_mix = mixed_wave_osc2_bandlimited(
                 &voice.osc2,
+                &mut voice.osc2_triangle,
                 direct.osc2_wave_mix,
                 osc2_pulse_width,
                 osc2_phase_mod,
+                osc2_phase_step,
+                direct.osc2_bandlimit,
                 direct.osc2_saw_bend,
                 direct.osc2_triangle_fold,
                 direct.osc2_pulse_edge,
@@ -162,6 +171,7 @@ impl Engine {
             if osc2_wrapped && effective_sync_amount > 0.0 && is_osc2_to_osc1(direct.sync_direction)
             {
                 voice.osc1.hard_sync(effective_sync_amount);
+                voice.osc1_triangle.reset_to_phase(voice.osc1.phase());
             }
 
             let spectral_note =

@@ -178,6 +178,8 @@ pub enum ParamId {
     AdditiveInharmonicity = 99,
     AdditiveSpectralTilt = 100,
     AdditiveRandomDetuneCents = 101,
+    Osc1Bandlimit = 102,
+    Osc2Bandlimit = 103,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -207,7 +209,7 @@ const fn spec(
     }
 }
 
-const PARAM_SPECS: [ParamSpec; 102] = [
+const PARAM_SPECS: [ParamSpec; 104] = [
     spec(
         ParamId::GravitacijaMacro,
         "gravitacija",
@@ -1432,6 +1434,30 @@ const PARAM_SPECS: [ParamSpec; 102] = [
         true,
         None,
     ),
+    spec(
+        ParamId::Osc1Bandlimit,
+        "osc1_bandlimit",
+        "Osc1 Bandlimit",
+        ParamSection::Oscillator1,
+        0.0,
+        0.0,
+        1.0,
+        ParamUnit::Normalized,
+        true,
+        None,
+    ),
+    spec(
+        ParamId::Osc2Bandlimit,
+        "osc2_bandlimit",
+        "Osc2 Bandlimit",
+        ParamSection::Oscillator2,
+        0.0,
+        0.0,
+        1.0,
+        ParamUnit::Normalized,
+        true,
+        None,
+    ),
 ];
 
 pub fn all_params() -> &'static [ParamSpec] {
@@ -1534,7 +1560,11 @@ mod tests {
         assert_eq!(ParamId::SpectralFineTuneCents as usize, 94);
         assert_eq!(ParamId::AdditiveLevel as usize, 95);
         assert_eq!(ParamId::AdditiveRandomDetuneCents as usize, 101);
+        assert_eq!(ParamId::Osc1Bandlimit as usize, 102);
+        assert_eq!(ParamId::Osc2Bandlimit as usize, 103);
         assert_eq!(param_spec(ParamId::NoiseColor).unit, ParamUnit::Indexed);
+        assert_eq!(param_by_key("osc1_bandlimit"), Some(ParamId::Osc1Bandlimit));
+        assert_eq!(param_by_key("osc2_bandlimit"), Some(ParamId::Osc2Bandlimit));
         assert_eq!(param_spec(ParamId::CrossMixMode).max, 4.0);
         assert_eq!(param_spec(ParamId::SpectralTable).unit, ParamUnit::Indexed);
         assert_eq!(param_spec(ParamId::SpectralRatio).min, 0.25);

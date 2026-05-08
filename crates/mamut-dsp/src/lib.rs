@@ -1,4 +1,5 @@
 mod additive;
+mod bandlimited;
 mod block;
 mod envelope;
 mod filter;
@@ -15,6 +16,9 @@ mod waveform;
 mod wavetable;
 
 pub use additive::{additive_partial_count, additive_ratio, additive_weight};
+pub use bandlimited::{
+    BandlimitedTriangle, poly_blep, poly_blep_pulse_sample, poly_blep_saw_sample,
+};
 pub use block::{MonoBlockMut, StereoBlockMut};
 pub use envelope::{AdsrEnvelope, AdsrTiming, EnvelopeStage};
 pub use filter::StateVariableFilter;
@@ -37,7 +41,10 @@ pub use safety::{
     flush_tiny_sample, master_safety_limit, sanitize_block, sanitize_sample,
 };
 pub use smoother::LinearSmoother;
-pub use waveform::{mixed_wave, mixed_wave_osc2, oscillator_preview_sample, sine_phase_sample};
+pub use waveform::{
+    mixed_wave, mixed_wave_bandlimited, mixed_wave_osc2, mixed_wave_osc2_bandlimited,
+    oscillator_preview_sample, sine_phase_sample,
+};
 pub use wavetable::{SPECTRAL_WAVETABLE_COUNT, SPECTRAL_WAVETABLE_SIZE, spectral_wavetable_sample};
 
 #[cfg(test)]

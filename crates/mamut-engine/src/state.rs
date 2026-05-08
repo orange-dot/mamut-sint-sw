@@ -28,6 +28,7 @@ pub struct DirectParameters {
     pub osc1_saw_bend: f32,
     pub osc1_triangle_fold: f32,
     pub osc1_pulse_edge: f32,
+    pub osc1_bandlimit: f32,
     pub osc2_wave_mix: [f32; 3],
     pub osc2_fine_tune_cents: f32,
     pub osc2_pulse_width: f32,
@@ -40,6 +41,7 @@ pub struct DirectParameters {
     pub osc2_saw_bend: f32,
     pub osc2_triangle_fold: f32,
     pub osc2_pulse_edge: f32,
+    pub osc2_bandlimit: f32,
     pub spectral_level: f32,
     pub spectral_table: f32,
     pub spectral_position: f32,
@@ -206,6 +208,7 @@ pub(crate) struct RenderSmoothers {
     pub(crate) osc1_saw_bend: LinearSmoother,
     pub(crate) osc1_triangle_fold: LinearSmoother,
     pub(crate) osc1_pulse_edge: LinearSmoother,
+    pub(crate) osc1_bandlimit: LinearSmoother,
     pub(crate) osc2_pulse_width: LinearSmoother,
     pub(crate) osc2_pwm_depth: LinearSmoother,
     pub(crate) osc2_level: LinearSmoother,
@@ -213,6 +216,7 @@ pub(crate) struct RenderSmoothers {
     pub(crate) osc2_saw_bend: LinearSmoother,
     pub(crate) osc2_triangle_fold: LinearSmoother,
     pub(crate) osc2_pulse_edge: LinearSmoother,
+    pub(crate) osc2_bandlimit: LinearSmoother,
     pub(crate) spectral_level: LinearSmoother,
     pub(crate) spectral_position: LinearSmoother,
     pub(crate) spectral_morph: LinearSmoother,
@@ -256,6 +260,7 @@ impl RenderSmoothers {
             osc1_saw_bend: LinearSmoother::new(direct.osc1_saw_bend),
             osc1_triangle_fold: LinearSmoother::new(direct.osc1_triangle_fold),
             osc1_pulse_edge: LinearSmoother::new(direct.osc1_pulse_edge),
+            osc1_bandlimit: LinearSmoother::new(direct.osc1_bandlimit),
             osc2_pulse_width: LinearSmoother::new(direct.osc2_pulse_width),
             osc2_pwm_depth: LinearSmoother::new(direct.osc2_pwm_depth),
             osc2_level: LinearSmoother::new(direct.osc2_level),
@@ -263,6 +268,7 @@ impl RenderSmoothers {
             osc2_saw_bend: LinearSmoother::new(direct.osc2_saw_bend),
             osc2_triangle_fold: LinearSmoother::new(direct.osc2_triangle_fold),
             osc2_pulse_edge: LinearSmoother::new(direct.osc2_pulse_edge),
+            osc2_bandlimit: LinearSmoother::new(direct.osc2_bandlimit),
             spectral_level: LinearSmoother::new(direct.spectral_level),
             spectral_position: LinearSmoother::new(direct.spectral_position),
             spectral_morph: LinearSmoother::new(direct.spectral_morph),
@@ -310,6 +316,8 @@ impl RenderSmoothers {
             .set_target(direct.osc1_triangle_fold, sample_count);
         self.osc1_pulse_edge
             .set_target(direct.osc1_pulse_edge, sample_count);
+        self.osc1_bandlimit
+            .set_target(direct.osc1_bandlimit, sample_count);
         self.osc2_pulse_width
             .set_target(direct.osc2_pulse_width, sample_count);
         self.osc2_pwm_depth
@@ -322,6 +330,8 @@ impl RenderSmoothers {
             .set_target(direct.osc2_triangle_fold, sample_count);
         self.osc2_pulse_edge
             .set_target(direct.osc2_pulse_edge, sample_count);
+        self.osc2_bandlimit
+            .set_target(direct.osc2_bandlimit, sample_count);
         self.spectral_level
             .set_target(direct.spectral_level, sample_count);
         self.spectral_position
@@ -391,6 +401,7 @@ impl RenderSmoothers {
         direct.osc1_saw_bend = self.osc1_saw_bend.next_value();
         direct.osc1_triangle_fold = self.osc1_triangle_fold.next_value();
         direct.osc1_pulse_edge = self.osc1_pulse_edge.next_value();
+        direct.osc1_bandlimit = self.osc1_bandlimit.next_value();
         direct.osc2_pulse_width = self.osc2_pulse_width.next_value();
         direct.osc2_pwm_depth = self.osc2_pwm_depth.next_value();
         direct.osc2_level = self.osc2_level.next_value();
@@ -398,6 +409,7 @@ impl RenderSmoothers {
         direct.osc2_saw_bend = self.osc2_saw_bend.next_value();
         direct.osc2_triangle_fold = self.osc2_triangle_fold.next_value();
         direct.osc2_pulse_edge = self.osc2_pulse_edge.next_value();
+        direct.osc2_bandlimit = self.osc2_bandlimit.next_value();
         direct.spectral_level = self.spectral_level.next_value();
         direct.spectral_position = self.spectral_position.next_value();
         direct.spectral_morph = self.spectral_morph.next_value();
@@ -443,6 +455,8 @@ pub(crate) struct VoiceState {
     pub(crate) age: u64,
     pub(crate) osc1: Oscillator,
     pub(crate) osc2: Oscillator,
+    pub(crate) osc1_triangle: BandlimitedTriangle,
+    pub(crate) osc2_triangle: BandlimitedTriangle,
     pub(crate) spectral: Oscillator,
     pub(crate) additive_partials: [Oscillator; 8],
     pub(crate) additive_detune_cents: [f32; 8],
@@ -467,6 +481,8 @@ impl VoiceState {
             age: 0,
             osc1: Oscillator::new(),
             osc2: Oscillator::new(),
+            osc1_triangle: BandlimitedTriangle::default(),
+            osc2_triangle: BandlimitedTriangle::default(),
             spectral: Oscillator::new(),
             additive_partials: [Oscillator::new(); 8],
             additive_detune_cents: [0.0; 8],
@@ -528,12 +544,14 @@ impl VoiceState {
             osc1_start_phase,
             (((slot as f32) * 0.137) + note as f32 * 0.017).fract(),
         );
+        self.osc1_triangle.reset_to_phase(self.osc1.phase());
         apply_phase_mode(
             &mut self.osc2,
             osc2_phase_mode,
             osc2_start_phase,
             (((slot as f32) * 0.223) + note as f32 * 0.031).fract(),
         );
+        self.osc2_triangle.reset_to_phase(self.osc2.phase());
         self.spectral
             .set_phase((((slot as f32) * 0.163) + note as f32 * 0.023).fract());
         for (index, partial) in self.additive_partials.iter_mut().enumerate() {

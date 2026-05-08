@@ -44,6 +44,12 @@ impl Oscillator {
         self.pulse_sample(0.5)
     }
 
+    pub fn phase_step(&self, frequency_hz: f32, sample_rate_hz: f32) -> f32 {
+        let mut phase = self.phase;
+        phase.set_sample_rate(sample_rate_hz);
+        phase.step_for_frequency(frequency_hz)
+    }
+
     pub fn advance(&mut self, frequency_hz: f32, sample_rate_hz: f32) -> bool {
         self.phase.set_sample_rate(sample_rate_hz);
         self.phase.advance(frequency_hz)

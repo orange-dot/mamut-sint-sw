@@ -33,6 +33,7 @@ impl Engine {
             ParamId::Osc1SawBend => self.patch.engine.osc1.saw_bend = clamped,
             ParamId::Osc1TriangleFold => self.patch.engine.osc1.triangle_fold = clamped,
             ParamId::Osc1PulseEdge => self.patch.engine.osc1.pulse_edge = clamped,
+            ParamId::Osc1Bandlimit => self.patch.engine.osc1.bandlimit = clamped,
             ParamId::Osc2SawLevel => self.patch.engine.osc2.saw_level = clamped,
             ParamId::Osc2PulseLevel => self.patch.engine.osc2.pulse_level = clamped,
             ParamId::Osc2TriangleLevel => self.patch.engine.osc2.triangle_level = clamped,
@@ -56,6 +57,7 @@ impl Engine {
             ParamId::Osc2SawBend => self.patch.engine.osc2.saw_bend = clamped,
             ParamId::Osc2TriangleFold => self.patch.engine.osc2.triangle_fold = clamped,
             ParamId::Osc2PulseEdge => self.patch.engine.osc2.pulse_edge = clamped,
+            ParamId::Osc2Bandlimit => self.patch.engine.osc2.bandlimit = clamped,
             ParamId::SpectralLevel => self.patch.engine.spectral.level = clamped,
             ParamId::SpectralTable => {
                 self.patch.engine.spectral.table = spectral_table_from_index(clamped)

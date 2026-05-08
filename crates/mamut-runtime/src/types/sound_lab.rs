@@ -341,11 +341,12 @@ const OSC1_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
     k!(7, Osc1PwmDepth),
     k!(9, Osc1PhaseMode),
 ];
-const OSC1_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 4] = [
+const OSC1_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 5] = [
     s!(1, Osc1StartPhase),
     s!(2, Osc1SawBend),
     s!(3, Osc1TriangleFold),
     s!(4, Osc1PulseEdge),
+    s!(5, Osc1Bandlimit),
 ];
 const OSC2_KNOB_BINDINGS: [SoundLabMidiParamBinding; 8] = [
     k!(1, Osc2SawLevel),
@@ -365,7 +366,7 @@ const OSC2_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 8] = [
     s!(5, Osc2SawBend),
     s!(6, Osc2TriangleFold),
     s!(7, Osc2PulseEdge),
-    s!(8, Osc2CrossmodAmount),
+    s!(8, Osc2Bandlimit),
 ];
 const NOISE_KNOB_BINDINGS: [SoundLabMidiParamBinding; 6] = [
     k!(1, NoiseColor),

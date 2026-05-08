@@ -104,6 +104,8 @@ pub struct Osc1Patch {
     pub triangle_fold: f32,
     #[serde(default)]
     pub pulse_edge: f32,
+    #[serde(default)]
+    pub bandlimit: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -136,6 +138,8 @@ pub struct Osc2Patch {
     pub triangle_fold: f32,
     #[serde(default)]
     pub pulse_edge: f32,
+    #[serde(default)]
+    pub bandlimit: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

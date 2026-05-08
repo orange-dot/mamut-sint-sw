@@ -10,6 +10,7 @@ saw_level = 0.70
 pulse_level = 0.25
 triangle_level = 0.10
 noise_level = 0.02
+bandlimit = 0.25
 
 [engine.osc2]
 saw_level = 0.45
@@ -19,6 +20,7 @@ interval_semitones = 0
 fine_tune_cents = 5.0
 sync_amount = 0.20
 crossmod_amount = 0.15
+bandlimit = 0.20
 
 [engine.sub]
 level = 0.35

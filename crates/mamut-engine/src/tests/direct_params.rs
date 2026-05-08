@@ -175,6 +175,20 @@ fn source_expansion_direct_params_update_snapshot_and_exported_patch() {
                     value: 14.0,
                 },
             },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::Osc1Bandlimit,
+                    value: 0.25,
+                },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::DirectParam {
+                    id: ParamId::Osc2Bandlimit,
+                    value: 0.20,
+                },
+            },
         ],
         macro_state: None,
         output: None,
@@ -182,7 +196,9 @@ fn source_expansion_direct_params_update_snapshot_and_exported_patch() {
 
     let snapshot = engine.snapshot();
     assert!((snapshot.direct.osc1_pulse_width - 0.37).abs() < 0.0001);
+    assert!((snapshot.direct.osc1_bandlimit - 0.25).abs() < 0.0001);
     assert!((snapshot.direct.osc2_level - 1.42).abs() < 0.0001);
+    assert!((snapshot.direct.osc2_bandlimit - 0.20).abs() < 0.0001);
     assert_eq!(snapshot.direct.osc2_pitch_mode, 1.0);
     assert_eq!(snapshot.direct.noise_color, 2.0);
     assert_eq!(snapshot.direct.cross_mix_mode, 4.0);
@@ -202,8 +218,10 @@ fn source_expansion_direct_params_update_snapshot_and_exported_patch() {
 
     let exported = engine.export_patch();
     assert_eq!(exported.engine.osc1.pulse_width, 0.37);
+    assert_eq!(exported.engine.osc1.bandlimit, 0.25);
     assert_eq!(exported.engine.osc2.level, 1.42);
     assert_eq!(exported.engine.osc2.pitch_mode, Osc2PitchMode::Ratio);
+    assert_eq!(exported.engine.osc2.bandlimit, 0.20);
     assert_eq!(exported.engine.noise_color, NoiseColor::Dark);
     assert_eq!(exported.engine.cross_mix_mode, CrossMixMode::Difference);
     assert_eq!(exported.engine.spectral.level, 0.38);

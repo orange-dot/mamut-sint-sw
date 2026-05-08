@@ -148,6 +148,7 @@ pub(crate) fn resolve_direct_parameters(
         osc1_saw_bend: engine.osc1.saw_bend,
         osc1_triangle_fold: engine.osc1.triangle_fold,
         osc1_pulse_edge: engine.osc1.pulse_edge,
+        osc1_bandlimit: engine.osc1.bandlimit,
         osc2_wave_mix: [
             engine.osc2.saw_level,
             engine.osc2.pulse_level,
@@ -164,6 +165,7 @@ pub(crate) fn resolve_direct_parameters(
         osc2_saw_bend: engine.osc2.saw_bend,
         osc2_triangle_fold: engine.osc2.triangle_fold,
         osc2_pulse_edge: engine.osc2.pulse_edge,
+        osc2_bandlimit: engine.osc2.bandlimit,
         spectral_level: engine.spectral.level,
         spectral_table: spectral_table_index(engine.spectral.table),
         spectral_position: engine.spectral.position,

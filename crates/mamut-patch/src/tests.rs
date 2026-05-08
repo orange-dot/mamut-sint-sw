@@ -21,13 +21,18 @@ mod tests {
 
     #[test]
     fn old_factory_patch_loads_neutral_source_expansion_defaults() {
-        let patch = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        let legacy_patch = MOLTEN_HORIZON
+            .replace("bandlimit = 0.25\n", "")
+            .replace("bandlimit = 0.20\n", "");
+        let patch = load_patch_toml(&legacy_patch).expect("fixture must parse");
 
         assert_eq!(patch.engine.osc1.pulse_width, 0.5);
         assert_eq!(patch.engine.osc1.pwm_depth, 0.0);
         assert_eq!(patch.engine.osc1.phase_mode, OscPhaseMode::Deterministic);
+        assert_eq!(patch.engine.osc1.bandlimit, 0.0);
         assert_eq!(patch.engine.osc2.level, 1.0);
         assert_eq!(patch.engine.osc2.pitch_mode, Osc2PitchMode::Semitone);
+        assert_eq!(patch.engine.osc2.bandlimit, 0.0);
         assert_eq!(patch.engine.noise_color, NoiseColor::White);
         assert_eq!(patch.engine.noise_filter_level, None);
         assert_eq!(patch.engine.noise_body_level, 0.0);
@@ -46,9 +51,11 @@ mod tests {
         patch.engine.osc1.saw_bend = -0.35;
         patch.engine.osc1.triangle_fold = 0.40;
         patch.engine.osc1.pulse_edge = 0.30;
+        patch.engine.osc1.bandlimit = 0.25;
         patch.engine.osc2.level = 1.35;
         patch.engine.osc2.pitch_mode = Osc2PitchMode::Ratio;
         patch.engine.osc2.ratio = 1.50;
+        patch.engine.osc2.bandlimit = 0.20;
         patch.engine.noise_color = NoiseColor::Pinkish;
         patch.engine.noise_filter_level = Some(0.18);
         patch.engine.noise_body_level = 0.22;
@@ -115,6 +122,14 @@ mod tests {
             load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
         invalid_random_detune.engine.additive.random_detune_cents = 36.0;
         assert!(validate_patch_v1(&invalid_random_detune).is_err());
+
+        let mut invalid_bandlimit = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        invalid_bandlimit.engine.osc1.bandlimit = 1.1;
+        assert!(validate_patch_v1(&invalid_bandlimit).is_err());
+
+        invalid_bandlimit.engine.osc1.bandlimit = 0.0;
+        invalid_bandlimit.engine.osc2.bandlimit = -0.1;
+        assert!(validate_patch_v1(&invalid_bandlimit).is_err());
     }
 
     #[test]
