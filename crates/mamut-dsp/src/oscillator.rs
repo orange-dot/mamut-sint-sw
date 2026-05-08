@@ -57,23 +57,3 @@ impl Default for Oscillator {
         Self::new()
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct NoiseRng {
-    state: u32,
-}
-
-impl NoiseRng {
-    pub fn new(seed: u32) -> Self {
-        Self { state: seed.max(1) }
-    }
-
-    pub fn next_bipolar(&mut self) -> f32 {
-        self.state = self
-            .state
-            .wrapping_mul(1_664_525)
-            .wrapping_add(1_013_904_223);
-        let normalized = (self.state as f32 / u32::MAX as f32).clamp(0.0, 1.0);
-        normalized * 2.0 - 1.0
-    }
-}

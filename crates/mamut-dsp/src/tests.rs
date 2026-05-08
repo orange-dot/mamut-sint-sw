@@ -73,6 +73,87 @@ fn filter_survives_extreme_drive_and_strain() {
 }
 
 #[test]
+fn mixed_wave_helpers_stay_finite_and_bounded() {
+    let mut oscillator = Oscillator::new();
+    oscillator.set_phase(0.37);
+
+    let osc1 = mixed_wave(
+        &oscillator,
+        [0.7, 0.4, 0.3, 0.2],
+        0.42,
+        -0.35,
+        0.08,
+        0.55,
+        0.36,
+        0.25,
+    );
+    let osc2 = mixed_wave_osc2(&oscillator, [0.8, 0.2, 0.5], 0.58, -0.04, -0.35, 0.42, 0.18);
+    let preview = oscillator_preview_sample(&oscillator, 0.50, 0.25, 0.20, 0.15);
+    let sine = sine_phase_sample(&oscillator);
+
+    for sample in [osc1, osc2, preview, sine] {
+        assert!(sample.is_finite());
+        assert!(sample.abs() <= 1.0);
+    }
+}
+
+#[test]
+fn spectral_wavetable_samples_are_bounded_and_deterministic() {
+    let mut oscillator = Oscillator::new();
+    oscillator.set_phase(0.618);
+
+    let first = spectral_wavetable_sample(&oscillator, 2.0, 0.73, 0.41);
+    let second = spectral_wavetable_sample(&oscillator, 2.0, 0.73, 0.41);
+
+    assert_eq!(SPECTRAL_WAVETABLE_SIZE, 256);
+    assert_eq!(SPECTRAL_WAVETABLE_COUNT, 5);
+    assert_eq!(first, second);
+    assert!(first.is_finite());
+    assert!(first.abs() <= 1.0);
+}
+
+#[test]
+fn additive_helpers_clamp_and_shape_partials() {
+    assert_eq!(additive_partial_count(2.0), 4);
+    assert_eq!(additive_partial_count(9.0), 8);
+
+    let fundamental = additive_ratio(0, 1.0, 1.0);
+    let upper = additive_ratio(5, 0.42, 0.37);
+    let odd_weight = additive_weight(0, 8, 0.75, 0.25);
+    let even_weight = additive_weight(1, 8, 0.75, 0.25);
+
+    assert_eq!(fundamental, 1.0);
+    assert!(upper > fundamental);
+    assert!(odd_weight > even_weight);
+    assert!(odd_weight.is_finite());
+    assert!(even_weight.is_finite());
+}
+
+#[test]
+fn noise_rng_and_color_modes_are_deterministic_and_bounded() {
+    let mut left = NoiseRng::new(7);
+    let mut right = NoiseRng::new(7);
+    let mut color_state = 0.0;
+
+    for mode in 0..=3 {
+        let raw = left.next_bipolar();
+        assert_eq!(raw, right.next_bipolar());
+        let colored = color_noise_sample(raw, mode as f32, &mut color_state);
+        assert!(colored.is_finite());
+        assert!(colored.abs() <= 1.0);
+    }
+}
+
+#[test]
+fn cross_mix_modes_remain_finite() {
+    for mode in 0..=4 {
+        let sample = cross_mix_sample(mode as f32, 0.35, -0.62);
+        assert!(sample.is_finite());
+        assert!(sample.abs() <= 1.0);
+    }
+}
+
+#[test]
 fn dc_blocker_removes_constant_bias() {
     let mut blocker = DcBlocker::new(48_000.0, 5.0);
     let mut output = 0.0;

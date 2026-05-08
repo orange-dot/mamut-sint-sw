@@ -1,9 +1,10 @@
-use std::sync::LazyLock;
-
 use mamut_dsp::{
     AdsrEnvelope, AdsrTiming, DENORMAL_FLUSH_ABS, LinearSmoother, MASTER_SAFETY_KNEE, NoiseRng,
     Oscillator, SimpleChorus, SimpleReverb, StateVariableFilter, StereoBlockMut, StereoDcBlocker,
-    db_to_gain, master_safety_limit, midi_note_hz, sanitize_sample, soft_clip,
+    additive_partial_count, additive_ratio, additive_weight, color_noise_sample, cross_mix_sample,
+    db_to_gain, master_safety_limit, midi_note_hz, mixed_wave, mixed_wave_osc2,
+    oscillator_preview_sample, sanitize_sample, sine_phase_sample, soft_clip,
+    spectral_wavetable_sample,
 };
 pub use mamut_field::bcs::BcsScenario;
 use mamut_field::{
