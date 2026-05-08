@@ -1,55 +1,40 @@
 use std::{
-    collections::HashMap,
     env,
-    fs::{self, File},
-    io::{self, BufRead, BufWriter, IsTerminal, Seek, SeekFrom, Write},
+    io::{self, IsTerminal},
+};
+#[cfg(test)]
+use std::{
+    fs,
     path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
-        mpsc::{self, RecvTimeoutError, TryRecvError},
-    },
-    thread::{self, JoinHandle},
+    sync::{Arc, atomic::Ordering, mpsc},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use alsa::{
-    Direction, ValueOr,
-    pcm::{Access, Format, Frames, HwParams, IO, PCM},
-};
 use anyhow::{Context, Result, anyhow};
+#[cfg(test)]
 use crossbeam_queue::ArrayQueue;
-use eframe::{NativeOptions, egui};
-use mamut_dsp::StereoBlockMut;
+use gui::{display_available, run_performance_window};
+#[cfg(test)]
 use mamut_engine::{
-    BcsLayerMode, BcsLayerSnapshot, BcsScenario, ControllerEvent, DEFAULT_GFM_LAYER_SEED, Engine,
-    EngineConfig, EngineSnapshot, GfmLayerMode, GfmVoiceProgramSelection, NoteEvent, ProcessBlock,
-    Scheduled,
+    BcsLayerMode, BcsLayerSnapshot, BcsScenario, ControllerEvent, Engine, EngineConfig,
+    EngineSnapshot, GfmLayerMode, NoteEvent, Scheduled,
 };
-use mamut_params::{MacroId, ParamId, ParamUnit, param_by_key, param_spec};
-use mamut_patch::{PatchFileV1, load_patch_toml, save_patch_toml, validate_patch_v1};
-use midir::{Ignore, MidiInput, MidiInputConnection, MidiInputPort};
-use rtrb::{Consumer, Producer, RingBuffer};
-use serde::Deserialize;
+#[cfg(test)]
+use mamut_params::{MacroId, ParamId, param_spec};
+use mamut_patch::validate_patch_v1;
+use mamut_tui::run_tui_session;
+#[cfg(test)]
+use rtrb::RingBuffer;
 
-mod audio_runtime;
-mod cli;
-mod commands;
-mod devices;
 mod gui;
-mod midi_trace;
-mod runtime;
-mod session;
-mod types;
-
-pub(crate) use audio_runtime::*;
-pub(crate) use cli::*;
-pub(crate) use commands::*;
-pub(crate) use devices::*;
-pub(crate) use gui::*;
-pub(crate) use midi_trace::*;
-pub(crate) use runtime::*;
-pub(crate) use types::*;
+#[cfg(test)]
+pub(crate) use gui::{
+    PerformanceTab, binding_display_value, pc4_control_display, pc4_knob_angle,
+    sorted_bindings_for_section, sound_lab_param_value_from_normalized, sound_lab_source_for_cc,
+};
+#[cfg(test)]
+pub(crate) use mamut_runtime::session;
+pub(crate) use mamut_runtime::*;
 
 fn main() {
     if let Err(error) = run() {
@@ -80,7 +65,7 @@ fn run() -> Result<()> {
         }
         Some("play") => {
             let options = parse_play_options(&args[1..])?;
-            play(&options)
+            play_standalone(&options)
         }
         Some("help") | Some("--help") | Some("-h") => {
             print_usage();
@@ -95,6 +80,29 @@ fn run() -> Result<()> {
     }
 }
 
+fn play_standalone(options: &PlayOptions) -> Result<()> {
+    let mut session = RuntimeSession::new(options)?;
+    if options.gui {
+        if display_available() {
+            run_performance_window(session)
+        } else {
+            Err(anyhow!(
+                "--gui requested but DISPLAY/WAYLAND_DISPLAY is not available"
+            ))
+        }
+    } else if options.headless {
+        session.print_startup_summary();
+        println!("headless mode enabled; running without interactive controls");
+        session.block_forever()
+    } else if !options.headless && io::stdin().is_terminal() {
+        run_tui_session(session)
+    } else {
+        session.print_startup_summary();
+        println!("stdin is not a terminal; running without interactive controls");
+        session.block_forever()
+    }
+}
+
 fn print_usage() {
     eprintln!(
         "usage:
@@ -104,27 +112,12 @@ fn print_usage() {
   mamut-standalone list-midi
   mamut-standalone validate [factory-name-or-path]
   mamut-standalone dry-run [--gfm-layer-seed <u64-or-0xHEX>] [--bcs-layer-scenario <scenario>] [factory-name-or-path]
-  mamut-standalone play [--demo] [--headless] --audio-device <alsa-index-or-hw:card,device> [--sample-rate <hz>] [--alsa-period-frames <n>] [--alsa-buffer-frames <n>] [--alsa-start-threshold-frames <n>] [--midi-device <name-or-index>] [--midi-channel <1..16>] [--controller-profile <path>] [--trace-midi] [--gfm-layer-seed <u64-or-0xHEX>] [--bcs-layer-scenario <scenario>] [factory-name-or-path]
+  mamut-standalone play [--demo] [--gui] [--headless] --audio-device <alsa-index-or-hw:card,device> [--sample-rate <hz>] [--alsa-period-frames <n>] [--alsa-buffer-frames <n>] [--alsa-start-threshold-frames <n>] [--midi-device <name-or-index>] [--midi-channel <1..16>] [--controller-profile <path>] [--trace-midi] [--gfm-layer-seed <u64-or-0xHEX>] [--bcs-layer-scenario <scenario>] [factory-name-or-path]
 
-interactive play controls:
-  help
-  status
-  patches
-  favorites
-  favorite <0..7>
-  patch <factory-name-or-path>
-  next
-  prev
-  demo-patch
-  macro <gravitacija|bloom|heat|ruin|swarm> <0..1>
-  panic
-  reset-controllers
-  record <seconds> [path]
-  record-stop
-  audio [alsa-index-or-hw:card,device]
-  midi [name-or-index]
-  demo
-  quit"
+play frontend:
+  default: terminal TUI when stdin is interactive
+  --gui: legacy egui performance window
+  --headless: no interactive controls"
     );
 }
 

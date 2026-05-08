@@ -1,37 +1,36 @@
 use super::*;
 
-pub(crate) const ENGINE_RENDER_BLOCK_FRAMES: usize = 256;
-pub(crate) const AUDIO_QUEUE_CAPACITY_BLOCKS: usize = 4;
-pub(crate) const AUDIO_QUEUE_TARGET_BLOCKS: usize = 2;
-pub(crate) const AUDIO_QUEUE_CAPACITY_FRAMES: usize =
+pub const ENGINE_RENDER_BLOCK_FRAMES: usize = 256;
+pub const AUDIO_QUEUE_CAPACITY_BLOCKS: usize = 4;
+pub const AUDIO_QUEUE_TARGET_BLOCKS: usize = 2;
+pub const AUDIO_QUEUE_CAPACITY_FRAMES: usize =
     ENGINE_RENDER_BLOCK_FRAMES * AUDIO_QUEUE_CAPACITY_BLOCKS;
-pub(crate) const AUDIO_QUEUE_TARGET_FRAMES: usize =
-    ENGINE_RENDER_BLOCK_FRAMES * AUDIO_QUEUE_TARGET_BLOCKS;
-pub(crate) const ENGINE_IDLE_SLEEP: Duration = Duration::from_millis(1);
-pub(crate) const ALSA_WAIT_TIMEOUT_MS: u32 = 100;
-pub(crate) const ALSA_PLAYBACK_CHANNELS: usize = 2;
-pub(crate) const ALSA_PLAYBACK_SAMPLE_RATE_HZ: u32 = 96_000;
-pub(crate) const ALSA_PLAYBACK_SAMPLE_RATE_HZ_ALLOWED: [u32; 6] =
+pub const AUDIO_QUEUE_TARGET_FRAMES: usize = ENGINE_RENDER_BLOCK_FRAMES * AUDIO_QUEUE_TARGET_BLOCKS;
+pub const ENGINE_IDLE_SLEEP: Duration = Duration::from_millis(1);
+pub const ALSA_WAIT_TIMEOUT_MS: u32 = 100;
+pub const ALSA_PLAYBACK_CHANNELS: usize = 2;
+pub const ALSA_PLAYBACK_SAMPLE_RATE_HZ: u32 = 96_000;
+pub const ALSA_PLAYBACK_SAMPLE_RATE_HZ_ALLOWED: [u32; 6] =
     [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
-pub(crate) const ALSA_PERIOD_FRAMES_DEFAULT: usize = 256;
-pub(crate) const ALSA_BUFFER_FRAMES_DEFAULT: usize = 1_024;
-pub(crate) const ALSA_START_THRESHOLD_FRAMES_DEFAULT: usize = ALSA_BUFFER_FRAMES_DEFAULT;
-pub(crate) const PERFORMANCE_UI_REFRESH: Duration = Duration::from_millis(75);
-pub(crate) const MIDI_ACTIVITY_FLASH: Duration = Duration::from_millis(700);
-pub(crate) const MIDI_STARTUP_GUARD: Duration = MIDI_ACTIVITY_FLASH;
-pub(crate) const MIDI_INPUT_QUEUE_CAPACITY: usize = 512;
-pub(crate) const MIDI_TRACE_QUEUE_CAPACITY: usize = 4096;
-pub(crate) const MIDI_TRACE_RAW_BYTES: usize = 4;
-pub(crate) const RUNTIME_CONTROL_QUEUE_CAPACITY: usize = 64;
-pub(crate) const RECORDING_QUEUE_CAPACITY_FRAMES: usize = 192_000 * 4;
-pub(crate) const RECORDING_REPLY_TIMEOUT: Duration = Duration::from_millis(500);
-pub(crate) const DEFAULT_LIVE_TAKE_SECONDS: u64 = 30;
-pub(crate) const DEFAULT_GFM_UI_SEED: u64 = DEFAULT_GFM_LAYER_SEED;
-pub(crate) const DEFAULT_LIVE_TAKE_TAG: &str = "gravitacija";
-pub(crate) const PC4_KNOB_START_ANGLE: f32 = 2.0 * std::f32::consts::PI / 3.0;
-pub(crate) const PC4_KNOB_SWEEP_ANGLE: f32 = 5.0 * std::f32::consts::PI / 3.0;
-pub(crate) const CAPTURE_DIR_ENV: &str = "MAMUT_CAPTURE_DIR";
-pub(crate) const LIVE_SET_STEMS: [&str; 8] = [
+pub const ALSA_PERIOD_FRAMES_DEFAULT: usize = 256;
+pub const ALSA_BUFFER_FRAMES_DEFAULT: usize = 1_024;
+pub const ALSA_START_THRESHOLD_FRAMES_DEFAULT: usize = ALSA_BUFFER_FRAMES_DEFAULT;
+pub const PERFORMANCE_UI_REFRESH: Duration = Duration::from_millis(75);
+pub const MIDI_ACTIVITY_FLASH: Duration = Duration::from_millis(700);
+pub const MIDI_STARTUP_GUARD: Duration = MIDI_ACTIVITY_FLASH;
+pub const MIDI_INPUT_QUEUE_CAPACITY: usize = 512;
+pub const MIDI_TRACE_QUEUE_CAPACITY: usize = 4096;
+pub const MIDI_TRACE_RAW_BYTES: usize = 4;
+pub const RUNTIME_CONTROL_QUEUE_CAPACITY: usize = 64;
+pub const RECORDING_QUEUE_CAPACITY_FRAMES: usize = 192_000 * 4;
+pub const RECORDING_REPLY_TIMEOUT: Duration = Duration::from_millis(500);
+pub const DEFAULT_LIVE_TAKE_SECONDS: u64 = 30;
+pub const DEFAULT_GFM_UI_SEED: u64 = DEFAULT_GFM_LAYER_SEED;
+pub const DEFAULT_LIVE_TAKE_TAG: &str = "gravitacija";
+pub const PC4_KNOB_START_ANGLE: f32 = 2.0 * std::f32::consts::PI / 3.0;
+pub const PC4_KNOB_SWEEP_ANGLE: f32 = 5.0 * std::f32::consts::PI / 3.0;
+pub const CAPTURE_DIR_ENV: &str = "MAMUT_CAPTURE_DIR";
+pub const LIVE_SET_STEMS: [&str; 8] = [
     "molten-horizon",
     "cathedral-bloom",
     "ember-vault",
@@ -42,46 +41,46 @@ pub(crate) const LIVE_SET_STEMS: [&str; 8] = [
     "glass-tide",
 ];
 
-pub(crate) type StereoFrame = [f32; 2];
+pub type StereoFrame = [f32; 2];
 
 #[derive(Debug, Clone)]
-pub(crate) struct OutputRecordingRequest {
-    pub(crate) path: PathBuf,
-    pub(crate) sample_rate_hz: u32,
-    pub(crate) max_frames: Option<usize>,
+pub struct OutputRecordingRequest {
+    pub path: PathBuf,
+    pub sample_rate_hz: u32,
+    pub max_frames: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct MidiTraceLogStart {
-    pub(crate) wav_path: PathBuf,
-    pub(crate) log_path: PathBuf,
-    pub(crate) patch_path: PathBuf,
-    pub(crate) patch_name: String,
-    pub(crate) sample_rate_hz: u32,
-    pub(crate) max_frames: Option<usize>,
-    pub(crate) midi_channel: Option<u8>,
-    pub(crate) controller_profile: Option<String>,
+pub struct MidiTraceLogStart {
+    pub wav_path: PathBuf,
+    pub log_path: PathBuf,
+    pub patch_path: PathBuf,
+    pub patch_name: String,
+    pub sample_rate_hz: u32,
+    pub max_frames: Option<usize>,
+    pub midi_channel: Option<u8>,
+    pub controller_profile: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MidiTraceLogStarted {
-    pub(crate) path: PathBuf,
-    pub(crate) generation: u64,
+pub struct MidiTraceLogStarted {
+    pub path: PathBuf,
+    pub generation: u64,
 }
 
-pub(crate) struct MidiTraceLog {
-    pub(crate) active: Mutex<Option<ActiveMidiTraceLog>>,
-    pub(crate) active_flag: AtomicBool,
-    pub(crate) generation: AtomicU64,
+pub struct MidiTraceLog {
+    pub active: Mutex<Option<ActiveMidiTraceLog>>,
+    pub active_flag: AtomicBool,
+    pub generation: AtomicU64,
 }
 
-pub(crate) struct ActiveMidiTraceLog {
-    pub(crate) path: PathBuf,
-    pub(crate) generation: u64,
-    pub(crate) writer: BufWriter<File>,
-    pub(crate) target_end_at: Option<Instant>,
-    pub(crate) lines_written: u64,
-    pub(crate) write_failed: bool,
+pub struct ActiveMidiTraceLog {
+    pub path: PathBuf,
+    pub generation: u64,
+    pub writer: BufWriter<File>,
+    pub target_end_at: Option<Instant>,
+    pub lines_written: u64,
+    pub write_failed: bool,
 }
 
 impl Default for MidiTraceLog {
@@ -95,7 +94,7 @@ impl Default for MidiTraceLog {
 }
 
 impl MidiTraceLog {
-    pub(crate) fn start(&self, request: MidiTraceLogStart) -> io::Result<MidiTraceLogStarted> {
+    pub fn start(&self, request: MidiTraceLogStart) -> io::Result<MidiTraceLogStarted> {
         let mut active = self
             .active
             .lock()
@@ -126,11 +125,11 @@ impl MidiTraceLog {
         Ok(MidiTraceLogStarted { path, generation })
     }
 
-    pub(crate) fn is_active(&self) -> bool {
+    pub fn is_active(&self) -> bool {
         self.active_flag.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn write_line(&self, received_at: Instant, line: &str) {
+    pub fn write_line(&self, received_at: Instant, line: &str) {
         if !self.is_active() {
             return;
         }
@@ -163,12 +162,11 @@ impl MidiTraceLog {
         active.lines_written += 1;
     }
 
-    #[cfg(test)]
-    pub(crate) fn finish(&self, reason: &str) -> Option<PathBuf> {
+    pub fn finish(&self, reason: &str) -> Option<PathBuf> {
         self.finish_with_trace_drops(reason, 0)
     }
 
-    pub(crate) fn finish_with_trace_drops(
+    pub fn finish_with_trace_drops(
         &self,
         reason: &str,
         trace_records_dropped: u64,
@@ -194,7 +192,7 @@ impl MidiTraceLog {
         Some(active.path)
     }
 
-    pub(crate) fn finish_generation_with_trace_drops(
+    pub fn finish_generation_with_trace_drops(
         &self,
         generation: u64,
         reason: &str,
@@ -227,7 +225,7 @@ impl MidiTraceLog {
         Some(active.path)
     }
 
-    pub(crate) fn abort_and_remove(&self) -> Option<PathBuf> {
+    pub fn abort_and_remove(&self) -> Option<PathBuf> {
         self.active_flag.store(false, Ordering::Relaxed);
         let Ok(mut active) = self.active.lock() else {
             return None;
@@ -240,11 +238,11 @@ impl MidiTraceLog {
     }
 }
 
-pub(crate) fn output_recording_midi_log_path(wav_path: &Path) -> PathBuf {
+pub fn output_recording_midi_log_path(wav_path: &Path) -> PathBuf {
     wav_path.with_extension("midi.log")
 }
 
-pub(crate) fn write_midi_trace_log_header<W: Write>(
+pub fn write_midi_trace_log_header<W: Write>(
     writer: &mut W,
     request: &MidiTraceLogStart,
 ) -> io::Result<()> {
@@ -292,20 +290,20 @@ pub(crate) fn write_midi_trace_log_header<W: Write>(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AlsaPlaybackSampleFormat {
+pub enum AlsaPlaybackSampleFormat {
     Float32,
     Signed32,
 }
 
 impl AlsaPlaybackSampleFormat {
-    pub(crate) fn alsa_format(self) -> Format {
+    pub fn alsa_format(self) -> Format {
         match self {
             Self::Float32 => Format::float(),
             Self::Signed32 => Format::s32(),
         }
     }
 
-    pub(crate) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Float32 => "F32",
             Self::Signed32 => "S32_LE",
@@ -314,26 +312,26 @@ impl AlsaPlaybackSampleFormat {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum RealtimeMidiMessage {
+pub enum RealtimeMidiMessage {
     Note(NoteEvent),
     Controller(ControllerEvent),
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum ParsedMidiMessage {
+pub enum ParsedMidiMessage {
     Realtime(RealtimeMidiMessage),
     Runtime(RuntimeControlMessage),
     Reserved,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct MidiTraceTiming {
-    pub(crate) elapsed_seconds: f64,
-    pub(crate) delta_millis: f64,
+pub struct MidiTraceTiming {
+    pub elapsed_seconds: f64,
+    pub delta_millis: f64,
 }
 
 impl MidiTraceTiming {
-    pub(crate) fn from_received_at(
+    pub fn from_received_at(
         started_at: Instant,
         previous_trace_at: &mut Option<Instant>,
         received_at: Instant,
@@ -357,7 +355,7 @@ impl MidiTraceTiming {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub(crate) enum SoundLabPage {
+pub enum SoundLabPage {
     Osc1 = 0,
     Osc2 = 1,
     Noise = 2,
@@ -370,7 +368,7 @@ pub(crate) enum SoundLabPage {
 }
 
 impl SoundLabPage {
-    pub(crate) const ALL: [Self; 9] = [
+    pub const ALL: [Self; 9] = [
         Self::Osc1,
         Self::Osc2,
         Self::Noise,
@@ -382,7 +380,7 @@ impl SoundLabPage {
         Self::Layers,
     ];
 
-    pub(crate) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Osc1 => "Osc 1",
             Self::Osc2 => "Osc 2",
@@ -396,7 +394,7 @@ impl SoundLabPage {
         }
     }
 
-    pub(crate) fn from_index(index: u8) -> Option<Self> {
+    pub fn from_index(index: u8) -> Option<Self> {
         match index {
             0 => Some(Self::Osc1),
             1 => Some(Self::Osc2),
@@ -413,14 +411,14 @@ impl SoundLabPage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SoundLabMidiSource {
+pub enum SoundLabMidiSource {
     Knob(u8),
     Slider(u8),
     ModWheel,
 }
 
 impl SoundLabMidiSource {
-    pub(crate) fn badge(self) -> String {
+    pub fn badge(self) -> String {
         match self {
             Self::Knob(index) => format!("K{index}"),
             Self::Slider(index) => format!("S{index}"),
@@ -430,16 +428,16 @@ impl SoundLabMidiSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SoundLabMidiParamBinding {
-    pub(crate) source: SoundLabMidiSource,
-    pub(crate) id: ParamId,
+pub struct SoundLabMidiParamBinding {
+    pub source: SoundLabMidiSource,
+    pub id: ParamId,
 }
 
-pub(crate) const SOUND_LAB_OVERLAY_EVENT_CAPACITY: usize = 4;
-pub(crate) const SOUND_LAB_MIDI_FOCUS_DISABLED: u8 = u8::MAX;
+pub const SOUND_LAB_OVERLAY_EVENT_CAPACITY: usize = 4;
+pub const SOUND_LAB_MIDI_FOCUS_DISABLED: u8 = u8::MAX;
 
 #[derive(Debug)]
-pub(crate) struct SoundLabMidiFocus {
+pub struct SoundLabMidiFocus {
     page: AtomicU8,
 }
 
@@ -452,7 +450,7 @@ impl Default for SoundLabMidiFocus {
 }
 
 impl SoundLabMidiFocus {
-    pub(crate) fn set(&self, page: Option<SoundLabPage>) {
+    pub fn set(&self, page: Option<SoundLabPage>) {
         self.page.store(
             page.map(|page| page as u8)
                 .unwrap_or(SOUND_LAB_MIDI_FOCUS_DISABLED),
@@ -460,20 +458,20 @@ impl SoundLabMidiFocus {
         );
     }
 
-    pub(crate) fn page(&self) -> Option<SoundLabPage> {
+    pub fn page(&self) -> Option<SoundLabPage> {
         SoundLabPage::from_index(self.page.load(Ordering::Relaxed))
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct SoundLabOverlayEvents {
-    pub(crate) page: SoundLabPage,
-    pub(crate) source: SoundLabMidiSource,
-    pub(crate) events: [Option<ControllerEvent>; SOUND_LAB_OVERLAY_EVENT_CAPACITY],
+pub struct SoundLabOverlayEvents {
+    pub page: SoundLabPage,
+    pub source: SoundLabMidiSource,
+    pub events: [Option<ControllerEvent>; SOUND_LAB_OVERLAY_EVENT_CAPACITY],
 }
 
 impl SoundLabOverlayEvents {
-    pub(crate) fn empty(page: SoundLabPage, source: SoundLabMidiSource) -> Self {
+    pub fn empty(page: SoundLabPage, source: SoundLabMidiSource) -> Self {
         Self {
             page,
             source,
@@ -481,21 +479,17 @@ impl SoundLabOverlayEvents {
         }
     }
 
-    pub(crate) fn single(
-        page: SoundLabPage,
-        source: SoundLabMidiSource,
-        event: ControllerEvent,
-    ) -> Self {
+    pub fn single(page: SoundLabPage, source: SoundLabMidiSource, event: ControllerEvent) -> Self {
         let mut events = Self::empty(page, source);
         events.events[0] = Some(event);
         events
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = ControllerEvent> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = ControllerEvent> + '_ {
         self.events.iter().filter_map(|event| *event)
     }
 
-    pub(crate) fn trace_summary(&self) -> String {
+    pub fn trace_summary(&self) -> String {
         let targets = self
             .iter()
             .map(describe_controller_event_target)
@@ -510,7 +504,7 @@ impl SoundLabOverlayEvents {
     }
 }
 
-pub(crate) fn describe_controller_event_target(event: ControllerEvent) -> String {
+pub fn describe_controller_event_target(event: ControllerEvent) -> String {
     match event {
         ControllerEvent::DirectParam { id, value } => {
             format!(
@@ -532,7 +526,7 @@ pub(crate) fn describe_controller_event_target(event: ControllerEvent) -> String
     }
 }
 
-pub(crate) fn format_paramish_value(id: ParamId, value: f32) -> String {
+pub fn format_paramish_value(id: ParamId, value: f32) -> String {
     match param_spec(id).unit {
         ParamUnit::Boolean => {
             if value >= 0.5 {
@@ -551,9 +545,7 @@ pub(crate) fn format_paramish_value(id: ParamId, value: f32) -> String {
     }
 }
 
-pub(crate) fn sound_lab_page_knob_bindings(
-    page: SoundLabPage,
-) -> &'static [SoundLabMidiParamBinding] {
+pub fn sound_lab_page_knob_bindings(page: SoundLabPage) -> &'static [SoundLabMidiParamBinding] {
     match page {
         SoundLabPage::Osc1 => &OSC1_KNOB_BINDINGS,
         SoundLabPage::Osc2 => &OSC2_KNOB_BINDINGS,
@@ -567,9 +559,7 @@ pub(crate) fn sound_lab_page_knob_bindings(
     }
 }
 
-pub(crate) fn sound_lab_page_slider_bindings(
-    page: SoundLabPage,
-) -> &'static [SoundLabMidiParamBinding] {
+pub fn sound_lab_page_slider_bindings(page: SoundLabPage) -> &'static [SoundLabMidiParamBinding] {
     match page {
         SoundLabPage::Osc1 => &OSC1_SLIDER_BINDINGS,
         SoundLabPage::Osc2 => &OSC2_SLIDER_BINDINGS,
@@ -583,7 +573,7 @@ pub(crate) fn sound_lab_page_slider_bindings(
     }
 }
 
-pub(crate) fn sound_lab_page_mod_wheel_params(page: SoundLabPage) -> &'static [ParamId] {
+pub fn sound_lab_page_mod_wheel_params(page: SoundLabPage) -> &'static [ParamId] {
     match page {
         SoundLabPage::Osc1 => &[
             ParamId::Osc1SawBend,
@@ -606,7 +596,7 @@ pub(crate) fn sound_lab_page_mod_wheel_params(page: SoundLabPage) -> &'static [P
     }
 }
 
-pub(crate) fn sound_lab_page_binding_for_source(
+pub fn sound_lab_page_binding_for_source(
     page: SoundLabPage,
     source: SoundLabMidiSource,
 ) -> Option<SoundLabMidiParamBinding> {
@@ -621,8 +611,7 @@ pub(crate) fn sound_lab_page_binding_for_source(
         .find(|binding| binding.source == source)
 }
 
-#[cfg(test)]
-pub(crate) fn sound_lab_badges_for_param(page: SoundLabPage, id: ParamId) -> Vec<String> {
+pub fn sound_lab_badges_for_param(page: SoundLabPage, id: ParamId) -> Vec<String> {
     let mut badges = sound_lab_page_knob_bindings(page)
         .iter()
         .chain(sound_lab_page_slider_bindings(page).iter())
@@ -778,60 +767,61 @@ const PERFORMANCE_SLIDER_BINDINGS: [SoundLabMidiParamBinding; 5] = [
 ];
 
 #[derive(Debug, Clone)]
-pub(crate) struct FactoryPatchEntry {
-    pub(crate) stem: String,
-    pub(crate) slug: String,
-    pub(crate) path: PathBuf,
-    pub(crate) patch_name: String,
-    pub(crate) description: Option<String>,
-    pub(crate) favorite: bool,
+pub struct FactoryPatchEntry {
+    pub stem: String,
+    pub slug: String,
+    pub path: PathBuf,
+    pub patch_name: String,
+    pub description: Option<String>,
+    pub favorite: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct PlayOptions {
-    pub(crate) patch_path: PathBuf,
-    pub(crate) force_demo: bool,
-    pub(crate) audio_selector: Option<String>,
-    pub(crate) sample_rate_hz: u32,
-    pub(crate) alsa_period_frames: Option<usize>,
-    pub(crate) alsa_buffer_frames: Option<usize>,
-    pub(crate) alsa_start_threshold_frames: Option<usize>,
-    pub(crate) midi_selector: Option<String>,
-    pub(crate) midi_channel: Option<u8>,
-    pub(crate) controller_profile_path: Option<PathBuf>,
-    pub(crate) trace_midi: bool,
-    pub(crate) headless: bool,
-    pub(crate) gfm_layer_seed: Option<u64>,
-    pub(crate) bcs_layer_scenario: Option<BcsScenario>,
+pub struct PlayOptions {
+    pub patch_path: PathBuf,
+    pub force_demo: bool,
+    pub audio_selector: Option<String>,
+    pub sample_rate_hz: u32,
+    pub alsa_period_frames: Option<usize>,
+    pub alsa_buffer_frames: Option<usize>,
+    pub alsa_start_threshold_frames: Option<usize>,
+    pub midi_selector: Option<String>,
+    pub midi_channel: Option<u8>,
+    pub controller_profile_path: Option<PathBuf>,
+    pub trace_midi: bool,
+    pub headless: bool,
+    pub gui: bool,
+    pub gfm_layer_seed: Option<u64>,
+    pub bcs_layer_scenario: Option<BcsScenario>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct DryRunOptions {
-    pub(crate) patch_path: PathBuf,
-    pub(crate) gfm_layer_seed: Option<u64>,
-    pub(crate) bcs_layer_scenario: Option<BcsScenario>,
+pub struct DryRunOptions {
+    pub patch_path: PathBuf,
+    pub gfm_layer_seed: Option<u64>,
+    pub bcs_layer_scenario: Option<BcsScenario>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AlsaOutputDevice {
-    pub(crate) selector: String,
-    pub(crate) card_index: i32,
-    pub(crate) device_index: i32,
-    pub(crate) card_name: String,
-    pub(crate) pcm_name: String,
+pub struct AlsaOutputDevice {
+    pub selector: String,
+    pub card_index: i32,
+    pub device_index: i32,
+    pub card_name: String,
+    pub pcm_name: String,
 }
 
 impl AlsaOutputDevice {
-    pub(crate) fn display_name(&self) -> String {
+    pub fn display_name(&self) -> String {
         format!("{} ({}, {})", self.selector, self.card_name, self.pcm_name)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct AlsaPlaybackTuning {
-    pub(crate) period_frames: usize,
-    pub(crate) buffer_frames: usize,
-    pub(crate) start_threshold_frames: usize,
+pub struct AlsaPlaybackTuning {
+    pub period_frames: usize,
+    pub buffer_frames: usize,
+    pub start_threshold_frames: usize,
 }
 
 impl Default for AlsaPlaybackTuning {
@@ -845,13 +835,13 @@ impl Default for AlsaPlaybackTuning {
 }
 
 #[derive(Clone)]
-pub(crate) struct NamedMidiPort {
-    pub(crate) port: MidiInputPort,
-    pub(crate) name: String,
+pub struct NamedMidiPort {
+    pub port: MidiInputPort,
+    pub name: String,
 }
 
 #[derive(Debug)]
-pub(crate) enum EngineCommand {
+pub enum EngineCommand {
     Note(NoteEvent),
     Controller(ControllerEvent),
     RequestSnapshot(mpsc::Sender<EngineSnapshot>),
@@ -873,7 +863,7 @@ pub(crate) enum EngineCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RuntimeControlMessage {
+pub enum RuntimeControlMessage {
     ProgramChange(u8),
     Panic,
     ResetControllers,
@@ -884,30 +874,30 @@ pub(crate) enum RuntimeControlMessage {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ControllerProfile {
-    pub(crate) name: String,
-    pub(crate) path: PathBuf,
-    pub(crate) bindings_by_cc: HashMap<u8, ControllerBinding>,
+pub struct ControllerProfile {
+    pub name: String,
+    pub path: PathBuf,
+    pub bindings_by_cc: HashMap<u8, ControllerBinding>,
 }
 
 impl ControllerProfile {
-    pub(crate) fn binding_for_cc(&self, cc: u8) -> Option<&ControllerBinding> {
+    pub fn binding_for_cc(&self, cc: u8) -> Option<&ControllerBinding> {
         self.bindings_by_cc.get(&cc)
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ControllerBinding {
-    pub(crate) cc: u8,
-    pub(crate) control: String,
-    pub(crate) section: ControllerBindingSection,
-    pub(crate) index: Option<u8>,
-    pub(crate) action: ControllerBindingAction,
+pub struct ControllerBinding {
+    pub cc: u8,
+    pub control: String,
+    pub section: ControllerBindingSection,
+    pub index: Option<u8>,
+    pub action: ControllerBindingAction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ControllerBindingSection {
+pub enum ControllerBindingSection {
     Knob,
     Slider,
     Switch,
@@ -915,7 +905,7 @@ pub(crate) enum ControllerBindingSection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum ControllerBindingAction {
+pub enum ControllerBindingAction {
     Macro(MacroId),
     DirectParam {
         id: ParamId,
@@ -931,34 +921,34 @@ pub(crate) enum ControllerBindingAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ControllerValueScale {
+pub enum ControllerValueScale {
     Linear,
     Log,
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ControllerProfileFile {
-    pub(crate) name: Option<String>,
+pub struct ControllerProfileFile {
+    pub name: Option<String>,
     #[serde(default)]
-    pub(crate) binding: Vec<ControllerBindingFile>,
+    pub binding: Vec<ControllerBindingFile>,
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ControllerBindingFile {
-    pub(crate) control: String,
-    pub(crate) cc: u8,
-    pub(crate) section: Option<ControllerBindingSection>,
-    pub(crate) index: Option<u8>,
-    pub(crate) kind: ControllerBindingKind,
-    pub(crate) target: Option<String>,
-    pub(crate) action: Option<String>,
-    pub(crate) slot: Option<usize>,
-    pub(crate) scale: Option<ControllerValueScale>,
+pub struct ControllerBindingFile {
+    pub control: String,
+    pub cc: u8,
+    pub section: Option<ControllerBindingSection>,
+    pub index: Option<u8>,
+    pub kind: ControllerBindingKind,
+    pub target: Option<String>,
+    pub action: Option<String>,
+    pub slot: Option<usize>,
+    pub scale: Option<ControllerValueScale>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ControllerBindingKind {
+pub enum ControllerBindingKind {
     Macro,
     DirectParam,
     GfmLayerAmount,
@@ -971,7 +961,7 @@ pub(crate) enum ControllerBindingKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum RuntimeUiCommand {
+pub enum RuntimeUiCommand {
     Noop,
     Help,
     Status,
@@ -997,19 +987,19 @@ pub(crate) enum RuntimeUiCommand {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct TransportMetricsSnapshot {
-    pub(crate) queued_frames: usize,
-    pub(crate) queue_target_frames: usize,
-    pub(crate) write_frames_hint: usize,
-    pub(crate) underrun_batches: u64,
-    pub(crate) underrun_frames: u64,
-    pub(crate) xrun_recoveries: u64,
-    pub(crate) overflow_batches: u64,
-    pub(crate) overflow_frames: u64,
+pub struct TransportMetricsSnapshot {
+    pub queued_frames: usize,
+    pub queue_target_frames: usize,
+    pub write_frames_hint: usize,
+    pub underrun_batches: u64,
+    pub underrun_frames: u64,
+    pub xrun_recoveries: u64,
+    pub overflow_batches: u64,
+    pub overflow_frames: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RecordingState {
+pub enum RecordingState {
     Idle,
     Active,
     Finished,
@@ -1017,7 +1007,7 @@ pub(crate) enum RecordingState {
 }
 
 impl RecordingState {
-    pub(crate) fn from_usize(value: usize) -> Self {
+    pub fn from_usize(value: usize) -> Self {
         match value {
             1 => Self::Active,
             2 => Self::Finished,
@@ -1026,7 +1016,7 @@ impl RecordingState {
         }
     }
 
-    pub(crate) fn as_usize(self) -> usize {
+    pub fn as_usize(self) -> usize {
         match self {
             Self::Idle => 0,
             Self::Active => 1,
@@ -1035,7 +1025,7 @@ impl RecordingState {
         }
     }
 
-    pub(crate) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Idle => "idle",
             Self::Active => "recording",
@@ -1046,41 +1036,41 @@ impl RecordingState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RecordingMetricsSnapshot {
-    pub(crate) state: RecordingState,
-    pub(crate) path: Option<PathBuf>,
-    pub(crate) target_frames: Option<u64>,
-    pub(crate) frames_written: u64,
-    pub(crate) frames_dropped: u64,
-    pub(crate) error: Option<String>,
+pub struct RecordingMetricsSnapshot {
+    pub state: RecordingState,
+    pub path: Option<PathBuf>,
+    pub target_frames: Option<u64>,
+    pub frames_written: u64,
+    pub frames_dropped: u64,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct InputMetricsSnapshot {
-    pub(crate) midi_messages: u64,
-    pub(crate) midi_messages_accepted: u64,
-    pub(crate) midi_messages_dropped: u64,
-    pub(crate) runtime_controls_dropped: u64,
-    pub(crate) trace_records_dropped: u64,
-    pub(crate) controllers_coalesced: u64,
-    pub(crate) last_control: Option<LastControlEvent>,
+pub struct InputMetricsSnapshot {
+    pub midi_messages: u64,
+    pub midi_messages_accepted: u64,
+    pub midi_messages_dropped: u64,
+    pub runtime_controls_dropped: u64,
+    pub trace_records_dropped: u64,
+    pub controllers_coalesced: u64,
+    pub last_control: Option<LastControlEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct LastControlEvent {
-    pub(crate) kind: LastControlKind,
-    pub(crate) label: String,
-    pub(crate) action: String,
-    pub(crate) raw_status: u8,
-    pub(crate) channel: Option<u8>,
-    pub(crate) raw_value: Option<f32>,
-    pub(crate) program: Option<u8>,
-    pub(crate) verdict: LastControlVerdict,
-    pub(crate) received_at: Instant,
+pub struct LastControlEvent {
+    pub kind: LastControlKind,
+    pub label: String,
+    pub action: String,
+    pub raw_status: u8,
+    pub channel: Option<u8>,
+    pub raw_value: Option<f32>,
+    pub program: Option<u8>,
+    pub verdict: LastControlVerdict,
+    pub received_at: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LastControlKind {
+pub enum LastControlKind {
     ProfileCc(u8),
     LegacyCc(u8),
     ProgramChange(u8),
@@ -1088,7 +1078,7 @@ pub(crate) enum LastControlKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LastControlVerdict {
+pub enum LastControlVerdict {
     Accepted,
     Filtered,
     StartupSuppressed,
@@ -1098,25 +1088,25 @@ pub(crate) enum LastControlVerdict {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PriorityAction {
+pub enum PriorityAction {
     Panic,
     ResetControllers,
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct TransportMetrics {
-    pub(crate) queued_frames: AtomicUsize,
-    pub(crate) queue_target_frames: AtomicUsize,
-    pub(crate) write_frames_hint: AtomicUsize,
-    pub(crate) underrun_batches: AtomicU64,
-    pub(crate) underrun_frames: AtomicU64,
-    pub(crate) xrun_recoveries: AtomicU64,
-    pub(crate) overflow_batches: AtomicU64,
-    pub(crate) overflow_frames: AtomicU64,
+pub struct TransportMetrics {
+    pub queued_frames: AtomicUsize,
+    pub queue_target_frames: AtomicUsize,
+    pub write_frames_hint: AtomicUsize,
+    pub underrun_batches: AtomicU64,
+    pub underrun_frames: AtomicU64,
+    pub xrun_recoveries: AtomicU64,
+    pub overflow_batches: AtomicU64,
+    pub overflow_frames: AtomicU64,
 }
 
 impl TransportMetrics {
-    pub(crate) fn snapshot(&self) -> TransportMetricsSnapshot {
+    pub fn snapshot(&self) -> TransportMetricsSnapshot {
         TransportMetricsSnapshot {
             queued_frames: self.queued_frames.load(Ordering::Relaxed),
             queue_target_frames: self.queue_target_frames.load(Ordering::Relaxed),
@@ -1129,16 +1119,16 @@ impl TransportMetrics {
         }
     }
 
-    pub(crate) fn set_queued_frames(&self, queued_frames: usize) {
+    pub fn set_queued_frames(&self, queued_frames: usize) {
         self.queued_frames.store(queued_frames, Ordering::Relaxed);
     }
 
-    pub(crate) fn record_write_request(&self, write_frames: usize) {
+    pub fn record_write_request(&self, write_frames: usize) {
         self.write_frames_hint
             .store(write_frames, Ordering::Relaxed);
     }
 
-    pub(crate) fn queue_target_frames(&self, capacity_frames: usize) -> usize {
+    pub fn queue_target_frames(&self, capacity_frames: usize) -> usize {
         let write_frames = round_up_to_render_block(self.write_frames_hint.load(Ordering::Relaxed));
         let target_frames = write_frames
             .max(AUDIO_QUEUE_TARGET_FRAMES)
@@ -1148,7 +1138,7 @@ impl TransportMetrics {
         target_frames
     }
 
-    pub(crate) fn record_underrun(&self, missing_frames: usize) {
+    pub fn record_underrun(&self, missing_frames: usize) {
         if missing_frames == 0 {
             return;
         }
@@ -1158,11 +1148,11 @@ impl TransportMetrics {
             .fetch_add(missing_frames as u64, Ordering::Relaxed);
     }
 
-    pub(crate) fn record_xrun_recovery(&self) {
+    pub fn record_xrun_recovery(&self) {
         self.xrun_recoveries.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(crate) fn record_overflow(&self, dropped_frames: usize) {
+    pub fn record_overflow(&self, dropped_frames: usize) {
         if dropped_frames == 0 {
             return;
         }
@@ -1174,17 +1164,17 @@ impl TransportMetrics {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct RecordingMetrics {
-    pub(crate) state: AtomicUsize,
-    pub(crate) target_frames: AtomicU64,
-    pub(crate) frames_written: AtomicU64,
-    pub(crate) frames_dropped: AtomicU64,
-    pub(crate) path: Mutex<Option<PathBuf>>,
-    pub(crate) error: Mutex<Option<String>>,
+pub struct RecordingMetrics {
+    pub state: AtomicUsize,
+    pub target_frames: AtomicU64,
+    pub frames_written: AtomicU64,
+    pub frames_dropped: AtomicU64,
+    pub path: Mutex<Option<PathBuf>>,
+    pub error: Mutex<Option<String>>,
 }
 
 impl RecordingMetrics {
-    pub(crate) fn snapshot(&self) -> RecordingMetricsSnapshot {
+    pub fn snapshot(&self) -> RecordingMetricsSnapshot {
         let target_frames = self.target_frames.load(Ordering::Relaxed);
         RecordingMetricsSnapshot {
             state: RecordingState::from_usize(self.state.load(Ordering::Relaxed)),
@@ -1196,7 +1186,7 @@ impl RecordingMetrics {
         }
     }
 
-    pub(crate) fn start(&self, path: PathBuf, target_frames: Option<usize>) {
+    pub fn start(&self, path: PathBuf, target_frames: Option<usize>) {
         if let Ok(mut current_path) = self.path.lock() {
             *current_path = Some(path);
         }
@@ -1211,11 +1201,11 @@ impl RecordingMetrics {
             .store(RecordingState::Active.as_usize(), Ordering::Relaxed);
     }
 
-    pub(crate) fn set_frames_written(&self, frames_written: u64) {
+    pub fn set_frames_written(&self, frames_written: u64) {
         self.frames_written.store(frames_written, Ordering::Relaxed);
     }
 
-    pub(crate) fn record_dropped(&self, dropped_frames: usize) {
+    pub fn record_dropped(&self, dropped_frames: usize) {
         if dropped_frames == 0 {
             return;
         }
@@ -1223,7 +1213,7 @@ impl RecordingMetrics {
             .fetch_add(dropped_frames as u64, Ordering::Relaxed);
     }
 
-    pub(crate) fn finish_if_active(&self) {
+    pub fn finish_if_active(&self) {
         let _ = self.state.compare_exchange(
             RecordingState::Active.as_usize(),
             RecordingState::Finished.as_usize(),
@@ -1232,7 +1222,7 @@ impl RecordingMetrics {
         );
     }
 
-    pub(crate) fn record_error(&self, error_message: String) {
+    pub fn record_error(&self, error_message: String) {
         if let Ok(mut error) = self.error.lock() {
             *error = Some(error_message);
         }
@@ -1242,18 +1232,18 @@ impl RecordingMetrics {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct InputMetrics {
-    pub(crate) midi_messages: AtomicU64,
-    pub(crate) midi_messages_accepted: AtomicU64,
-    pub(crate) midi_messages_dropped: AtomicU64,
-    pub(crate) runtime_controls_dropped: AtomicU64,
-    pub(crate) trace_records_dropped: AtomicU64,
-    pub(crate) controllers_coalesced: AtomicU64,
-    pub(crate) last_control: Mutex<Option<LastControlEvent>>,
+pub struct InputMetrics {
+    pub midi_messages: AtomicU64,
+    pub midi_messages_accepted: AtomicU64,
+    pub midi_messages_dropped: AtomicU64,
+    pub runtime_controls_dropped: AtomicU64,
+    pub trace_records_dropped: AtomicU64,
+    pub controllers_coalesced: AtomicU64,
+    pub last_control: Mutex<Option<LastControlEvent>>,
 }
 
 impl InputMetrics {
-    pub(crate) fn snapshot(&self) -> InputMetricsSnapshot {
+    pub fn snapshot(&self) -> InputMetricsSnapshot {
         InputMetricsSnapshot {
             midi_messages: self.midi_messages.load(Ordering::Relaxed),
             midi_messages_accepted: self.midi_messages_accepted.load(Ordering::Relaxed),
@@ -1269,35 +1259,35 @@ impl InputMetrics {
         }
     }
 
-    pub(crate) fn record_midi_message(&self) {
+    pub fn record_midi_message(&self) {
         self.midi_messages.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(crate) fn record_midi_message_accepted(&self) {
+    pub fn record_midi_message_accepted(&self) {
         self.midi_messages_accepted.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(crate) fn record_midi_message_dropped(&self) {
+    pub fn record_midi_message_dropped(&self) {
         self.midi_messages_dropped.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(crate) fn record_runtime_control_dropped(&self) {
+    pub fn record_runtime_control_dropped(&self) {
         self.runtime_controls_dropped
             .fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(crate) fn record_trace_record_dropped(&self) {
+    pub fn record_trace_record_dropped(&self) {
         self.trace_records_dropped.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(crate) fn record_controllers_coalesced(&self, count: usize) {
+    pub fn record_controllers_coalesced(&self, count: usize) {
         if count > 0 {
             self.controllers_coalesced
                 .fetch_add(count as u64, Ordering::Relaxed);
         }
     }
 
-    pub(crate) fn record_last_control(&self, event: LastControlEvent) {
+    pub fn record_last_control(&self, event: LastControlEvent) {
         if let Ok(mut last_control) = self.last_control.lock() {
             *last_control = Some(event);
         }
@@ -1305,7 +1295,7 @@ impl InputMetrics {
 }
 
 impl AlsaPlaybackTuning {
-    pub(crate) fn from_play_options(options: &PlayOptions) -> Result<Self> {
+    pub fn from_play_options(options: &PlayOptions) -> Result<Self> {
         let tuning = Self {
             period_frames: options
                 .alsa_period_frames
@@ -1321,7 +1311,7 @@ impl AlsaPlaybackTuning {
         Ok(tuning)
     }
 
-    pub(crate) fn validate(self) -> Result<Self> {
+    pub fn validate(self) -> Result<Self> {
         if self.buffer_frames < self.period_frames {
             return Err(anyhow!(
                 "ALSA buffer size {} must be greater than or equal to period size {}",
@@ -1348,22 +1338,22 @@ impl AlsaPlaybackTuning {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct PriorityActions {
-    pub(crate) panic_requested: AtomicBool,
-    pub(crate) reset_controllers_requested: AtomicBool,
+pub struct PriorityActions {
+    pub panic_requested: AtomicBool,
+    pub reset_controllers_requested: AtomicBool,
 }
 
 impl PriorityActions {
-    pub(crate) fn request_panic(&self) {
+    pub fn request_panic(&self) {
         self.panic_requested.store(true, Ordering::Relaxed);
     }
 
-    pub(crate) fn request_reset_controllers(&self) {
+    pub fn request_reset_controllers(&self) {
         self.reset_controllers_requested
             .store(true, Ordering::Relaxed);
     }
 
-    pub(crate) fn take_action(&self) -> Option<PriorityAction> {
+    pub fn take_action(&self) -> Option<PriorityAction> {
         if self.panic_requested.swap(false, Ordering::Relaxed) {
             self.reset_controllers_requested
                 .store(false, Ordering::Relaxed);
@@ -1376,46 +1366,46 @@ impl PriorityActions {
     }
 }
 
-pub(crate) struct AudioRuntime {
-    pub(crate) tx: mpsc::Sender<EngineCommand>,
-    pub(crate) worker: EngineWorker,
-    pub(crate) stream: AlsaPlaybackStream,
-    pub(crate) audio_selector: String,
-    pub(crate) audio_device_name: String,
-    pub(crate) sample_rate_hz: u32,
-    pub(crate) channels: usize,
-    pub(crate) alsa_tuning: AlsaPlaybackTuning,
-    pub(crate) bend_range: f32,
-    pub(crate) patch_name: String,
-    pub(crate) midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
-    pub(crate) priority_actions: Arc<PriorityActions>,
-    pub(crate) transport_metrics: Arc<TransportMetrics>,
+pub struct AudioRuntime {
+    pub tx: mpsc::Sender<EngineCommand>,
+    pub worker: EngineWorker,
+    pub stream: AlsaPlaybackStream,
+    pub audio_selector: String,
+    pub audio_device_name: String,
+    pub sample_rate_hz: u32,
+    pub channels: usize,
+    pub alsa_tuning: AlsaPlaybackTuning,
+    pub bend_range: f32,
+    pub patch_name: String,
+    pub midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
+    pub priority_actions: Arc<PriorityActions>,
+    pub transport_metrics: Arc<TransportMetrics>,
 }
 
-pub(crate) struct PreparedAudioRuntime {
-    pub(crate) tx: mpsc::Sender<EngineCommand>,
-    pub(crate) worker: EngineWorker,
-    pub(crate) consumer: Consumer<StereoFrame>,
-    pub(crate) selected_device: AlsaOutputDevice,
-    pub(crate) audio_selector: String,
-    pub(crate) audio_device_name: String,
-    pub(crate) sample_rate_hz: u32,
-    pub(crate) channels: usize,
-    pub(crate) alsa_tuning: AlsaPlaybackTuning,
-    pub(crate) bend_range: f32,
-    pub(crate) patch_name: String,
-    pub(crate) midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
-    pub(crate) priority_actions: Arc<PriorityActions>,
-    pub(crate) transport_metrics: Arc<TransportMetrics>,
+pub struct PreparedAudioRuntime {
+    pub tx: mpsc::Sender<EngineCommand>,
+    pub worker: EngineWorker,
+    pub consumer: Consumer<StereoFrame>,
+    pub selected_device: AlsaOutputDevice,
+    pub audio_selector: String,
+    pub audio_device_name: String,
+    pub sample_rate_hz: u32,
+    pub channels: usize,
+    pub alsa_tuning: AlsaPlaybackTuning,
+    pub bend_range: f32,
+    pub patch_name: String,
+    pub midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
+    pub priority_actions: Arc<PriorityActions>,
+    pub transport_metrics: Arc<TransportMetrics>,
 }
 
-pub(crate) struct DemoPerformer {
-    pub(crate) stop: Arc<AtomicBool>,
-    pub(crate) join_handle: Option<JoinHandle<()>>,
+pub struct DemoPerformer {
+    pub stop: Arc<AtomicBool>,
+    pub join_handle: Option<JoinHandle<()>>,
 }
 
 impl DemoPerformer {
-    pub(crate) fn spawn(tx: mpsc::Sender<EngineCommand>) -> Self {
+    pub fn spawn(tx: mpsc::Sender<EngineCommand>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
         let join_handle = thread::spawn(move || run_demo_performance(tx, thread_stop));
@@ -1425,7 +1415,7 @@ impl DemoPerformer {
         }
     }
 
-    pub(crate) fn shutdown(mut self) {
+    pub fn shutdown(mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(join_handle) = self.join_handle.take() {
             let _ = join_handle.join();
@@ -1433,18 +1423,18 @@ impl DemoPerformer {
     }
 }
 
-pub(crate) enum PerformanceDriver {
+pub enum PerformanceDriver {
     Demo(DemoPerformer),
     Midi(OpenedMidiConnection),
     Idle,
 }
 
 impl PerformanceDriver {
-    pub(crate) fn is_demo(&self) -> bool {
+    pub fn is_demo(&self) -> bool {
         matches!(self, Self::Demo(_))
     }
 
-    pub(crate) fn detail(&self) -> String {
+    pub fn detail(&self) -> String {
         match self {
             Self::Demo(_) => "demo performer active".to_string(),
             Self::Midi(connection) => format!("connected ({})", connection.port_name),
@@ -1452,12 +1442,12 @@ impl PerformanceDriver {
         }
     }
 
-    pub(crate) fn stop(&mut self) {
+    pub fn stop(&mut self) {
         let previous = std::mem::replace(self, Self::Idle);
         previous.shutdown();
     }
 
-    pub(crate) fn shutdown(self) {
+    pub fn shutdown(self) {
         match self {
             Self::Demo(demo) => demo.shutdown(),
             Self::Midi(_) | Self::Idle => {}
@@ -1465,48 +1455,48 @@ impl PerformanceDriver {
     }
 }
 
-pub(crate) struct RuntimeSession {
-    pub(crate) patch_path: PathBuf,
-    pub(crate) patch_name: String,
-    pub(crate) audio_selector: Option<String>,
-    pub(crate) alsa_tuning: AlsaPlaybackTuning,
-    pub(crate) midi_selector: Option<String>,
-    pub(crate) midi_channel: Option<u8>,
-    pub(crate) controller_profile: Option<Arc<ControllerProfile>>,
-    pub(crate) trace_midi: bool,
-    pub(crate) gfm_layer_seed: Option<u64>,
-    pub(crate) bcs_layer_scenario: Option<BcsScenario>,
-    pub(crate) bend_range: f32,
-    pub(crate) tx: mpsc::Sender<EngineCommand>,
-    pub(crate) midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
-    pub(crate) runtime_control_queue: Arc<ArrayQueue<RuntimeControlMessage>>,
-    pub(crate) priority_actions: Arc<PriorityActions>,
-    pub(crate) worker: EngineWorker,
-    pub(crate) stream: Option<AlsaPlaybackStream>,
-    pub(crate) driver: PerformanceDriver,
-    pub(crate) audio_device_name: String,
-    pub(crate) sample_rate_hz: u32,
-    pub(crate) channels: usize,
-    pub(crate) transport_metrics: Arc<TransportMetrics>,
-    pub(crate) input_metrics: Arc<InputMetrics>,
-    pub(crate) recording_metrics: Arc<RecordingMetrics>,
-    pub(crate) midi_trace_log: Arc<MidiTraceLog>,
-    pub(crate) midi_trace_worker: MidiTraceWorker,
-    pub(crate) sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
+pub struct RuntimeSession {
+    pub patch_path: PathBuf,
+    pub patch_name: String,
+    pub audio_selector: Option<String>,
+    pub alsa_tuning: AlsaPlaybackTuning,
+    pub midi_selector: Option<String>,
+    pub midi_channel: Option<u8>,
+    pub controller_profile: Option<Arc<ControllerProfile>>,
+    pub trace_midi: bool,
+    pub gfm_layer_seed: Option<u64>,
+    pub bcs_layer_scenario: Option<BcsScenario>,
+    pub bend_range: f32,
+    pub tx: mpsc::Sender<EngineCommand>,
+    pub midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
+    pub runtime_control_queue: Arc<ArrayQueue<RuntimeControlMessage>>,
+    pub priority_actions: Arc<PriorityActions>,
+    pub worker: EngineWorker,
+    pub stream: Option<AlsaPlaybackStream>,
+    pub driver: PerformanceDriver,
+    pub audio_device_name: String,
+    pub sample_rate_hz: u32,
+    pub channels: usize,
+    pub transport_metrics: Arc<TransportMetrics>,
+    pub input_metrics: Arc<InputMetrics>,
+    pub recording_metrics: Arc<RecordingMetrics>,
+    pub midi_trace_log: Arc<MidiTraceLog>,
+    pub midi_trace_worker: MidiTraceWorker,
+    pub sound_lab_midi_focus: Arc<SoundLabMidiFocus>,
 }
 
-pub(crate) struct EngineWorker {
-    pub(crate) join_handle: Option<JoinHandle<()>>,
+pub struct EngineWorker {
+    pub join_handle: Option<JoinHandle<()>>,
 }
 
 impl EngineWorker {
-    pub(crate) fn new(join_handle: JoinHandle<()>) -> Self {
+    pub fn new(join_handle: JoinHandle<()>) -> Self {
         Self {
             join_handle: Some(join_handle),
         }
     }
 
-    pub(crate) fn shutdown(mut self, tx: mpsc::Sender<EngineCommand>) {
+    pub fn shutdown(mut self, tx: mpsc::Sender<EngineCommand>) {
         let _ = tx.send(EngineCommand::Shutdown);
         if let Some(join_handle) = self.join_handle.take() {
             let _ = join_handle.join();
@@ -1514,23 +1504,23 @@ impl EngineWorker {
     }
 }
 
-pub(crate) struct OpenedAlsaPlayback {
-    pub(crate) pcm: PCM,
-    pub(crate) audio_selector: String,
-    pub(crate) audio_device_name: String,
-    pub(crate) sample_rate_hz: u32,
-    pub(crate) channels: usize,
-    pub(crate) sample_format: AlsaPlaybackSampleFormat,
-    pub(crate) tuning: AlsaPlaybackTuning,
+pub struct OpenedAlsaPlayback {
+    pub pcm: PCM,
+    pub audio_selector: String,
+    pub audio_device_name: String,
+    pub sample_rate_hz: u32,
+    pub channels: usize,
+    pub sample_format: AlsaPlaybackSampleFormat,
+    pub tuning: AlsaPlaybackTuning,
 }
 
-pub(crate) struct AlsaPlaybackStream {
-    pub(crate) stop: Arc<AtomicBool>,
-    pub(crate) join_handle: Option<JoinHandle<()>>,
+pub struct AlsaPlaybackStream {
+    pub stop: Arc<AtomicBool>,
+    pub join_handle: Option<JoinHandle<()>>,
 }
 
 impl AlsaPlaybackStream {
-    pub(crate) fn spawn(
+    pub fn spawn(
         opened: OpenedAlsaPlayback,
         consumer: Consumer<StereoFrame>,
         transport_metrics: Arc<TransportMetrics>,
@@ -1546,7 +1536,7 @@ impl AlsaPlaybackStream {
         }
     }
 
-    pub(crate) fn shutdown(mut self) {
+    pub fn shutdown(mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(join_handle) = self.join_handle.take() {
             let _ = join_handle.join();

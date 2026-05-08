@@ -1,7 +1,7 @@
 use super::*;
 
 impl RuntimeSession {
-    pub(crate) fn new(options: &PlayOptions) -> Result<Self> {
+    pub fn new(options: &PlayOptions) -> Result<Self> {
         let alsa_tuning = AlsaPlaybackTuning::from_play_options(options)?;
         let recording_metrics = Arc::new(RecordingMetrics::default());
         let midi_trace_log = Arc::new(MidiTraceLog::default());
@@ -74,7 +74,7 @@ impl RuntimeSession {
         Ok(session)
     }
 
-    pub(crate) fn open_driver_for_tx(
+    pub fn open_driver_for_tx(
         &self,
         tx: mpsc::Sender<EngineCommand>,
         midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
@@ -103,15 +103,15 @@ impl RuntimeSession {
         )
     }
 
-    pub(crate) fn set_sound_lab_midi_focus(&self, page: Option<SoundLabPage>) {
+    pub fn set_sound_lab_midi_focus(&self, page: Option<SoundLabPage>) {
         self.sound_lab_midi_focus.set(page);
     }
 
-    pub(crate) fn restore_demo_driver(&mut self) {
+    pub fn restore_demo_driver(&mut self) {
         self.driver = PerformanceDriver::Demo(DemoPerformer::spawn(self.tx.clone()));
     }
 
-    pub(crate) fn print_startup_summary(&self) {
+    pub fn print_startup_summary(&self) {
         println!(
             "play patch: {} ({})",
             self.patch_name,
@@ -156,7 +156,7 @@ impl RuntimeSession {
         println!("interactive controls active; type `help` for commands");
     }
 
-    pub(crate) fn command_loop(&mut self) -> Result<()> {
+    pub fn command_loop(&mut self) -> Result<()> {
         self.print_startup_summary();
         self.print_status()?;
 
@@ -256,14 +256,14 @@ impl RuntimeSession {
         Ok(())
     }
 
-    pub(crate) fn block_forever(&mut self) -> Result<()> {
+    pub fn block_forever(&mut self) -> Result<()> {
         loop {
             self.print_runtime_control_messages()?;
             thread::sleep(Duration::from_millis(50));
         }
     }
 
-    pub(crate) fn switch_patch(&mut self, path: PathBuf) -> Result<()> {
+    pub fn switch_patch(&mut self, path: PathBuf) -> Result<()> {
         let keep_demo = self.driver.is_demo();
         let runtime = build_audio_runtime(
             &path,
@@ -280,7 +280,7 @@ impl RuntimeSession {
         Ok(())
     }
 
-    pub(crate) fn set_macro(&self, id: MacroId, value: f32) -> Result<()> {
+    pub fn set_macro(&self, id: MacroId, value: f32) -> Result<()> {
         self.tx
             .send(EngineCommand::Controller(ControllerEvent::Macro {
                 id,
@@ -289,7 +289,7 @@ impl RuntimeSession {
             .map_err(|_| anyhow!("audio runtime is no longer available"))
     }
 
-    pub(crate) fn set_direct_param(&self, id: ParamId, value: f32) -> Result<()> {
+    pub fn set_direct_param(&self, id: ParamId, value: f32) -> Result<()> {
         let spec = param_spec(id);
         self.tx
             .send(EngineCommand::Controller(ControllerEvent::DirectParam {
@@ -299,17 +299,17 @@ impl RuntimeSession {
             .map_err(|_| anyhow!("audio runtime is no longer available"))
     }
 
-    pub(crate) fn panic(&self) -> Result<()> {
+    pub fn panic(&self) -> Result<()> {
         self.priority_actions.request_panic();
         Ok(())
     }
 
-    pub(crate) fn reset_controllers(&self) -> Result<()> {
+    pub fn reset_controllers(&self) -> Result<()> {
         self.priority_actions.request_reset_controllers();
         Ok(())
     }
 
-    pub(crate) fn toggle_param(&self, id: ParamId) -> Result<f32> {
+    pub fn toggle_param(&self, id: ParamId) -> Result<f32> {
         let snapshot = self.request_snapshot()?;
         let current = match id {
             ParamId::ChorusEnabled => snapshot.direct.chorus_enabled,
@@ -330,7 +330,7 @@ impl RuntimeSession {
         Ok(value)
     }
 
-    pub(crate) fn print_status(&self) -> Result<()> {
+    pub fn print_status(&self) -> Result<()> {
         let snapshot = self.request_snapshot()?;
         let description = snapshot
             .patch_description
@@ -444,7 +444,7 @@ impl RuntimeSession {
         Ok(())
     }
 
-    pub(crate) fn request_snapshot(&self) -> Result<EngineSnapshot> {
+    pub fn request_snapshot(&self) -> Result<EngineSnapshot> {
         let (reply_tx, reply_rx) = mpsc::channel();
         self.tx
             .send(EngineCommand::RequestSnapshot(reply_tx))
@@ -454,7 +454,7 @@ impl RuntimeSession {
             .map_err(|_| anyhow!("timed out waiting for engine snapshot"))
     }
 
-    pub(crate) fn request_patch(&self) -> Result<PatchFileV1> {
+    pub fn request_patch(&self) -> Result<PatchFileV1> {
         let (reply_tx, reply_rx) = mpsc::channel();
         self.tx
             .send(EngineCommand::RequestPatch(reply_tx))
@@ -464,7 +464,7 @@ impl RuntimeSession {
             .map_err(|_| anyhow!("timed out waiting for engine patch"))
     }
 
-    pub(crate) fn export_sound_lab_patch(&self, requested_name: &str) -> Result<PathBuf> {
+    pub fn export_sound_lab_patch(&self, requested_name: &str) -> Result<PathBuf> {
         let mut patch = self.request_patch()?;
         let snapshot = self.request_snapshot()?;
         let original_name = patch.meta.patch_name.clone();
@@ -523,11 +523,7 @@ impl RuntimeSession {
         ))
     }
 
-    pub(crate) fn start_output_recording(
-        &self,
-        seconds: u64,
-        path: Option<PathBuf>,
-    ) -> Result<PathBuf> {
+    pub fn start_output_recording(&self, seconds: u64, path: Option<PathBuf>) -> Result<PathBuf> {
         if seconds == 0 {
             return Err(anyhow!("record duration must be greater than zero seconds"));
         }
@@ -571,12 +567,12 @@ impl RuntimeSession {
         }
     }
 
-    pub(crate) fn start_tagged_output_recording(&self, seconds: u64, tag: &str) -> Result<PathBuf> {
+    pub fn start_tagged_output_recording(&self, seconds: u64, tag: &str) -> Result<PathBuf> {
         let path = tagged_output_capture_path(&self.patch_path, tag, seconds)?;
         self.start_output_recording(seconds, Some(path))
     }
 
-    pub(crate) fn stop_output_recording(&self) -> Result<Option<PathBuf>> {
+    pub fn stop_output_recording(&self) -> Result<Option<PathBuf>> {
         let (reply_tx, reply_rx) = mpsc::channel();
         self.tx
             .send(EngineCommand::StopOutputRecording(reply_tx))
@@ -592,7 +588,7 @@ impl RuntimeSession {
         Ok(path)
     }
 
-    pub(crate) fn start_midi_trace_recording_log(
+    pub fn start_midi_trace_recording_log(
         &self,
         wav_path: &Path,
         max_frames: Option<usize>,
@@ -634,7 +630,7 @@ impl RuntimeSession {
         Ok(started.path)
     }
 
-    pub(crate) fn reconcile_midi_trace_recording_log(&self, recording: &RecordingMetricsSnapshot) {
+    pub fn reconcile_midi_trace_recording_log(&self, recording: &RecordingMetricsSnapshot) {
         if recording.state != RecordingState::Active {
             self.midi_trace_log.finish_with_trace_drops(
                 &format!("recording state {}", recording.state.label()),
@@ -643,10 +639,7 @@ impl RuntimeSession {
         }
     }
 
-    pub(crate) fn set_gfm_layer_seed(
-        &mut self,
-        seed: Option<u64>,
-    ) -> Result<GfmVoiceProgramSelection> {
+    pub fn set_gfm_layer_seed(&mut self, seed: Option<u64>) -> Result<GfmVoiceProgramSelection> {
         if self.gfm_layer_seed == seed {
             return Ok(self.request_snapshot()?.gfm_layer.selection);
         }
@@ -670,7 +663,7 @@ impl RuntimeSession {
         Ok(selection)
     }
 
-    pub(crate) fn set_bcs_layer_scenario(
+    pub fn set_bcs_layer_scenario(
         &mut self,
         scenario: Option<BcsScenario>,
     ) -> Result<BcsLayerSnapshot> {
@@ -696,7 +689,7 @@ impl RuntimeSession {
         Ok(snapshot)
     }
 
-    pub(crate) fn switch_audio(&mut self, selector: String) -> Result<()> {
+    pub fn switch_audio(&mut self, selector: String) -> Result<()> {
         let keep_demo = self.driver.is_demo();
         let runtime = build_audio_runtime(
             &self.patch_path,
@@ -716,7 +709,7 @@ impl RuntimeSession {
         Ok(())
     }
 
-    pub(crate) fn switch_midi(&mut self, selector: String) -> Result<()> {
+    pub fn switch_midi(&mut self, selector: String) -> Result<()> {
         if self.midi_selector.as_deref() == Some(selector.as_str())
             && matches!(self.driver, PerformanceDriver::Midi(_))
         {
@@ -791,24 +784,24 @@ impl RuntimeSession {
         Ok(())
     }
 
-    pub(crate) fn enable_demo(&mut self) {
+    pub fn enable_demo(&mut self) {
         let mut old_driver = std::mem::replace(&mut self.driver, PerformanceDriver::Idle);
         old_driver.stop();
         self.restore_demo_driver();
         println!("demo performer enabled");
     }
 
-    pub(crate) fn switch_favorite(&mut self, direction: isize) -> Result<()> {
+    pub fn switch_favorite(&mut self, direction: isize) -> Result<()> {
         let path = adjacent_live_patch(&self.patch_path, direction)?;
         self.switch_patch(path)
     }
 
-    pub(crate) fn load_favorite_slot(&mut self, slot: usize) -> Result<()> {
+    pub fn load_favorite_slot(&mut self, slot: usize) -> Result<()> {
         let path = live_patch_path(slot)?;
         self.switch_patch(path)
     }
 
-    pub(crate) fn install_runtime(
+    pub fn install_runtime(
         &mut self,
         patch_path: PathBuf,
         prepared_runtime: PreparedAudioRuntime,
@@ -951,7 +944,7 @@ impl RuntimeSession {
         Ok(())
     }
 
-    pub(crate) fn rebuild_current_runtime_after_stream_release(
+    pub fn rebuild_current_runtime_after_stream_release(
         &mut self,
         old_mode_was_demo: bool,
     ) -> Result<()> {
@@ -1017,25 +1010,25 @@ impl RuntimeSession {
         Ok(())
     }
 
-    pub(crate) fn current_live_slot(&self) -> Option<usize> {
+    pub fn current_live_slot(&self) -> Option<usize> {
         live_slot_for_path(&self.patch_path)
     }
 
-    pub(crate) fn input_metrics_snapshot(&self) -> InputMetricsSnapshot {
+    pub fn input_metrics_snapshot(&self) -> InputMetricsSnapshot {
         self.input_metrics.snapshot()
     }
 
-    pub(crate) fn transport_metrics_snapshot(&self) -> TransportMetricsSnapshot {
+    pub fn transport_metrics_snapshot(&self) -> TransportMetricsSnapshot {
         self.transport_metrics.snapshot()
     }
 
-    pub(crate) fn recording_metrics_snapshot(&self) -> RecordingMetricsSnapshot {
+    pub fn recording_metrics_snapshot(&self) -> RecordingMetricsSnapshot {
         let snapshot = self.recording_metrics.snapshot();
         self.reconcile_midi_trace_recording_log(&snapshot);
         snapshot
     }
 
-    pub(crate) fn print_runtime_control_messages(&mut self) -> Result<()> {
+    pub fn print_runtime_control_messages(&mut self) -> Result<()> {
         let recording = self.recording_metrics.snapshot();
         self.reconcile_midi_trace_recording_log(&recording);
         for message in self.poll_runtime_control_messages()? {
@@ -1044,7 +1037,7 @@ impl RuntimeSession {
         Ok(())
     }
 
-    pub(crate) fn poll_runtime_control_messages(&mut self) -> Result<Vec<String>> {
+    pub fn poll_runtime_control_messages(&mut self) -> Result<Vec<String>> {
         let mut messages = Vec::new();
         while let Some(message) = self.runtime_control_queue.pop() {
             match message {
@@ -1103,7 +1096,7 @@ impl RuntimeSession {
     }
 }
 
-pub(crate) fn sound_lab_extension_table(
+pub fn sound_lab_extension_table(
     mut extensions: toml::Table,
     snapshot: &EngineSnapshot,
     source_patch_path: &Path,

@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn run_alsa_playback_loop(
+pub fn run_alsa_playback_loop(
     opened: OpenedAlsaPlayback,
     mut consumer: Consumer<StereoFrame>,
     transport_metrics: Arc<TransportMetrics>,
@@ -111,7 +111,7 @@ pub(crate) fn run_alsa_playback_loop(
     }
 }
 
-pub(crate) enum AlsaPlaybackWriter<'a> {
+pub enum AlsaPlaybackWriter<'a> {
     Float32(IO<'a, f32>),
     Signed32 { io: IO<'a, i32>, buffer: Vec<i32> },
 }
@@ -148,14 +148,14 @@ impl<'a> AlsaPlaybackWriter<'a> {
     }
 }
 
-pub(crate) fn convert_f32_samples_to_s32(samples: &[f32], output: &mut [i32]) {
+pub fn convert_f32_samples_to_s32(samples: &[f32], output: &mut [i32]) {
     debug_assert!(output.len() >= samples.len());
     for (sample, target) in samples.iter().zip(output.iter_mut()) {
         *target = f32_sample_to_s32(*sample);
     }
 }
 
-pub(crate) fn f32_sample_to_s32(sample: f32) -> i32 {
+pub fn f32_sample_to_s32(sample: f32) -> i32 {
     if !sample.is_finite() {
         return 0;
     }
@@ -172,7 +172,7 @@ pub(crate) fn f32_sample_to_s32(sample: f32) -> i32 {
     }
 }
 
-pub(crate) fn recover_alsa_playback_error(
+pub fn recover_alsa_playback_error(
     pcm: &PCM,
     transport_metrics: &TransportMetrics,
     error: alsa::Error,
@@ -194,26 +194,26 @@ pub(crate) fn recover_alsa_playback_error(
     }
 }
 
-pub(crate) struct EngineThreadState {
-    pub(crate) engine: Engine,
-    pub(crate) rx: mpsc::Receiver<EngineCommand>,
-    pub(crate) producer: Producer<StereoFrame>,
-    pub(crate) midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
-    pub(crate) priority_actions: Arc<PriorityActions>,
-    pub(crate) transport_metrics: Arc<TransportMetrics>,
-    pub(crate) input_metrics: Arc<InputMetrics>,
-    pub(crate) recording_metrics: Arc<RecordingMetrics>,
-    pub(crate) left: Vec<f32>,
-    pub(crate) right: Vec<f32>,
-    pub(crate) note_events: Vec<Scheduled<NoteEvent>>,
-    pub(crate) controller_events: Vec<Scheduled<ControllerEvent>>,
-    pub(crate) snapshot_requests: Vec<mpsc::Sender<EngineSnapshot>>,
-    pub(crate) output_recorder: Option<OutputRecorder>,
-    pub(crate) recording_workers: Vec<OutputRecordingWorker>,
+pub struct EngineThreadState {
+    pub engine: Engine,
+    pub rx: mpsc::Receiver<EngineCommand>,
+    pub producer: Producer<StereoFrame>,
+    pub midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
+    pub priority_actions: Arc<PriorityActions>,
+    pub transport_metrics: Arc<TransportMetrics>,
+    pub input_metrics: Arc<InputMetrics>,
+    pub recording_metrics: Arc<RecordingMetrics>,
+    pub left: Vec<f32>,
+    pub right: Vec<f32>,
+    pub note_events: Vec<Scheduled<NoteEvent>>,
+    pub controller_events: Vec<Scheduled<ControllerEvent>>,
+    pub snapshot_requests: Vec<mpsc::Sender<EngineSnapshot>>,
+    pub output_recorder: Option<OutputRecorder>,
+    pub recording_workers: Vec<OutputRecordingWorker>,
 }
 
 impl EngineThreadState {
-    pub(crate) fn new(
+    pub fn new(
         engine: Engine,
         rx: mpsc::Receiver<EngineCommand>,
         producer: Producer<StereoFrame>,
@@ -242,7 +242,7 @@ impl EngineThreadState {
         }
     }
 
-    pub(crate) fn run(mut self) {
+    pub fn run(mut self) {
         loop {
             if !self.apply_priority_actions() {
                 break;
@@ -274,7 +274,7 @@ impl EngineThreadState {
         self.shutdown_recorders();
     }
 
-    pub(crate) fn drain_commands_nonblocking(&mut self) -> bool {
+    pub fn drain_commands_nonblocking(&mut self) -> bool {
         loop {
             match self.rx.try_recv() {
                 Ok(command) => {
@@ -288,7 +288,7 @@ impl EngineThreadState {
         }
     }
 
-    pub(crate) fn drain_realtime_midi_nonblocking(&mut self) {
+    pub fn drain_realtime_midi_nonblocking(&mut self) {
         while let Some(message) = self.midi_input_queue.pop() {
             match message {
                 RealtimeMidiMessage::Note(event) => self.note_events.push(Scheduled {
@@ -303,7 +303,7 @@ impl EngineThreadState {
         }
     }
 
-    pub(crate) fn handle_command(&mut self, command: EngineCommand) -> bool {
+    pub fn handle_command(&mut self, command: EngineCommand) -> bool {
         match command {
             EngineCommand::Note(event) => self.note_events.push(Scheduled {
                 frame_offset: 0,
@@ -334,7 +334,7 @@ impl EngineThreadState {
         true
     }
 
-    pub(crate) fn apply_priority_actions(&mut self) -> bool {
+    pub fn apply_priority_actions(&mut self) -> bool {
         let Some(action) = self.priority_actions.take_action() else {
             return true;
         };
@@ -376,7 +376,7 @@ impl EngineThreadState {
         true
     }
 
-    pub(crate) fn flush_snapshot_requests(&mut self) {
+    pub fn flush_snapshot_requests(&mut self) {
         if self.snapshot_requests.is_empty() {
             return;
         }
@@ -387,7 +387,7 @@ impl EngineThreadState {
         }
     }
 
-    pub(crate) fn queue_needs_audio(&self) -> bool {
+    pub fn queue_needs_audio(&self) -> bool {
         let capacity_frames = self.producer.buffer().capacity();
         let queued_frames = capacity_frames.saturating_sub(self.producer.slots());
         let target_frames = self.transport_metrics.queue_target_frames(capacity_frames);
@@ -395,7 +395,7 @@ impl EngineThreadState {
         queued_frames < target_frames
     }
 
-    pub(crate) fn render_audio_block(&mut self) {
+    pub fn render_audio_block(&mut self) {
         let controllers_coalesced = coalesce_controller_events(&mut self.controller_events);
         self.input_metrics
             .record_controllers_coalesced(controllers_coalesced);
@@ -418,7 +418,7 @@ impl EngineThreadState {
         self.record_output_block();
     }
 
-    pub(crate) fn start_output_recording(
+    pub fn start_output_recording(
         &mut self,
         request: OutputRecordingRequest,
     ) -> std::result::Result<PathBuf, String> {
@@ -435,7 +435,7 @@ impl EngineThreadState {
         Ok(path)
     }
 
-    pub(crate) fn stop_output_recording(&mut self) -> std::result::Result<Option<PathBuf>, String> {
+    pub fn stop_output_recording(&mut self) -> std::result::Result<Option<PathBuf>, String> {
         let Some(recorder) = self.output_recorder.take() else {
             return Ok(None);
         };
@@ -444,7 +444,7 @@ impl EngineThreadState {
         Ok(Some(path))
     }
 
-    pub(crate) fn record_output_block(&mut self) {
+    pub fn record_output_block(&mut self) {
         let finished = match self.output_recorder.as_mut() {
             Some(recorder) => recorder.record_block(&self.left, &self.right),
             None => false,
@@ -454,7 +454,7 @@ impl EngineThreadState {
         }
     }
 
-    pub(crate) fn reap_recording_workers(&mut self) {
+    pub fn reap_recording_workers(&mut self) {
         let active_worker_finished = self
             .output_recorder
             .as_ref()
@@ -476,7 +476,7 @@ impl EngineThreadState {
         }
     }
 
-    pub(crate) fn shutdown_recorders(&mut self) {
+    pub fn shutdown_recorders(&mut self) {
         if let Some(recorder) = self.output_recorder.take() {
             self.recording_workers.push(recorder.stop_async());
         }
@@ -487,7 +487,7 @@ impl EngineThreadState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ControllerCoalesceKey {
+pub enum ControllerCoalesceKey {
     PitchBend,
     ModWheel,
     ChannelAftertouch,
@@ -497,7 +497,7 @@ pub(crate) enum ControllerCoalesceKey {
     DirectParam(ParamId),
 }
 
-pub(crate) fn controller_coalesce_key(event: ControllerEvent) -> Option<ControllerCoalesceKey> {
+pub fn controller_coalesce_key(event: ControllerEvent) -> Option<ControllerCoalesceKey> {
     match event {
         ControllerEvent::PitchBend { .. } => Some(ControllerCoalesceKey::PitchBend),
         ControllerEvent::ModWheel { .. } => Some(ControllerCoalesceKey::ModWheel),
@@ -510,7 +510,7 @@ pub(crate) fn controller_coalesce_key(event: ControllerEvent) -> Option<Controll
     }
 }
 
-pub(crate) fn coalesce_controller_events(events: &mut Vec<Scheduled<ControllerEvent>>) -> usize {
+pub fn coalesce_controller_events(events: &mut Vec<Scheduled<ControllerEvent>>) -> usize {
     let original_len = events.len();
     let mut write_len = 0;
     let mut coalesced = 0;
@@ -535,7 +535,7 @@ pub(crate) fn coalesce_controller_events(events: &mut Vec<Scheduled<ControllerEv
     coalesced
 }
 
-pub(crate) fn spawn_engine_thread(
+pub fn spawn_engine_thread(
     engine: Engine,
     rx: mpsc::Receiver<EngineCommand>,
     producer: Producer<StereoFrame>,
@@ -560,7 +560,7 @@ pub(crate) fn spawn_engine_thread(
     })
 }
 
-pub(crate) fn run_output_recording_writer(
+pub fn run_output_recording_writer(
     mut writer: FloatStereoWavWriter,
     mut consumer: Consumer<StereoFrame>,
     metrics: Arc<RecordingMetrics>,
@@ -608,7 +608,7 @@ pub(crate) fn run_output_recording_writer(
     }
 }
 
-pub(crate) fn write_float_stereo_wav_header<W: Write>(
+pub fn write_float_stereo_wav_header<W: Write>(
     writer: &mut W,
     data_bytes: u32,
     sample_rate_hz: u32,
@@ -634,15 +634,15 @@ pub(crate) fn write_float_stereo_wav_header<W: Write>(
     write_u32_le(writer, data_bytes)
 }
 
-pub(crate) fn write_u16_le<W: Write>(writer: &mut W, value: u16) -> io::Result<()> {
+pub fn write_u16_le<W: Write>(writer: &mut W, value: u16) -> io::Result<()> {
     writer.write_all(&value.to_le_bytes())
 }
 
-pub(crate) fn write_u32_le<W: Write>(writer: &mut W, value: u32) -> io::Result<()> {
+pub fn write_u32_le<W: Write>(writer: &mut W, value: u32) -> io::Result<()> {
     writer.write_all(&value.to_le_bytes())
 }
 
-pub(crate) fn drain_queue_into_output(
+pub fn drain_queue_into_output(
     consumer: &mut Consumer<StereoFrame>,
     transport_metrics: &TransportMetrics,
     output: &mut [f32],
@@ -685,8 +685,7 @@ pub(crate) fn drain_queue_into_output(
     transport_metrics.record_underrun(missing_frames);
 }
 
-#[cfg(test)]
-pub(crate) fn push_frames_into_queue(
+pub fn push_frames_into_queue(
     producer: &mut Producer<StereoFrame>,
     transport_metrics: &TransportMetrics,
     frames: &[StereoFrame],
@@ -702,7 +701,7 @@ pub(crate) fn push_frames_into_queue(
     }
 }
 
-pub(crate) fn push_rendered_channels_into_queue(
+pub fn push_rendered_channels_into_queue(
     producer: &mut Producer<StereoFrame>,
     transport_metrics: &TransportMetrics,
     left: &[f32],
@@ -741,7 +740,7 @@ pub(crate) fn push_rendered_channels_into_queue(
     transport_metrics.record_overflow(frame_count.saturating_sub(frame_offset));
 }
 
-pub(crate) fn push_recording_channels_into_queue(
+pub fn push_recording_channels_into_queue(
     producer: &mut Producer<StereoFrame>,
     left: &[f32],
     right: &[f32],
@@ -768,7 +767,7 @@ pub(crate) fn push_recording_channels_into_queue(
     frame_offset
 }
 
-pub(crate) fn write_channels_into_stereo_frames(
+pub fn write_channels_into_stereo_frames(
     output: &mut [StereoFrame],
     left: &[f32],
     right: &[f32],
@@ -780,7 +779,7 @@ pub(crate) fn write_channels_into_stereo_frames(
     frame_count
 }
 
-pub(crate) fn write_output_frame(frame: &mut [f32], left: f32, right: f32) {
+pub fn write_output_frame(frame: &mut [f32], left: f32, right: f32) {
     let mono = (left + right) * 0.5;
 
     frame[0] = left;
@@ -792,7 +791,7 @@ pub(crate) fn write_output_frame(frame: &mut [f32], left: f32, right: f32) {
     }
 }
 
-pub(crate) fn write_frames_into_output(
+pub fn write_frames_into_output(
     output: &mut [f32],
     channel_count: usize,
     frames: &[StereoFrame],
@@ -805,7 +804,7 @@ pub(crate) fn write_frames_into_output(
     frames.len()
 }
 
-pub(crate) fn zero_fill_remaining_output(
+pub fn zero_fill_remaining_output(
     output: &mut [f32],
     channel_count: usize,
     written_frames: usize,
@@ -818,25 +817,25 @@ pub(crate) fn zero_fill_remaining_output(
     }
 }
 
-pub(crate) fn zero_fill_partial_output_tail(output: &mut [f32], channel_count: usize) {
+pub fn zero_fill_partial_output_tail(output: &mut [f32], channel_count: usize) {
     let full_sample_count = (output.len() / channel_count) * channel_count;
     for sample in &mut output[full_sample_count..] {
         *sample = 0.0;
     }
 }
 
-pub(crate) struct OpenedMidiConnection {
-    pub(crate) port_name: String,
-    pub(crate) _connection: MidiInputConnection<()>,
+pub struct OpenedMidiConnection {
+    pub port_name: String,
+    pub _connection: MidiInputConnection<()>,
 }
 
-pub(crate) struct FloatStereoWavWriter {
-    pub(crate) writer: BufWriter<File>,
-    pub(crate) frames_written: u64,
+pub struct FloatStereoWavWriter {
+    pub writer: BufWriter<File>,
+    pub frames_written: u64,
 }
 
 impl FloatStereoWavWriter {
-    pub(crate) fn create(path: &Path, sample_rate_hz: u32) -> io::Result<Self> {
+    pub fn create(path: &Path, sample_rate_hz: u32) -> io::Result<Self> {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 fs::create_dir_all(parent)?;
@@ -851,18 +850,18 @@ impl FloatStereoWavWriter {
         })
     }
 
-    pub(crate) fn write_frame(&mut self, frame: StereoFrame) -> io::Result<()> {
+    pub fn write_frame(&mut self, frame: StereoFrame) -> io::Result<()> {
         self.writer.write_all(&frame[0].to_le_bytes())?;
         self.writer.write_all(&frame[1].to_le_bytes())?;
         self.frames_written += 1;
         Ok(())
     }
 
-    pub(crate) fn frames_written(&self) -> u64 {
+    pub fn frames_written(&self) -> u64 {
         self.frames_written
     }
 
-    pub(crate) fn finalize(mut self) -> io::Result<u64> {
+    pub fn finalize(mut self) -> io::Result<u64> {
         let frames_written = self.frames_written;
         let data_bytes = frames_written
             .checked_mul(ALSA_PLAYBACK_CHANNELS as u64)
@@ -880,13 +879,13 @@ impl FloatStereoWavWriter {
     }
 }
 
-pub(crate) struct OutputRecordingWorker {
-    pub(crate) stop: Arc<AtomicBool>,
-    pub(crate) join_handle: Option<JoinHandle<()>>,
+pub struct OutputRecordingWorker {
+    pub stop: Arc<AtomicBool>,
+    pub join_handle: Option<JoinHandle<()>>,
 }
 
 impl OutputRecordingWorker {
-    pub(crate) fn spawn(
+    pub fn spawn(
         writer: FloatStereoWavWriter,
         consumer: Consumer<StereoFrame>,
         metrics: Arc<RecordingMetrics>,
@@ -902,18 +901,18 @@ impl OutputRecordingWorker {
         }
     }
 
-    pub(crate) fn request_stop(&self) {
+    pub fn request_stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
     }
 
-    pub(crate) fn is_finished(&self) -> bool {
+    pub fn is_finished(&self) -> bool {
         match &self.join_handle {
             Some(join_handle) => join_handle.is_finished(),
             None => true,
         }
     }
 
-    pub(crate) fn join(mut self) {
+    pub fn join(mut self) {
         self.request_stop();
         if let Some(join_handle) = self.join_handle.take() {
             let _ = join_handle.join();
@@ -921,17 +920,17 @@ impl OutputRecordingWorker {
     }
 }
 
-pub(crate) struct OutputRecorder {
-    pub(crate) path: PathBuf,
-    pub(crate) producer: Producer<StereoFrame>,
-    pub(crate) worker: OutputRecordingWorker,
-    pub(crate) target_frames: Option<usize>,
-    pub(crate) submitted_frames: usize,
-    pub(crate) metrics: Arc<RecordingMetrics>,
+pub struct OutputRecorder {
+    pub path: PathBuf,
+    pub producer: Producer<StereoFrame>,
+    pub worker: OutputRecordingWorker,
+    pub target_frames: Option<usize>,
+    pub submitted_frames: usize,
+    pub metrics: Arc<RecordingMetrics>,
 }
 
 impl OutputRecorder {
-    pub(crate) fn start(
+    pub fn start(
         request: OutputRecordingRequest,
         metrics: Arc<RecordingMetrics>,
     ) -> std::result::Result<Self, String> {
@@ -956,7 +955,7 @@ impl OutputRecorder {
         })
     }
 
-    pub(crate) fn record_block(&mut self, left: &[f32], right: &[f32]) -> bool {
+    pub fn record_block(&mut self, left: &[f32], right: &[f32]) -> bool {
         let frame_count = left.len().min(right.len());
         let wanted_frames = match self.target_frames {
             Some(target_frames) => {
@@ -977,13 +976,13 @@ impl OutputRecorder {
             .is_some_and(|target_frames| self.submitted_frames >= target_frames)
     }
 
-    pub(crate) fn stop_async(self) -> OutputRecordingWorker {
+    pub fn stop_async(self) -> OutputRecordingWorker {
         self.worker.request_stop();
         self.worker
     }
 }
 
-pub(crate) fn parse_midi_message(
+pub fn parse_midi_message(
     message: &[u8],
     bend_range: f32,
     midi_channel: Option<u8>,
@@ -1070,7 +1069,7 @@ pub(crate) fn parse_midi_message(
     }
 }
 
-pub(crate) fn parse_profile_cc_binding(
+pub fn parse_profile_cc_binding(
     binding: &ControllerBinding,
     value: f32,
 ) -> Option<ParsedMidiMessage> {
@@ -1105,7 +1104,7 @@ pub(crate) fn parse_profile_cc_binding(
     }
 }
 
-pub(crate) fn sound_lab_midi_overlay_events(
+pub fn sound_lab_midi_overlay_events(
     message: &[u8],
     controller_profile: Option<&ControllerProfile>,
     page: Option<SoundLabPage>,
@@ -1185,7 +1184,7 @@ fn direct_param_overlay_event(id: ParamId, normalized: f32) -> ControllerEvent {
     }
 }
 
-pub(crate) fn sound_lab_direct_param_value(id: ParamId, normalized: f32) -> f32 {
+pub fn sound_lab_direct_param_value(id: ParamId, normalized: f32) -> f32 {
     let spec = param_spec(id);
     let value = scale_controller_value(id, normalized, default_scale_for_param(id));
     match spec.unit {
@@ -1201,7 +1200,7 @@ pub(crate) fn sound_lab_direct_param_value(id: ParamId, normalized: f32) -> f32 
     }
 }
 
-pub(crate) fn run_demo_performance(tx: mpsc::Sender<EngineCommand>, thread_stop: Arc<AtomicBool>) {
+pub fn run_demo_performance(tx: mpsc::Sender<EngineCommand>, thread_stop: Arc<AtomicBool>) {
     let notes = [36_u8, 43, 48, 55, 60, 67];
     let macro_cycle = [
         (MacroId::Bloom, 0.65),
@@ -1275,7 +1274,7 @@ pub(crate) fn run_demo_performance(tx: mpsc::Sender<EngineCommand>, thread_stop:
     }
 }
 
-pub(crate) fn sleep_interruptibly(stop: &AtomicBool, duration: Duration) -> bool {
+pub fn sleep_interruptibly(stop: &AtomicBool, duration: Duration) -> bool {
     let mut remaining = duration;
     while remaining > Duration::ZERO {
         if stop.load(Ordering::Relaxed) {

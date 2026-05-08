@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn open_driver_for_selector(
+pub fn open_driver_for_selector(
     tx: mpsc::Sender<EngineCommand>,
     midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
     bend_range: f32,
@@ -40,7 +40,7 @@ pub(crate) fn open_driver_for_selector(
     }
 }
 
-pub(crate) fn restore_driver_state(
+pub fn restore_driver_state(
     tx: mpsc::Sender<EngineCommand>,
     midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
     bend_range: f32,
@@ -79,7 +79,7 @@ pub(crate) fn restore_driver_state(
     }
 }
 
-pub(crate) fn list_factory_patches() -> Result<()> {
+pub fn list_factory_patches() -> Result<()> {
     for entry in factory_patch_entries()? {
         let favorite = if entry.favorite { "*" } else { " " };
         let description = entry
@@ -95,7 +95,7 @@ pub(crate) fn list_factory_patches() -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn list_favorite_patches() -> Result<()> {
+pub fn list_favorite_patches() -> Result<()> {
     for (slot, entry) in favorite_patch_entries()?.iter().enumerate() {
         let description = entry
             .description
@@ -110,7 +110,7 @@ pub(crate) fn list_favorite_patches() -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn list_audio_devices() -> Result<()> {
+pub fn list_audio_devices() -> Result<()> {
     let devices = collect_alsa_output_devices()?;
     if devices.is_empty() {
         println!("no ALSA hw playback devices found");
@@ -126,7 +126,7 @@ pub(crate) fn list_audio_devices() -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn collect_alsa_output_devices() -> Result<Vec<AlsaOutputDevice>> {
+pub fn collect_alsa_output_devices() -> Result<Vec<AlsaOutputDevice>> {
     let card_names = read_alsa_card_names()?;
     let pcm_contents = fs::read_to_string("/proc/asound/pcm")
         .context("failed to read /proc/asound/pcm for ALSA playback enumeration")?;
@@ -170,7 +170,7 @@ pub(crate) fn collect_alsa_output_devices() -> Result<Vec<AlsaOutputDevice>> {
     Ok(devices)
 }
 
-pub(crate) fn read_alsa_card_names() -> Result<HashMap<i32, String>> {
+pub fn read_alsa_card_names() -> Result<HashMap<i32, String>> {
     let contents = fs::read_to_string("/proc/asound/cards")
         .context("failed to read /proc/asound/cards for ALSA card enumeration")?;
     let mut cards = HashMap::new();
@@ -185,7 +185,7 @@ pub(crate) fn read_alsa_card_names() -> Result<HashMap<i32, String>> {
     Ok(cards)
 }
 
-pub(crate) fn parse_alsa_card_line(line: &str) -> Option<(i32, String)> {
+pub fn parse_alsa_card_line(line: &str) -> Option<(i32, String)> {
     let trimmed = line.trim_start();
     let index_end = trimmed.find(char::is_whitespace)?;
     let card_index = trimmed[..index_end].parse::<i32>().ok()?;
@@ -201,7 +201,7 @@ pub(crate) fn parse_alsa_card_line(line: &str) -> Option<(i32, String)> {
     Some((card_index, card_name.to_string()))
 }
 
-pub(crate) fn parse_alsa_pcm_line(line: &str) -> Option<(i32, i32, String, bool)> {
+pub fn parse_alsa_pcm_line(line: &str) -> Option<(i32, i32, String, bool)> {
     let (prefix, rest) = line.split_once(':')?;
     let (card, device) = prefix.split_once('-')?;
     let card_index = card.trim().parse::<i32>().ok()?;
@@ -219,7 +219,7 @@ pub(crate) fn parse_alsa_pcm_line(line: &str) -> Option<(i32, i32, String, bool)
     Some((card_index, device_index, pcm_name, has_playback))
 }
 
-pub(crate) fn select_alsa_output_device(selector: Option<&str>) -> Result<AlsaOutputDevice> {
+pub fn select_alsa_output_device(selector: Option<&str>) -> Result<AlsaOutputDevice> {
     let devices = collect_alsa_output_devices()?;
     if devices.is_empty() {
         return Err(anyhow!("no ALSA hw playback devices available"));
@@ -247,7 +247,7 @@ pub(crate) fn select_alsa_output_device(selector: Option<&str>) -> Result<AlsaOu
         .ok_or_else(|| anyhow!("no ALSA hw playback device matched `{normalized}`"))
 }
 
-pub(crate) fn normalize_alsa_hw_selector(selector: &str) -> Result<String> {
+pub fn normalize_alsa_hw_selector(selector: &str) -> Result<String> {
     let trimmed = selector.trim();
     let Some(rest) = trimmed.strip_prefix("hw:") else {
         return Err(anyhow!(
@@ -280,14 +280,14 @@ pub(crate) fn normalize_alsa_hw_selector(selector: &str) -> Result<String> {
     Ok(format!("hw:{card_index},{device_index}"))
 }
 
-pub(crate) fn same_hw_selector(current: Option<&str>, replacement: &str) -> bool {
+pub fn same_hw_selector(current: Option<&str>, replacement: &str) -> bool {
     let Some(current) = current else {
         return false;
     };
     normalize_alsa_hw_selector(current).ok() == normalize_alsa_hw_selector(replacement).ok()
 }
 
-pub(crate) fn open_alsa_playback_device(
+pub fn open_alsa_playback_device(
     selected_device: &AlsaOutputDevice,
     sample_rate_hz: u32,
     tuning: AlsaPlaybackTuning,
@@ -422,7 +422,7 @@ pub(crate) fn open_alsa_playback_device(
     })
 }
 
-pub(crate) fn select_alsa_playback_sample_format(
+pub fn select_alsa_playback_sample_format(
     hwp: &HwParams<'_>,
     selector: &str,
 ) -> Result<AlsaPlaybackSampleFormat> {
@@ -446,7 +446,7 @@ pub(crate) fn select_alsa_playback_sample_format(
     ))
 }
 
-pub(crate) fn list_midi_devices() -> Result<()> {
+pub fn list_midi_devices() -> Result<()> {
     let midi_input = match MidiInput::new("mamut-standalone") {
         Ok(midi_input) => midi_input,
         Err(error) => {

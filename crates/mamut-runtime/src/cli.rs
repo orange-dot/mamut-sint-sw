@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
+pub fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
     let mut patch_arg: Option<String> = None;
     let mut force_demo = false;
     let mut audio_selector = None;
@@ -13,6 +13,7 @@ pub(crate) fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
     let mut controller_profile_path = None;
     let mut trace_midi = false;
     let mut headless = false;
+    let mut gui = false;
     let mut gfm_layer_seed = None;
     let mut bcs_layer_scenario = None;
 
@@ -25,6 +26,10 @@ pub(crate) fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
             }
             "--headless" => {
                 headless = true;
+                index += 1;
+            }
+            "--gui" => {
+                gui = true;
                 index += 1;
             }
             "--audio-device" => {
@@ -130,12 +135,13 @@ pub(crate) fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
         controller_profile_path,
         trace_midi,
         headless,
+        gui,
         gfm_layer_seed,
         bcs_layer_scenario,
     })
 }
 
-pub(crate) fn parse_dry_run_options(args: &[String]) -> Result<DryRunOptions> {
+pub fn parse_dry_run_options(args: &[String]) -> Result<DryRunOptions> {
     let mut patch_arg: Option<String> = None;
     let mut gfm_layer_seed = None;
     let mut bcs_layer_scenario = None;
@@ -179,7 +185,7 @@ pub(crate) fn parse_dry_run_options(args: &[String]) -> Result<DryRunOptions> {
     })
 }
 
-pub(crate) fn parse_sample_rate_hz(value: &str) -> Result<u32> {
+pub fn parse_sample_rate_hz(value: &str) -> Result<u32> {
     let sample_rate_hz = value
         .parse::<u32>()
         .with_context(|| format!("invalid sample rate `{value}`"))?;
@@ -192,7 +198,7 @@ pub(crate) fn parse_sample_rate_hz(value: &str) -> Result<u32> {
     }
 }
 
-pub(crate) fn parse_gfm_layer_seed(value: &str) -> Result<u64> {
+pub fn parse_gfm_layer_seed(value: &str) -> Result<u64> {
     let normalized = value.replace('_', "");
     if normalized.is_empty() {
         return Err(anyhow!("invalid GFM layer seed `{value}`"));
@@ -213,7 +219,7 @@ pub(crate) fn parse_gfm_layer_seed(value: &str) -> Result<u64> {
     }
 }
 
-pub(crate) fn parse_optional_bcs_layer_scenario(value: &str) -> Result<Option<BcsScenario>> {
+pub fn parse_optional_bcs_layer_scenario(value: &str) -> Result<Option<BcsScenario>> {
     let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
     match normalized.as_str() {
         "off" | "none" | "disabled" => Ok(None),
@@ -221,7 +227,7 @@ pub(crate) fn parse_optional_bcs_layer_scenario(value: &str) -> Result<Option<Bc
     }
 }
 
-pub(crate) fn parse_bcs_layer_scenario(value: &str) -> Result<BcsScenario> {
+pub fn parse_bcs_layer_scenario(value: &str) -> Result<BcsScenario> {
     match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
         "stable-anchor" | "stable" | "anchor" => Ok(BcsScenario::StableAnchor),
         "edge-sweep" | "edge" => Ok(BcsScenario::EdgeSweep),
@@ -233,7 +239,7 @@ pub(crate) fn parse_bcs_layer_scenario(value: &str) -> Result<BcsScenario> {
     }
 }
 
-pub(crate) fn format_bcs_scenario(scenario: BcsScenario) -> &'static str {
+pub fn format_bcs_scenario(scenario: BcsScenario) -> &'static str {
     match scenario {
         BcsScenario::StableAnchor => "stable-anchor",
         BcsScenario::EdgeSweep => "edge-sweep",
@@ -242,7 +248,7 @@ pub(crate) fn format_bcs_scenario(scenario: BcsScenario) -> &'static str {
     }
 }
 
-pub(crate) fn parse_frame_count(value: &str, flag: &str) -> Result<usize> {
+pub fn parse_frame_count(value: &str, flag: &str) -> Result<usize> {
     let frames = value
         .parse::<usize>()
         .with_context(|| format!("invalid frame count `{value}` for {flag}"))?;
@@ -253,7 +259,7 @@ pub(crate) fn parse_frame_count(value: &str, flag: &str) -> Result<usize> {
     }
 }
 
-pub(crate) fn parse_midi_channel(value: &str) -> Result<u8> {
+pub fn parse_midi_channel(value: &str) -> Result<u8> {
     let channel = value
         .parse::<u8>()
         .with_context(|| format!("invalid MIDI channel `{value}`"))?;
@@ -266,7 +272,7 @@ pub(crate) fn parse_midi_channel(value: &str) -> Result<u8> {
     }
 }
 
-pub(crate) fn parse_runtime_ui_command(input: &str) -> Result<RuntimeUiCommand> {
+pub fn parse_runtime_ui_command(input: &str) -> Result<RuntimeUiCommand> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Ok(RuntimeUiCommand::Noop);
@@ -372,7 +378,7 @@ pub(crate) fn parse_runtime_ui_command(input: &str) -> Result<RuntimeUiCommand> 
     }
 }
 
-pub(crate) fn parse_macro_id(value: &str) -> Result<MacroId> {
+pub fn parse_macro_id(value: &str) -> Result<MacroId> {
     match value.trim().to_ascii_lowercase().as_str() {
         "gravitacija" => Ok(MacroId::Gravitacija),
         "bloom" => Ok(MacroId::Bloom),
@@ -385,7 +391,7 @@ pub(crate) fn parse_macro_id(value: &str) -> Result<MacroId> {
     }
 }
 
-pub(crate) fn macro_display_name(id: MacroId) -> &'static str {
+pub fn macro_display_name(id: MacroId) -> &'static str {
     match id {
         MacroId::Gravitacija => "Gravitacija",
         MacroId::Bloom => "Bloom",
@@ -395,13 +401,13 @@ pub(crate) fn macro_display_name(id: MacroId) -> &'static str {
     }
 }
 
-pub(crate) fn load_controller_profile(path: &Path) -> Result<ControllerProfile> {
+pub fn load_controller_profile(path: &Path) -> Result<ControllerProfile> {
     let input = fs::read_to_string(path)
         .with_context(|| format!("failed to read controller profile {}", path.display()))?;
     controller_profile_from_toml(&input, path)
 }
 
-pub(crate) fn controller_profile_from_toml(input: &str, path: &Path) -> Result<ControllerProfile> {
+pub fn controller_profile_from_toml(input: &str, path: &Path) -> Result<ControllerProfile> {
     let file: ControllerProfileFile = toml::from_str(input)
         .with_context(|| format!("failed to parse controller profile {}", path.display()))?;
     if file.binding.is_empty() {
@@ -448,7 +454,7 @@ pub(crate) fn controller_profile_from_toml(input: &str, path: &Path) -> Result<C
     })
 }
 
-pub(crate) fn controller_binding_section(
+pub fn controller_binding_section(
     binding: &ControllerBindingFile,
 ) -> Result<(ControllerBindingSection, Option<u8>)> {
     let inferred = infer_controller_binding_section(&binding.control);
@@ -475,9 +481,7 @@ pub(crate) fn controller_binding_section(
     Ok((section, index))
 }
 
-pub(crate) fn infer_controller_binding_section(
-    control: &str,
-) -> (ControllerBindingSection, Option<u8>) {
+pub fn infer_controller_binding_section(control: &str) -> (ControllerBindingSection, Option<u8>) {
     let trimmed = control.trim();
     if let Some(rest) = trimmed.strip_prefix("SW") {
         return (
@@ -500,7 +504,7 @@ pub(crate) fn infer_controller_binding_section(
     (ControllerBindingSection::Other, None)
 }
 
-pub(crate) fn parse_control_index_prefix(value: &str) -> Option<u8> {
+pub fn parse_control_index_prefix(value: &str) -> Option<u8> {
     let digits = value
         .chars()
         .take_while(|ch| ch.is_ascii_digit())
@@ -508,7 +512,7 @@ pub(crate) fn parse_control_index_prefix(value: &str) -> Option<u8> {
     digits.parse::<u8>().ok()
 }
 
-pub(crate) fn controller_binding_action(
+pub fn controller_binding_action(
     binding: &ControllerBindingFile,
 ) -> Result<ControllerBindingAction> {
     match binding.kind {
@@ -570,7 +574,7 @@ pub(crate) fn controller_binding_action(
     }
 }
 
-pub(crate) fn parse_profile_runtime_action(
+pub fn parse_profile_runtime_action(
     action: &str,
     slot: Option<usize>,
 ) -> Result<RuntimeControlMessage> {
@@ -595,14 +599,14 @@ pub(crate) fn parse_profile_runtime_action(
     }
 }
 
-pub(crate) fn default_scale_for_param(id: ParamId) -> ControllerValueScale {
+pub fn default_scale_for_param(id: ParamId) -> ControllerValueScale {
     match param_spec(id).unit {
         ParamUnit::Hertz | ParamUnit::Milliseconds => ControllerValueScale::Log,
         _ => ControllerValueScale::Linear,
     }
 }
 
-pub(crate) fn scale_controller_value(id: ParamId, value: f32, scale: ControllerValueScale) -> f32 {
+pub fn scale_controller_value(id: ParamId, value: f32, scale: ControllerValueScale) -> f32 {
     let spec = param_spec(id);
     let normalized = value.clamp(0.0, 1.0);
     match scale {
@@ -616,14 +620,14 @@ pub(crate) fn scale_controller_value(id: ParamId, value: f32, scale: ControllerV
     }
 }
 
-pub(crate) fn load_patch_from_path(path: &Path) -> Result<PatchFileV1> {
+pub fn load_patch_from_path(path: &Path) -> Result<PatchFileV1> {
     let input = fs::read_to_string(path)
         .with_context(|| format!("failed to read patch file {}", path.display()))?;
     load_patch_toml(&input)
         .with_context(|| format!("failed to parse patch file {}", path.display()))
 }
 
-pub(crate) fn resolve_patch_argument(argument: Option<&str>) -> Result<PathBuf> {
+pub fn resolve_patch_argument(argument: Option<&str>) -> Result<PathBuf> {
     let Some(argument) = argument else {
         return Ok(default_patch_path());
     };
@@ -655,7 +659,7 @@ pub(crate) fn resolve_patch_argument(argument: Option<&str>) -> Result<PathBuf> 
     ))
 }
 
-pub(crate) fn resolve_controller_profile_argument(argument: &str) -> Result<PathBuf> {
+pub fn resolve_controller_profile_argument(argument: &str) -> Result<PathBuf> {
     let direct_path = PathBuf::from(argument);
     if direct_path.exists() {
         return Ok(direct_path);
@@ -671,7 +675,7 @@ pub(crate) fn resolve_controller_profile_argument(argument: &str) -> Result<Path
     ))
 }
 
-pub(crate) fn factory_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
+pub fn factory_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
     let factory_dir = workspace_root().join("patches/factory");
     let mut entries = Vec::new();
 
@@ -716,11 +720,11 @@ pub(crate) fn factory_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
     Ok(entries)
 }
 
-pub(crate) fn favorite_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
+pub fn favorite_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
     live_patch_entries()
 }
 
-pub(crate) fn live_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
+pub fn live_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
     let entries = factory_patch_entries()?;
     let mut ordered = Vec::with_capacity(LIVE_SET_STEMS.len());
 
@@ -736,19 +740,19 @@ pub(crate) fn live_patch_entries() -> Result<Vec<FactoryPatchEntry>> {
     Ok(ordered)
 }
 
-pub(crate) fn live_patch_path(slot: usize) -> Result<PathBuf> {
+pub fn live_patch_path(slot: usize) -> Result<PathBuf> {
     live_patch_entries()?
         .get(slot)
         .map(|entry| entry.path.clone())
         .ok_or_else(|| anyhow!("live slot {slot} is out of range"))
 }
 
-pub(crate) fn live_slot_for_path(path: &Path) -> Option<usize> {
+pub fn live_slot_for_path(path: &Path) -> Option<usize> {
     let current_stem = path.file_stem().and_then(|value| value.to_str())?;
     LIVE_SET_STEMS.iter().position(|stem| *stem == current_stem)
 }
 
-pub(crate) fn adjacent_live_patch(current_path: &Path, direction: isize) -> Result<PathBuf> {
+pub fn adjacent_live_patch(current_path: &Path, direction: isize) -> Result<PathBuf> {
     let live_set = live_patch_entries()?;
     let current_stem = current_path
         .file_stem()
@@ -768,7 +772,7 @@ pub(crate) fn adjacent_live_patch(current_path: &Path, direction: isize) -> Resu
         .ok_or_else(|| anyhow!("live patch selection failed"))
 }
 
-pub(crate) fn wrap_index(index: usize, direction: isize, len: usize) -> usize {
+pub fn wrap_index(index: usize, direction: isize, len: usize) -> usize {
     if len == 0 {
         return 0;
     }
@@ -777,7 +781,7 @@ pub(crate) fn wrap_index(index: usize, direction: isize, len: usize) -> usize {
     ((index + direction).rem_euclid(len)) as usize
 }
 
-pub(crate) fn collect_midi_ports(midi_input: &MidiInput) -> Result<Vec<NamedMidiPort>> {
+pub fn collect_midi_ports(midi_input: &MidiInput) -> Result<Vec<NamedMidiPort>> {
     let mut ports = Vec::new();
     for port in midi_input.ports() {
         let name = midi_input
@@ -788,7 +792,7 @@ pub(crate) fn collect_midi_ports(midi_input: &MidiInput) -> Result<Vec<NamedMidi
     Ok(ports)
 }
 
-pub(crate) fn open_midi_input(
+pub fn open_midi_input(
     midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,
     bend_range: f32,
     selector: Option<&str>,
@@ -923,7 +927,7 @@ pub(crate) fn open_midi_input(
     }))
 }
 
-pub(crate) fn midi_message_can_update_last_control(
+pub fn midi_message_can_update_last_control(
     message: &[u8],
     midi_channel: Option<u8>,
     controller_profile: Option<&ControllerProfile>,
@@ -951,7 +955,7 @@ pub(crate) fn midi_message_can_update_last_control(
     }
 }
 
-pub(crate) fn publish_realtime_midi(
+pub fn publish_realtime_midi(
     midi_input_queue: &ArrayQueue<RealtimeMidiMessage>,
     input_metrics: &InputMetrics,
     message: RealtimeMidiMessage,
@@ -963,7 +967,7 @@ pub(crate) fn publish_realtime_midi(
     }
 }
 
-pub(crate) fn publish_runtime_control(
+pub fn publish_runtime_control(
     runtime_control_queue: &ArrayQueue<RuntimeControlMessage>,
     priority_actions: &PriorityActions,
     input_metrics: &InputMetrics,
@@ -988,7 +992,7 @@ pub(crate) fn publish_runtime_control(
     }
 }
 
-pub(crate) fn startup_guard_suppresses_message(
+pub fn startup_guard_suppresses_message(
     parsed: Option<ParsedMidiMessage>,
     received_at: Instant,
     guard_until: Instant,
@@ -1003,7 +1007,7 @@ pub(crate) fn startup_guard_suppresses_message(
     )
 }
 
-pub(crate) fn format_midi_trace_startup_suppressed(
+pub fn format_midi_trace_startup_suppressed(
     message: &[u8],
     midi_channel: Option<u8>,
     controller_profile: Option<&ControllerProfile>,
@@ -1020,7 +1024,7 @@ pub(crate) fn format_midi_trace_startup_suppressed(
     )
 }
 
-pub(crate) fn format_midi_trace_message(
+pub fn format_midi_trace_message(
     message: &[u8],
     midi_channel: Option<u8>,
     controller_profile: Option<&ControllerProfile>,
@@ -1037,7 +1041,7 @@ pub(crate) fn format_midi_trace_message(
     )
 }
 
-pub(crate) fn format_midi_trace_message_with_prefix(
+pub fn format_midi_trace_message_with_prefix(
     verdict_prefix: &str,
     message: &[u8],
     midi_channel: Option<u8>,
@@ -1083,7 +1087,7 @@ pub(crate) fn format_midi_trace_message_with_prefix(
     }
 }
 
-pub(crate) fn last_control_event(
+pub fn last_control_event(
     message: &[u8],
     midi_channel: Option<u8>,
     controller_profile: Option<&ControllerProfile>,
@@ -1220,7 +1224,7 @@ pub(crate) fn last_control_event(
     }
 }
 
-pub(crate) fn profile_binding_for_message<'a>(
+pub fn profile_binding_for_message<'a>(
     message: &[u8],
     controller_profile: Option<&'a ControllerProfile>,
 ) -> Option<&'a ControllerBinding> {
@@ -1233,7 +1237,7 @@ pub(crate) fn profile_binding_for_message<'a>(
     }
 }
 
-pub(crate) fn describe_profile_cc_message(
+pub fn describe_profile_cc_message(
     binding: &ControllerBinding,
     value: f32,
     parsed: Option<ParsedMidiMessage>,
@@ -1264,7 +1268,7 @@ pub(crate) fn describe_profile_cc_message(
     }
 }
 
-pub(crate) fn describe_binding_action(action: ControllerBindingAction) -> String {
+pub fn describe_binding_action(action: ControllerBindingAction) -> String {
     match action {
         ControllerBindingAction::Macro(id) => format!("macro {}", macro_display_name(id)),
         ControllerBindingAction::DirectParam { id, .. } => {
@@ -1279,7 +1283,7 @@ pub(crate) fn describe_binding_action(action: ControllerBindingAction) -> String
     }
 }
 
-pub(crate) fn describe_runtime_control_message(message: RuntimeControlMessage) -> String {
+pub fn describe_runtime_control_message(message: RuntimeControlMessage) -> String {
     match message {
         RuntimeControlMessage::ProgramChange(slot) => format!("program change slot={slot}"),
         RuntimeControlMessage::Panic => "panic".to_string(),
@@ -1291,7 +1295,7 @@ pub(crate) fn describe_runtime_control_message(message: RuntimeControlMessage) -
     }
 }
 
-pub(crate) fn describe_parsed_midi_message(parsed: ParsedMidiMessage) -> String {
+pub fn describe_parsed_midi_message(parsed: ParsedMidiMessage) -> String {
     match parsed {
         ParsedMidiMessage::Realtime(RealtimeMidiMessage::Note(NoteEvent::NoteOn {
             note,
@@ -1333,7 +1337,7 @@ pub(crate) fn describe_parsed_midi_message(parsed: ParsedMidiMessage) -> String 
     }
 }
 
-pub(crate) fn describe_unparsed_midi_message(message: &[u8]) -> String {
+pub fn describe_unparsed_midi_message(message: &[u8]) -> String {
     let Some(raw_status) = message.first().copied() else {
         return "ignored empty message".to_string();
     };
@@ -1351,7 +1355,7 @@ pub(crate) fn describe_unparsed_midi_message(message: &[u8]) -> String {
     }
 }
 
-pub(crate) fn select_named_index(selector: &str, names: &[String], kind: &str) -> Result<usize> {
+pub fn select_named_index(selector: &str, names: &[String], kind: &str) -> Result<usize> {
     if let Ok(index) = selector.parse::<usize>() {
         return if index < names.len() {
             Ok(index)
@@ -1393,7 +1397,7 @@ pub(crate) fn select_named_index(selector: &str, names: &[String], kind: &str) -
     }
 }
 
-pub(crate) fn slugify(value: &str) -> String {
+pub fn slugify(value: &str) -> String {
     let mut slug = String::new();
     let mut last_was_hyphen = false;
 
@@ -1414,22 +1418,22 @@ pub(crate) fn slugify(value: &str) -> String {
     slug
 }
 
-pub(crate) fn workspace_root() -> PathBuf {
+pub fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
         .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
 }
 
-pub(crate) fn default_patch_path() -> PathBuf {
+pub fn default_patch_path() -> PathBuf {
     workspace_root().join("patches/factory/molten-horizon.toml")
 }
 
-pub(crate) fn user_patch_dir() -> PathBuf {
+pub fn user_patch_dir() -> PathBuf {
     workspace_root().join("patches/user")
 }
 
-pub(crate) fn generated_user_patch_filename(patch_name: &str) -> String {
+pub fn generated_user_patch_filename(patch_name: &str) -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1437,24 +1441,20 @@ pub(crate) fn generated_user_patch_filename(patch_name: &str) -> String {
     generated_user_patch_filename_at(patch_name, seconds)
 }
 
-pub(crate) fn generated_user_patch_filename_at(patch_name: &str, unix_seconds: u64) -> String {
+pub fn generated_user_patch_filename_at(patch_name: &str, unix_seconds: u64) -> String {
     let slug = sanitize_capture_component(patch_name, "sound-lab");
     let (year, month, day, hour, minute, second) = unix_seconds_to_utc_parts(unix_seconds);
     format!("{slug}-{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}.toml")
 }
 
-pub(crate) fn default_output_capture_path() -> Result<PathBuf> {
+pub fn default_output_capture_path() -> Result<PathBuf> {
     let dir = default_output_capture_dir();
     fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create capture directory {}", dir.display()))?;
     Ok(dir.join(generated_output_capture_filename()))
 }
 
-pub(crate) fn tagged_output_capture_path(
-    patch_path: &Path,
-    tag: &str,
-    seconds: u64,
-) -> Result<PathBuf> {
+pub fn tagged_output_capture_path(patch_path: &Path, tag: &str, seconds: u64) -> Result<PathBuf> {
     let dir = default_output_capture_dir();
     fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create capture directory {}", dir.display()))?;
@@ -1463,7 +1463,7 @@ pub(crate) fn tagged_output_capture_path(
     )))
 }
 
-pub(crate) fn tagged_output_capture_preview(patch_path: &Path, tag: &str, seconds: u64) -> PathBuf {
+pub fn tagged_output_capture_preview(patch_path: &Path, tag: &str, seconds: u64) -> PathBuf {
     default_output_capture_dir().join(format!(
         "{}-{}-{}s-<timestamp>.wav",
         patch_capture_stem(patch_path),
@@ -1472,7 +1472,7 @@ pub(crate) fn tagged_output_capture_preview(patch_path: &Path, tag: &str, second
     ))
 }
 
-pub(crate) fn default_output_capture_dir() -> PathBuf {
+pub fn default_output_capture_dir() -> PathBuf {
     if let Some(value) = env::var_os(CAPTURE_DIR_ENV) {
         if !value.as_os_str().is_empty() {
             return PathBuf::from(value);
@@ -1486,7 +1486,7 @@ pub(crate) fn default_output_capture_dir() -> PathBuf {
     repo_root.join("audio-captures")
 }
 
-pub(crate) fn lab_root_from_repo_root(repo_root: &Path) -> Option<PathBuf> {
+pub fn lab_root_from_repo_root(repo_root: &Path) -> Option<PathBuf> {
     let systems_dir = repo_root.parent()?;
     if systems_dir.file_name()? != "systems" {
         return None;
@@ -1498,7 +1498,7 @@ pub(crate) fn lab_root_from_repo_root(repo_root: &Path) -> Option<PathBuf> {
     workspace_dir.parent().map(|path| path.to_path_buf())
 }
 
-pub(crate) fn generated_output_capture_filename() -> String {
+pub fn generated_output_capture_filename() -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1507,7 +1507,7 @@ pub(crate) fn generated_output_capture_filename() -> String {
     format!("mamut-output-{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}.wav")
 }
 
-pub(crate) fn generated_tagged_output_capture_filename(
+pub fn generated_tagged_output_capture_filename(
     patch_path: &Path,
     tag: &str,
     seconds: u64,
@@ -1525,7 +1525,7 @@ pub(crate) fn generated_tagged_output_capture_filename(
     )
 }
 
-pub(crate) fn patch_capture_stem(patch_path: &Path) -> String {
+pub fn patch_capture_stem(patch_path: &Path) -> String {
     patch_path
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -1533,7 +1533,7 @@ pub(crate) fn patch_capture_stem(patch_path: &Path) -> String {
         .unwrap_or_else(|| "patch".to_string())
 }
 
-pub(crate) fn sanitize_capture_component(value: &str, fallback: &str) -> String {
+pub fn sanitize_capture_component(value: &str, fallback: &str) -> String {
     let mut output = String::new();
     let mut previous_dash = false;
     for character in value.chars().flat_map(char::to_lowercase) {
@@ -1567,7 +1567,7 @@ pub(crate) fn sanitize_capture_component(value: &str, fallback: &str) -> String 
     }
 }
 
-pub(crate) fn unix_seconds_to_utc_parts(seconds: u64) -> (i32, u32, u32, u32, u32, u32) {
+pub fn unix_seconds_to_utc_parts(seconds: u64) -> (i32, u32, u32, u32, u32, u32) {
     let days = (seconds / 86_400) as i64;
     let seconds_of_day = seconds % 86_400;
     let (year, month, day) = civil_from_days(days);
@@ -1577,7 +1577,7 @@ pub(crate) fn unix_seconds_to_utc_parts(seconds: u64) -> (i32, u32, u32, u32, u3
     (year, month, day, hour, minute, second)
 }
 
-pub(crate) fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
+pub fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
     let z = days_since_unix_epoch + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let day_of_era = z - era * 146_097;
@@ -1594,7 +1594,7 @@ pub(crate) fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
     (year as i32, month as u32, day as u32)
 }
 
-pub(crate) fn round_up_to_render_block(frames: usize) -> usize {
+pub fn round_up_to_render_block(frames: usize) -> usize {
     if frames == 0 {
         return 0;
     }

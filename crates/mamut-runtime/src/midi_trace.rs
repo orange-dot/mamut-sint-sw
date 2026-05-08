@@ -1,13 +1,13 @@
 use super::*;
 
 #[derive(Clone)]
-pub(crate) struct MidiTracePublisher {
+pub struct MidiTracePublisher {
     queue: Arc<ArrayQueue<RawMidiTraceRecord>>,
     input_metrics: Arc<InputMetrics>,
 }
 
 impl MidiTracePublisher {
-    pub(crate) fn publish(&self, record: RawMidiTraceRecord) {
+    pub fn publish(&self, record: RawMidiTraceRecord) {
         if self.queue.push(record).is_err() {
             self.input_metrics.record_trace_record_dropped();
         }
@@ -15,19 +15,19 @@ impl MidiTracePublisher {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct RawMidiTraceRecord {
-    pub(crate) received_at: Instant,
-    pub(crate) timing: MidiTraceTiming,
-    pub(crate) raw: [u8; MIDI_TRACE_RAW_BYTES],
-    pub(crate) stored_len: u8,
-    pub(crate) original_len: u8,
-    pub(crate) parsed: Option<ParsedMidiMessage>,
-    pub(crate) overlay: Option<SoundLabOverlayEvents>,
-    pub(crate) startup_suppressed: bool,
+pub struct RawMidiTraceRecord {
+    pub received_at: Instant,
+    pub timing: MidiTraceTiming,
+    pub raw: [u8; MIDI_TRACE_RAW_BYTES],
+    pub stored_len: u8,
+    pub original_len: u8,
+    pub parsed: Option<ParsedMidiMessage>,
+    pub overlay: Option<SoundLabOverlayEvents>,
+    pub startup_suppressed: bool,
 }
 
 impl RawMidiTraceRecord {
-    pub(crate) fn new(
+    pub fn new(
         message: &[u8],
         received_at: Instant,
         timing: MidiTraceTiming,
@@ -50,11 +50,11 @@ impl RawMidiTraceRecord {
         }
     }
 
-    pub(crate) fn raw_message(&self) -> &[u8] {
+    pub fn raw_message(&self) -> &[u8] {
         &self.raw[..usize::from(self.stored_len)]
     }
 
-    pub(crate) fn routed(&self) -> Option<ParsedMidiMessage> {
+    pub fn routed(&self) -> Option<ParsedMidiMessage> {
         if self.startup_suppressed {
             None
         } else {
@@ -63,14 +63,14 @@ impl RawMidiTraceRecord {
     }
 }
 
-pub(crate) struct MidiTraceWorker {
+pub struct MidiTraceWorker {
     publisher: MidiTracePublisher,
     stop: Arc<AtomicBool>,
     join_handle: Option<JoinHandle<()>>,
 }
 
 impl MidiTraceWorker {
-    pub(crate) fn spawn(
+    pub fn spawn(
         trace_midi: bool,
         midi_channel: Option<u8>,
         controller_profile: Option<Arc<ControllerProfile>>,
@@ -103,11 +103,11 @@ impl MidiTraceWorker {
         }
     }
 
-    pub(crate) fn publisher(&self) -> MidiTracePublisher {
+    pub fn publisher(&self) -> MidiTracePublisher {
         self.publisher.clone()
     }
 
-    pub(crate) fn shutdown(&mut self) {
+    pub fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(join_handle) = self.join_handle.take() {
             let _ = join_handle.join();
@@ -121,7 +121,7 @@ impl Drop for MidiTraceWorker {
     }
 }
 
-pub(crate) fn run_midi_trace_worker(
+pub fn run_midi_trace_worker(
     trace_midi: bool,
     midi_channel: Option<u8>,
     controller_profile: Option<Arc<ControllerProfile>>,
@@ -164,7 +164,7 @@ pub(crate) fn run_midi_trace_worker(
     );
 }
 
-pub(crate) fn handle_midi_trace_record(
+pub fn handle_midi_trace_record(
     record: RawMidiTraceRecord,
     trace_midi: bool,
     midi_channel: Option<u8>,

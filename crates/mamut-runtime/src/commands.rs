@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn dry_run(options: &DryRunOptions) -> Result<()> {
+pub fn dry_run(options: &DryRunOptions) -> Result<()> {
     let path = &options.patch_path;
     let patch = load_patch_from_path(path)?;
     validate_patch_v1(&patch).context("patch validation failed")?;
@@ -100,14 +100,14 @@ pub(crate) fn dry_run(options: &DryRunOptions) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn gfm_layer_mode_from_seed(seed: Option<u64>) -> GfmLayerMode {
+pub fn gfm_layer_mode_from_seed(seed: Option<u64>) -> GfmLayerMode {
     match seed {
         Some(seed) => GfmLayerMode::Enabled { seed },
         None => GfmLayerMode::Disabled,
     }
 }
 
-pub(crate) fn gfm_layer_seed_from_ui_text(enabled: bool, seed_text: &str) -> Result<Option<u64>> {
+pub fn gfm_layer_seed_from_ui_text(enabled: bool, seed_text: &str) -> Result<Option<u64>> {
     if enabled {
         parse_gfm_layer_seed(seed_text).map(Some)
     } else {
@@ -115,22 +115,22 @@ pub(crate) fn gfm_layer_seed_from_ui_text(enabled: bool, seed_text: &str) -> Res
     }
 }
 
-pub(crate) fn gfm_layer_status_line(snapshot: &EngineSnapshot) -> String {
+pub fn gfm_layer_status_line(snapshot: &EngineSnapshot) -> String {
     gfm_layer_status_line_from_layer(snapshot.gfm_layer)
 }
 
-pub(crate) fn bcs_layer_mode_from_scenario(scenario: Option<BcsScenario>) -> BcsLayerMode {
+pub fn bcs_layer_mode_from_scenario(scenario: Option<BcsScenario>) -> BcsLayerMode {
     match scenario {
         Some(scenario) => BcsLayerMode::Enabled { scenario },
         None => BcsLayerMode::Disabled,
     }
 }
 
-pub(crate) fn bcs_layer_status_line(snapshot: &EngineSnapshot) -> String {
+pub fn bcs_layer_status_line(snapshot: &EngineSnapshot) -> String {
     bcs_layer_status_line_from_layer(snapshot.bcs_layer)
 }
 
-pub(crate) fn bcs_layer_status_line_from_layer(layer: BcsLayerSnapshot) -> String {
+pub fn bcs_layer_status_line_from_layer(layer: BcsLayerSnapshot) -> String {
     match layer.mode {
         BcsLayerMode::Disabled => format!(
             "bcs: mode=disabled playable={} knob={:.3} gain={:.3} effective_gain={:.3}",
@@ -176,7 +176,7 @@ pub(crate) fn bcs_layer_status_line_from_layer(layer: BcsLayerSnapshot) -> Strin
     }
 }
 
-pub(crate) fn gfm_layer_status_line_from_layer(layer: mamut_engine::GfmLayerSnapshot) -> String {
+pub fn gfm_layer_status_line_from_layer(layer: mamut_engine::GfmLayerSnapshot) -> String {
     match layer.mode {
         GfmLayerMode::Disabled => "gfm: mode=disabled".to_string(),
         GfmLayerMode::Enabled { seed } => {
@@ -198,25 +198,23 @@ pub(crate) fn gfm_layer_status_line_from_layer(layer: mamut_engine::GfmLayerSnap
     }
 }
 
-pub(crate) fn format_gfm_seed(seed: u64) -> String {
+pub fn format_gfm_seed(seed: u64) -> String {
     format!("0x{seed:X}")
 }
 
-pub(crate) fn format_optional_program_id<T: std::fmt::Debug>(program_id: Option<T>) -> String {
+pub fn format_optional_program_id<T: std::fmt::Debug>(program_id: Option<T>) -> String {
     program_id
         .map(|program_id| format!("{program_id:?}"))
         .unwrap_or_else(|| "none".to_string())
 }
 
-pub(crate) fn on_off_bool(value: bool) -> &'static str {
+pub fn on_off_bool(value: bool) -> &'static str {
     if value { "on" } else { "off" }
 }
 
-pub(crate) fn play(options: &PlayOptions) -> Result<()> {
+pub fn play(options: &PlayOptions) -> Result<()> {
     let mut session = RuntimeSession::new(options)?;
-    if !options.headless && display_available() {
-        run_performance_window(session)
-    } else if io::stdin().is_terminal() {
+    if !options.headless && io::stdin().is_terminal() {
         session.command_loop()
     } else {
         session.print_startup_summary();

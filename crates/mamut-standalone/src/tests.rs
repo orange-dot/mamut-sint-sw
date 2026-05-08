@@ -100,6 +100,7 @@ fn parse_play_options_supports_device_selection() {
     let options = parse_play_options(&args).expect("play options parse");
     assert!(options.force_demo);
     assert!(options.headless);
+    assert!(!options.gui);
     assert!(options.trace_midi);
     assert_eq!(options.audio_selector.as_deref(), Some("hw:4,0"));
     assert_eq!(options.sample_rate_hz, 96_000);
@@ -120,6 +121,20 @@ fn parse_play_options_supports_device_selection() {
             .expect("profile path set")
             .ends_with("profiles/pc4-full.toml")
     );
+    assert!(
+        options
+            .patch_path
+            .ends_with("patches/factory/razor-thaw.toml")
+    );
+}
+
+#[test]
+fn parse_play_options_supports_gui_opt_in() {
+    let args = vec!["--gui".to_string(), "razor-thaw".to_string()];
+    let options = parse_play_options(&args).expect("play options parse");
+
+    assert!(options.gui);
+    assert!(!options.headless);
     assert!(
         options
             .patch_path

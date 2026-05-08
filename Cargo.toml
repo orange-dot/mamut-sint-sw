@@ -6,6 +6,8 @@ members = [
     "crates/mamut-dsp",
     "crates/mamut-field",
     "crates/mamut-engine",
+    "crates/mamut-runtime",
+    "crates/mamut-tui",
     "crates/mamut-standalone",
 ]
 resolver = "2"
@@ -20,8 +22,10 @@ version = "0.1.0"
 alsa = "0.9.1"
 anyhow = "1.0.100"
 crossbeam-queue = "0.3.12"
+crossterm = "0.29.0"
 eframe = "0.31.1"
 midir = "0.10.3"
+ratatui = "0.30.0"
 rtrb = "0.3.3"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
@@ -33,6 +37,7 @@ mamut-field = { path = "crates/mamut-field" }
 mamut-identity = { path = "crates/mamut-identity" }
 mamut-params = { path = "crates/mamut-params" }
 mamut-patch = { path = "crates/mamut-patch" }
+mamut-runtime = { path = "crates/mamut-runtime" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

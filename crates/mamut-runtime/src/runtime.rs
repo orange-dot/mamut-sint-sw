@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn build_audio_runtime(
+pub fn build_audio_runtime(
     patch_path: &Path,
     audio_selector: Option<&str>,
     sample_rate_hz: u32,
@@ -62,7 +62,7 @@ pub(crate) fn build_audio_runtime(
     })
 }
 
-pub(crate) fn start_prepared_audio_runtime(prepared: PreparedAudioRuntime) -> Result<AudioRuntime> {
+pub fn start_prepared_audio_runtime(prepared: PreparedAudioRuntime) -> Result<AudioRuntime> {
     let PreparedAudioRuntime {
         tx,
         worker,
@@ -109,7 +109,7 @@ pub(crate) fn start_prepared_audio_runtime(prepared: PreparedAudioRuntime) -> Re
     })
 }
 
-pub(crate) fn print_runtime_help() {
+pub fn print_runtime_help() {
     println!("runtime commands:");
     println!("  help                     show this command list");
     println!("  status                   show current patch, mode, macros, and activity");
