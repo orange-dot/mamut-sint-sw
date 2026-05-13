@@ -247,8 +247,239 @@ impl SessionStateSource for StandaloneSessionHandle {
     }
 }
 
+/// Error path for [`SessionCommandSink`] writes.
+///
+/// `panic` and `reset_controllers` cannot fail — they touch an
+/// `Arc<PriorityActions>` and the atomic stores never error. The
+/// channel-backed writes (`set_macro`, `set_direct_param`) fail only
+/// when the engine worker has shut down and the [`mpsc::Sender::send`]
+/// returns an error. The trait collapses that one failure mode into
+/// a single variant; richer error surfaces are a Phase 4 concern.
+///
+/// Derives `Copy + Hash` so callers can record-and-rethrow or key a
+/// one-shot toast by variant without per-error allocation. The
+/// [`std::fmt::Display`] / [`std::error::Error`] impls match the
+/// wording [`RuntimeSession::set_macro`] already uses for the same
+/// failure (`crates/mamut-runtime/src/session/commands.rs:136`) so a
+/// GUI toast can present the error uniformly whether it came through
+/// the trait or through the underlying session method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommandError {
+    /// The engine worker is no longer reachable; the command channel
+    /// has no live receiver. Subsequent calls will return the same
+    /// error until the GUI is shut down or the runtime is rebuilt.
+    EngineUnavailable,
+}
+
+impl std::fmt::Display for CommandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EngineUnavailable => f.write_str("audio runtime is no longer available"),
+        }
+    }
+}
+
+impl std::error::Error for CommandError {}
+
+/// Read-only write surface paired with [`SessionStateSource`].
+///
+/// Per the ADR 0002 amendment (2026-05-13), this trait covers the
+/// GUI's *write* surface in the Phase 1 spike: priority actions
+/// (`panic`, `reset_controllers`) and controller-channel writes
+/// (`set_macro`, `set_direct_param`). Slot switching is deliberately
+/// not part of this trait — `RuntimeSession::switch_patch(path)` is
+/// `&mut self` and rebuilds the audio runtime; Phase 1 routes
+/// slot-grid clicks through an `AppEvent::RequestSlotSwitch(slot)`
+/// consumed by `main.rs` of `crates/mamut-vizia`, which holds
+/// `&mut RuntimeSession`. Phase 4 (plugin) will revisit.
+///
+/// **Transport-freeze posture.** This trait adds no new channels, no
+/// new queues, and no new worker threads. It is a thin doctrine layer
+/// over already-shipped command paths (`Arc<PriorityActions>` for
+/// `panic`/`reset_controllers`, `mpsc::Sender<EngineCommand>` for
+/// `set_macro`/`set_direct_param`). The freeze in
+/// `docs/EPM1_TRANSPORT_FREEZE.md` is not reopened.
+///
+/// **Auto-trait posture.** The trait imposes no `Send`/`Sync` bound,
+/// matching [`SessionStateSource`]. The owned
+/// [`StandaloneCommandHandle`] inherits `Send` from
+/// `mpsc::Sender + Arc` but is **not** `Sync` because of
+/// `mpsc::Sender`'s single-producer-cell. The Vizia Phase 1 spike
+/// runs all widget callbacks on the UI thread, so `Sync` is not
+/// load-bearing.
+///
+/// **Clamping.** `set_macro` clamps to `[0.0, 1.0]` and
+/// `set_direct_param` clamps to the parameter's declared range, as
+/// `RuntimeSession::set_macro` and `RuntimeSession::set_direct_param`
+/// already do. Implementations must not loosen this contract.
+pub trait SessionCommandSink {
+    /// Request that the engine stop all voices on the next render
+    /// boundary. Routed through the priority-action path established
+    /// in ADR 0001; never blocks, never fails.
+    fn panic(&self);
+
+    /// Request that the engine reset MIDI controller state on the
+    /// next render boundary. Same priority-action path as
+    /// [`Self::panic`]; never blocks, never fails.
+    fn reset_controllers(&self);
+
+    /// Send a macro change to the engine. Implementations clamp
+    /// `value` to `[0.0, 1.0]`.
+    fn set_macro(&self, id: MacroId, value: f32) -> Result<(), CommandError>;
+
+    /// Send a direct parameter change to the engine. Implementations
+    /// clamp `value` to the parameter's declared min/max.
+    fn set_direct_param(&self, id: ParamId, value: f32) -> Result<(), CommandError>;
+}
+
+/// Standalone implementation of [`SessionCommandSink`] over a borrowed
+/// [`RuntimeSession`]. Mirrors [`StandaloneSessionSource<'a>`].
+///
+/// All four methods forward directly to the matching
+/// [`RuntimeSession`] surface; the wrapper adds no allocation, no
+/// clone, no extra channel. Suitable for short synchronous use; cannot
+/// be captured by a `'static` widget callback.
+pub struct StandaloneCommandSink<'a> {
+    session: &'a RuntimeSession,
+}
+
+impl<'a> StandaloneCommandSink<'a> {
+    /// Wrap a [`RuntimeSession`] in a [`SessionCommandSink`] view.
+    pub fn new(session: &'a RuntimeSession) -> Self {
+        Self { session }
+    }
+}
+
+// Bodies of `set_macro` and `set_direct_param` are intentionally
+// duplicated between `StandaloneCommandSink<'a>` and
+// `StandaloneCommandHandle`. The two impls hold different fields
+// (`&'a RuntimeSession` vs owned `mpsc::Sender + Arc<PriorityActions>`)
+// but the channel-send logic is identical; keeping the two side by
+// side lets a future single-file reviewer verify they have not
+// drifted without chasing a private helper. DRY-ing the two would
+// save four lines at the cost of an extra indirection.
+impl<'a> SessionCommandSink for StandaloneCommandSink<'a> {
+    fn panic(&self) {
+        self.session.priority_actions.request_panic();
+    }
+
+    fn reset_controllers(&self) {
+        self.session.priority_actions.request_reset_controllers();
+    }
+
+    fn set_macro(&self, id: MacroId, value: f32) -> Result<(), CommandError> {
+        self.session
+            .tx
+            .send(EngineCommand::Controller(ControllerEvent::Macro {
+                id,
+                value: value.clamp(0.0, 1.0),
+            }))
+            .map_err(|_| CommandError::EngineUnavailable)
+    }
+
+    fn set_direct_param(&self, id: ParamId, value: f32) -> Result<(), CommandError> {
+        let spec = param_spec(id);
+        self.session
+            .tx
+            .send(EngineCommand::Controller(ControllerEvent::DirectParam {
+                id,
+                value: value.clamp(spec.min, spec.max),
+            }))
+            .map_err(|_| CommandError::EngineUnavailable)
+    }
+}
+
+/// Owned `'static` view paired with [`StandaloneSessionHandle`].
+///
+/// Clones the [`mpsc::Sender<EngineCommand>`] and the
+/// `Arc<PriorityActions>` from the [`RuntimeSession`]. The original
+/// session keeps owning the engine worker, the audio stream, the MIDI
+/// input, and the scope ring buffer; this handle is a write-only
+/// companion that can be captured into a `'static` widget callback.
+///
+/// **Cost model.** Construction clones two reference-counted handles
+/// — one `Sender`, one `Arc<PriorityActions>` — two atomic increments,
+/// no allocation. Per-call cost is identical to the matching
+/// [`RuntimeSession`] method: `panic` and `reset_controllers` set one
+/// `AtomicBool`; `set_macro` and `set_direct_param` issue one channel
+/// send each (no allocation in steady state — the channel is bounded
+/// by the engine worker, not by the GUI).
+///
+/// **Lifecycle.** Dropping the handle decrements two reference counts
+/// and does nothing else. The `Sender` clone keeps the channel half
+/// alive only if other senders also exist; when the
+/// [`RuntimeSession`] is dropped, sends through this handle start
+/// returning [`CommandError::EngineUnavailable`].
+pub struct StandaloneCommandHandle {
+    tx: mpsc::Sender<EngineCommand>,
+    priority_actions: Arc<PriorityActions>,
+}
+
+impl StandaloneCommandHandle {
+    /// Build a handle from a borrowed [`RuntimeSession`]. The session
+    /// remains the owner; this clone is cheap (two atomic increments).
+    pub fn from_session(session: &RuntimeSession) -> Self {
+        Self {
+            tx: session.tx.clone(),
+            priority_actions: Arc::clone(&session.priority_actions),
+        }
+    }
+
+    /// Build a handle directly from its two reference-counted parts.
+    ///
+    /// Mirrors [`StandaloneSessionHandle::new`]: a `#[cfg(test)]`
+    /// constructor for tests that want to verify the contract without
+    /// spinning up a real [`RuntimeSession`]. Production uses
+    /// [`Self::from_session`]. Visibility is deliberately
+    /// `#[cfg(test)] pub(crate)` so the constructor does not widen
+    /// `mamut-runtime`'s public surface and is not present in release
+    /// builds; downstream crates that need a mock should implement
+    /// [`SessionCommandSink`] directly.
+    #[cfg(test)]
+    pub(crate) fn new(
+        tx: mpsc::Sender<EngineCommand>,
+        priority_actions: Arc<PriorityActions>,
+    ) -> Self {
+        Self {
+            tx,
+            priority_actions,
+        }
+    }
+}
+
+impl SessionCommandSink for StandaloneCommandHandle {
+    fn panic(&self) {
+        self.priority_actions.request_panic();
+    }
+
+    fn reset_controllers(&self) {
+        self.priority_actions.request_reset_controllers();
+    }
+
+    fn set_macro(&self, id: MacroId, value: f32) -> Result<(), CommandError> {
+        self.tx
+            .send(EngineCommand::Controller(ControllerEvent::Macro {
+                id,
+                value: value.clamp(0.0, 1.0),
+            }))
+            .map_err(|_| CommandError::EngineUnavailable)
+    }
+
+    fn set_direct_param(&self, id: ParamId, value: f32) -> Result<(), CommandError> {
+        let spec = param_spec(id);
+        self.tx
+            .send(EngineCommand::Controller(ControllerEvent::DirectParam {
+                id,
+                value: value.clamp(spec.min, spec.max),
+            }))
+            .map_err(|_| CommandError::EngineUnavailable)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     struct ConstantSource {
@@ -403,5 +634,112 @@ mod tests {
             elapsed < Duration::from_millis(100),
             "expected fast-fail on closed channel, took {elapsed:?}"
         );
+    }
+
+    // -- SessionCommandSink + StandaloneCommandHandle ----------------
+
+    /// Compile-time check: [`StandaloneCommandHandle`] erases to
+    /// `Box<dyn SessionCommandSink + Send + 'static>`. If a future
+    /// change adds a borrow or a non-`Send` field (e.g. `Rc`, `Cell`)
+    /// to the handle, this test fails to compile.
+    #[test]
+    fn standalone_command_handle_can_be_box_dyn_static_and_send() {
+        let (tx, _rx) = mpsc::channel();
+        let handle = StandaloneCommandHandle::new(tx, Arc::new(PriorityActions::default()));
+        let _erased: Box<dyn SessionCommandSink + Send> = Box::new(handle);
+    }
+
+    #[test]
+    fn standalone_command_handle_priority_actions_arc_is_pointer_equal() {
+        let (tx, _rx) = mpsc::channel();
+        let priority = Arc::new(PriorityActions::default());
+        let handle = StandaloneCommandHandle::new(tx, Arc::clone(&priority));
+
+        handle.panic();
+        // The Arc the handle holds is the same one we constructed, so
+        // the priority-action state we observe through `priority` must
+        // reflect the handle's call.
+        assert_eq!(priority.take_action(), Some(PriorityAction::Panic));
+    }
+
+    #[test]
+    fn standalone_command_handle_reset_controllers_propagates_through_arc() {
+        let (tx, _rx) = mpsc::channel();
+        let priority = Arc::new(PriorityActions::default());
+        let handle = StandaloneCommandHandle::new(tx, Arc::clone(&priority));
+
+        handle.reset_controllers();
+        assert_eq!(
+            priority.take_action(),
+            Some(PriorityAction::ResetControllers)
+        );
+    }
+
+    #[test]
+    fn standalone_command_handle_set_macro_clamps_and_sends() {
+        let (tx, rx) = mpsc::channel();
+        let handle = StandaloneCommandHandle::new(tx, Arc::new(PriorityActions::default()));
+
+        // Probe both clamp boundaries from one handle. The upper-bound
+        // send (1.7 → 1.0) and lower-bound send (-0.3 → 0.0) share a
+        // single `.clamp(0.0, 1.0)` call; testing both protects against
+        // an asymmetric regression (e.g. someone replacing it with
+        // `.min(1.0)`).
+        for (input, label, expected) in [(1.7_f32, "upper", 1.0_f32), (-0.3_f32, "lower", 0.0_f32)]
+        {
+            handle
+                .set_macro(MacroId::Gravitacija, input)
+                .expect("send succeeds while rx alive");
+
+            // Drain the channel and verify the clamp.
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(EngineCommand::Controller(ControllerEvent::Macro { id, value })) => {
+                    assert_eq!(id, MacroId::Gravitacija);
+                    assert!(
+                        (value - expected).abs() < f32::EPSILON,
+                        "{label} bound: value should be clamped to {expected}, got {value}"
+                    );
+                }
+                other => panic!("expected Controller(Macro), got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn standalone_command_handle_set_macro_returns_engine_unavailable_when_channel_closed() {
+        let (tx, rx) = mpsc::channel();
+        let handle = StandaloneCommandHandle::new(tx, Arc::new(PriorityActions::default()));
+        drop(rx);
+
+        let result = handle.set_macro(MacroId::Heat, 0.5);
+        assert_eq!(result, Err(CommandError::EngineUnavailable));
+    }
+
+    #[test]
+    fn standalone_command_handle_set_direct_param_clamps_and_sends() {
+        let (tx, rx) = mpsc::channel();
+        let handle = StandaloneCommandHandle::new(tx, Arc::new(PriorityActions::default()));
+
+        // OutputTrimDb is in the patch-shaped output stage; its spec
+        // defines a finite range. Send a value well outside that range
+        // and assert it lands clamped.
+        let spec = param_spec(ParamId::FinalStageOutputTrimDb);
+        let above = spec.max + 100.0;
+
+        handle
+            .set_direct_param(ParamId::FinalStageOutputTrimDb, above)
+            .expect("send succeeds while rx alive");
+
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(EngineCommand::Controller(ControllerEvent::DirectParam { id, value })) => {
+                assert_eq!(id, ParamId::FinalStageOutputTrimDb);
+                assert!(
+                    (value - spec.max).abs() < f32::EPSILON,
+                    "value should be clamped to spec.max ({}), got {value}",
+                    spec.max
+                );
+            }
+            other => panic!("expected Controller(DirectParam), got {other:?}"),
+        }
     }
 }
