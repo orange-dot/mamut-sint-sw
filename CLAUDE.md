@@ -92,7 +92,7 @@ Read these in order before authoring GUI changes:
 
 During ADR 0002 Phases 1 through 3, the workspace carries both `egui` (via `mamut-standalone`) and `vizia` (via a new `mamut-vizia` crate added in Phase 1) in parallel. The toolkits do not share a feature flag. The Phase 3 cutover removes `crates/mamut-standalone/src/gui/`. Until then, `egui` work is restricted to narrow bugfixes; new GUI investment goes into the `mamut-vizia` crate.
 
-The transport freeze remains in effect. GUI work does not touch the transport boundary, the audio callback, the MIDI ingress callback, or the voice allocator. The new `SessionStateSource` trait introduced in ADR 0002 is a read-only consumer interface over already-published metrics and snapshots; it does not reshape the transport.
+The transport freeze remains in effect. GUI work does not touch the transport boundary, the audio callback, the MIDI ingress callback, or the voice allocator. The `SessionStateSource` trait introduced in ADR 0002 is a read-only consumer interface over already-published metrics and snapshots; it does not reshape the transport. Its sibling `SessionCommandSink` (added by the 2026-05-13 amendment) covers the GUI's *write* surface — `panic`, `reset_controllers`, `set_macro`, `set_direct_param` — as a thin doctrine layer over already-shipped command paths (`Arc<PriorityActions>` and `mpsc::Sender<EngineCommand>`). Slot switching is deliberately not part of the command sink: `RuntimeSession::switch_patch` is `&mut self` because it rebuilds the audio runtime; Phase 1 routes slot-grid clicks as an `AppEvent::RequestSlotSwitch(slot)` consumed by `mamut-vizia`'s `main.rs`.
 
 ## Review gates (mandatory for core changes)
 

@@ -155,3 +155,80 @@ auditable.
 The `mamut-platform` shared Linux audio platform track and the sibling
 `mamit-sint-hw` hardware repo are unaffected. No platform-track invariants
 are crossed by this work.
+
+## Amendment 2026-05-13: command-sink doctrine
+
+Phase 1 sub-step 2 (PERFORM widgets) surfaced an asymmetry in the
+state-plumbing section above. The `SessionStateSource` trait covers the
+*read* surface (snapshot polling, metrics counter references) but says
+nothing about the GUI's *write* surface. Phase 1 kill criterion #5
+requires three interactive paths:
+
+- `PANIC` button must stop voices.
+- The slot grid must switch patches.
+- The rotary-knob spike for master output trim (kill criterion #1)
+  must mutate a parameter to be exercised as anything more than a
+  read-only display.
+
+A second trait, `SessionCommandSink`, is introduced in
+`crates/mamut-runtime/src/session/state_source.rs` (same file as
+`SessionStateSource`; the two surfaces are siblings, not layered).
+Minimum methods for Phase 1 kill criteria:
+
+- `panic()` — fire-and-forget through the existing
+  `Arc<PriorityActions>` path established in ADR 0001.
+- `reset_controllers()` — same priority-action path.
+- `set_macro(id: MacroId, value: f32)` — sends
+  `EngineCommand::Controller(ControllerEvent::Macro { … })` through
+  the existing `mpsc::Sender<EngineCommand>`. Clamps to `[0.0, 1.0]`
+  as `RuntimeSession::set_macro` already does.
+- `set_direct_param(id: ParamId, value: f32)` — sends
+  `EngineCommand::Controller(ControllerEvent::DirectParam { … })`
+  through the same channel. Clamps to the parameter's declared range
+  as `RuntimeSession::set_direct_param` already does. Phase 1 only
+  needs `output_trim_db` for the rotary spike; the surface is generic
+  for symmetry with the standalone CLI.
+
+Slot switching is **deliberately not** a command-sink method.
+`RuntimeSession::switch_patch(path)` takes `&mut self` because it
+rebuilds the audio runtime, replaces the worker thread, and reinstalls
+the ALSA stream. Exposing that through a `&self` GUI trait would
+require either interior mutability of the session (which crosses the
+transport-freeze posture in `docs/EPM1_TRANSPORT_FREEZE.md`) or a new
+runtime-control-message variant (an architecture change, not a Phase 1
+delivery). Phase 1 instead routes slot-grid clicks as an
+`AppEvent::RequestSlotSwitch(slot: u8)` consumed by `main.rs` of
+`crates/mamut-vizia`, which holds `&mut RuntimeSession` and dispatches
+`switch_patch` directly. Phase 4 (plugin) will revisit the
+slot-switching surface; a runtime-control-message variant is the
+expected design but is not in scope here.
+
+Implementations parallel `SessionStateSource`:
+
+- `StandaloneCommandSink<'a>` — borrows `&RuntimeSession`. Suitable
+  for short synchronous CLI or TUI use; cannot be captured by a
+  `'static` GUI handler.
+- `StandaloneCommandHandle` — owned `'static`, clones
+  `mpsc::Sender<EngineCommand>` and `Arc<PriorityActions>`. Suitable
+  for capture into Vizia widget callbacks and timer closures.
+
+`SessionCommandSink` carries no `Send`/`Sync` bound, matching
+`SessionStateSource`. The owned `StandaloneCommandHandle` inherits
+`Send` from `mpsc::Sender + Arc`; it is **not** `Sync` because of
+`mpsc::Sender`'s single-producer-cell. The Vizia Phase 1 spike runs
+all widget callbacks on the UI thread, so `Sync` is not load-bearing.
+
+The `EPM1` transport freeze remains in effect. `SessionCommandSink`
+adds no new channels, no new queues, and no new worker threads — it
+exposes the *existing* command paths already used by
+`RuntimeSession::panic`, `RuntimeSession::reset_controllers`,
+`RuntimeSession::set_macro`, and `RuntimeSession::set_direct_param`.
+The GUI's `SessionCommandSink` trait is a thin doctrine layer over
+already-shipped command surfaces; it does not reshape the transport
+boundary, the audio callback, the MIDI ingress callback, or the voice
+allocator.
+
+The push-style plugin implementation deferred above (the
+`Arc<AtomicSnapshot>` consumer) is unchanged. Phase 4 will add both a
+`PluginSessionSource` and a `PluginCommandSink` impl in parallel; the
+trait pair is the surface the plugin editor binds against.
