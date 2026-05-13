@@ -13,18 +13,36 @@
 
 mod app_model;
 mod state_bridge;
+mod widgets;
 
 use vizia::prelude::*;
 
 use crate::app_model::AppModel;
 use crate::state_bridge::{NullSource, StateBridge};
+use crate::widgets::MacroMeter;
 
 fn main() -> Result<(), ApplicationError> {
     Application::new(|cx| {
-        AppModel::new(cx).build(cx);
+        let model = AppModel::new(cx);
+        let macros = [
+            ("gravitacija", model.macro_gravitacija),
+            ("bloom", model.macro_bloom),
+            ("heat", model.macro_heat),
+            ("ruin", model.macro_ruin),
+            ("swarm", model.macro_swarm),
+        ];
+        model.build(cx);
+
         let bridge = StateBridge::new(Box::new(NullSource::new()));
         bridge.install(cx);
-        Label::new(cx, "mamut-vizia — Phase 1 spike (placeholder)");
+
+        VStack::new(cx, |cx| {
+            Label::new(cx, "mamut-vizia — Phase 1 spike");
+            for (label, signal) in macros {
+                MacroMeter::new(cx, label, signal);
+            }
+        })
+        .vertical_gap(Pixels(4.0));
     })
     .title("mamut-vizia (spike)")
     .inner_size((640, 360))
