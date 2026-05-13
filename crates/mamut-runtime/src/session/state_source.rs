@@ -123,6 +123,130 @@ impl<'a> SessionStateSource for StandaloneSessionSource<'a> {
     }
 }
 
+/// Owned `'static` view of the same subset of [`RuntimeSession`] state
+/// as [`StandaloneSessionSource`], suitable for capture into a `'static`
+/// closure (the `vizia` timer closure for the Phase 1 spike).
+///
+/// [`StandaloneSessionSource`] borrows the session and therefore cannot
+/// be `Box<dyn SessionStateSource + 'static>`'d into a long-lived
+/// callback. `StandaloneSessionHandle` solves that by *cloning* the
+/// minimum surface the trait requires:
+///
+/// - a [`mpsc::Sender<EngineCommand>`] (`Sender` is `Clone` and the
+///   send channel is the same one [`RuntimeSession::request_snapshot`]
+///   uses);
+/// - three `Arc<*Metrics>` clones — the atomic counters live on the
+///   engine side and the handle holds reference-counted views.
+///
+/// The original [`RuntimeSession`] remains the owner of the engine
+/// worker, the ALSA stream, the MIDI input, and the scope ring buffer.
+/// This handle is intentionally narrow: it cannot drive playback,
+/// switch patches, or drain scope frames. It is a *read-only consumer*
+/// view, the same as the borrowed wrapper.
+///
+/// **Cost model.** Construction clones four reference-counted handles
+/// (one `Sender`, three `Arc`s) — four atomic increments, no
+/// allocation. Per-call cost on [`SessionStateSource::poll_snapshot`]
+/// is identical to [`StandaloneSessionSource::poll_snapshot`]: one
+/// `mpsc::channel()` allocation for the reply, one channel send to the
+/// engine worker, one `recv_timeout` of up to 500 ms. The borrowed
+/// wrapper attributes that allocation to
+/// [`RuntimeSession::request_snapshot`] which it forwards to; the
+/// owned handle inlines the same allocation in its own `impl`. The
+/// per-call cost is the same in both cases.
+///
+/// **Lifecycle.** Dropping the handle decrements four reference counts
+/// and does nothing else — it does not signal the engine worker, does
+/// not stop the audio stream, does not close the command channel
+/// (other senders, including the original session, keep it open). If
+/// the original [`RuntimeSession`] is dropped while the handle is
+/// alive, the engine worker shuts down; subsequent
+/// [`poll_snapshot`](SessionStateSource::poll_snapshot) calls then
+/// return `None` because the `send` fails (no receiver). The metrics
+/// accessors keep returning the last-published counter values from the
+/// `Arc<*Metrics>`, which is the right behavior for a GUI rendering
+/// last-known-good state per ADR 0002.
+///
+/// **Auto-trait posture.** The handle is `Send` automatically: the
+/// three `Arc<*Metrics>` clones are `Send + Sync`, and
+/// [`mpsc::Sender<T>`] is `Send` when `T: Send` (it is here). The
+/// handle is **not** `Sync`, because `mpsc::Sender` is famously
+/// single-producer-cell — shared access from multiple threads must go
+/// through `Sender::clone`, not `&Sender`. The trait itself imposes
+/// neither bound; Phase 1 vizia runs the timer on the UI thread, so
+/// `Sync` is not load-bearing and the missing auto-trait does not
+/// constrain the spike.
+pub struct StandaloneSessionHandle {
+    tx: mpsc::Sender<EngineCommand>,
+    transport_metrics: Arc<TransportMetrics>,
+    input_metrics: Arc<InputMetrics>,
+    recording_metrics: Arc<RecordingMetrics>,
+}
+
+impl StandaloneSessionHandle {
+    /// Build a handle from a borrowed [`RuntimeSession`]. The session
+    /// remains the owner; this clone is cheap (four atomic increments).
+    pub fn from_session(session: &RuntimeSession) -> Self {
+        Self {
+            tx: session.tx.clone(),
+            transport_metrics: Arc::clone(&session.transport_metrics),
+            input_metrics: Arc::clone(&session.input_metrics),
+            recording_metrics: Arc::clone(&session.recording_metrics),
+        }
+    }
+
+    /// Build a handle directly from its four reference-counted parts.
+    ///
+    /// This constructor exists for tests in this crate that want to
+    /// verify the handle's contract (pointer equality, channel-closed
+    /// semantics) without spinning up a real [`RuntimeSession`].
+    /// Production code uses [`Self::from_session`]. The visibility is
+    /// deliberately `#[cfg(test)] pub(crate)` so the test-only
+    /// constructor does not widen `mamut-runtime`'s public surface and
+    /// is not present in release builds; downstream crates that need a
+    /// mock should implement [`SessionStateSource`] directly.
+    #[cfg(test)]
+    pub(crate) fn new(
+        tx: mpsc::Sender<EngineCommand>,
+        transport_metrics: Arc<TransportMetrics>,
+        input_metrics: Arc<InputMetrics>,
+        recording_metrics: Arc<RecordingMetrics>,
+    ) -> Self {
+        Self {
+            tx,
+            transport_metrics,
+            input_metrics,
+            recording_metrics,
+        }
+    }
+}
+
+impl SessionStateSource for StandaloneSessionHandle {
+    // Mirrors `RuntimeSession::request_snapshot` in
+    // `crates/mamut-runtime/src/session/status.rs:122`. Any change to
+    // the `EngineCommand::RequestSnapshot` reply protocol must update
+    // both implementations in lockstep.
+    fn poll_snapshot(&self) -> Option<EngineSnapshot> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.tx
+            .send(EngineCommand::RequestSnapshot(reply_tx))
+            .ok()?;
+        reply_rx.recv_timeout(Duration::from_millis(500)).ok()
+    }
+
+    fn transport_metrics(&self) -> &Arc<TransportMetrics> {
+        &self.transport_metrics
+    }
+
+    fn input_metrics(&self) -> &Arc<InputMetrics> {
+        &self.input_metrics
+    }
+
+    fn recording_metrics(&self) -> &Arc<RecordingMetrics> {
+        &self.recording_metrics
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,5 +339,69 @@ mod tests {
         assert!(Arc::ptr_eq(source.transport_metrics(), &transport));
         assert!(Arc::ptr_eq(source.input_metrics(), &input));
         assert!(Arc::ptr_eq(source.recording_metrics(), &recording));
+    }
+
+    /// Compile-time check: [`StandaloneSessionHandle`] satisfies the
+    /// `'static + Sized` bound, erases to `Box<dyn SessionStateSource +
+    /// 'static>`, and is `Send` — the auto-traits the struct doc
+    /// claims and that the GUI bridge depends on. If a future change
+    /// adds a borrow or a non-`Send` field (e.g. `Rc`, `Cell`) to the
+    /// handle, this test fails to compile.
+    #[test]
+    fn standalone_handle_can_be_box_dyn_static_and_send() {
+        let (tx, _rx) = mpsc::channel();
+        let handle = StandaloneSessionHandle::new(
+            tx,
+            Arc::new(TransportMetrics::default()),
+            Arc::new(InputMetrics::default()),
+            Arc::new(RecordingMetrics::default()),
+        );
+        let _erased: Box<dyn SessionStateSource + Send> = Box::new(handle);
+    }
+
+    #[test]
+    fn standalone_handle_accessor_arcs_are_pointer_equal() {
+        let (tx, _rx) = mpsc::channel();
+        let transport = Arc::new(TransportMetrics::default());
+        let input = Arc::new(InputMetrics::default());
+        let recording = Arc::new(RecordingMetrics::default());
+        let handle = StandaloneSessionHandle::new(
+            tx,
+            Arc::clone(&transport),
+            Arc::clone(&input),
+            Arc::clone(&recording),
+        );
+
+        assert!(Arc::ptr_eq(handle.transport_metrics(), &transport));
+        assert!(Arc::ptr_eq(handle.input_metrics(), &input));
+        assert!(Arc::ptr_eq(handle.recording_metrics(), &recording));
+    }
+
+    /// When the receiver side of the command channel is dropped, the
+    /// send fails immediately and `poll_snapshot` collapses to `None`
+    /// without waiting out the 500 ms timeout. This is the
+    /// "engine-worker-is-gone" path the trait doc calls out.
+    #[test]
+    fn standalone_handle_poll_snapshot_returns_none_when_engine_channel_closed() {
+        let (tx, rx) = mpsc::channel();
+        let handle = StandaloneSessionHandle::new(
+            tx,
+            Arc::new(TransportMetrics::default()),
+            Arc::new(InputMetrics::default()),
+            Arc::new(RecordingMetrics::default()),
+        );
+        drop(rx);
+
+        let start = std::time::Instant::now();
+        let result = handle.poll_snapshot();
+        let elapsed = start.elapsed();
+
+        assert!(result.is_none());
+        // The 500 ms recv_timeout must not fire — the send-failure path
+        // returns immediately. Allow generous slack for slow CI.
+        assert!(
+            elapsed < Duration::from_millis(100),
+            "expected fast-fail on closed channel, took {elapsed:?}"
+        );
     }
 }

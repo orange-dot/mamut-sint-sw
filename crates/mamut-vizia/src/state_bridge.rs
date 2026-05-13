@@ -10,10 +10,14 @@
 //! The bridge owns its source as `Box<dyn SessionStateSource>`, which
 //! requires the contained source to be `'static`. The borrowed
 //! [`mamut_runtime::StandaloneSessionSource<'a>`] does *not* satisfy
-//! that bound; an owned-handle wrapper is the Step 3 sub-step 1.5
-//! integration concern. For the data-flow plumbing this file is built
-//! and tested against a small in-crate stub, [`NullSource`], which
-//! mirrors the trait's empty case.
+//! that bound; production wiring uses
+//! [`mamut_runtime::StandaloneSessionHandle`] instead, which clones the
+//! command channel `Sender` and the three `Arc<*Metrics>` from the
+//! owning `RuntimeSession` and is `'static + Send + Sync`. Construct it
+//! via `StandaloneSessionHandle::from_session(&runtime_session)` once
+//! the runtime is up. The `NullSource` scaffold below is kept for tests
+//! and the blank-window placeholder in `main.rs`; the eventual `play`
+//! entry point replaces it with the real handle.
 //!
 //! Scope frames are not handled here; the oscilloscope widget will
 //! own its `rtrb::Consumer<StereoFrame>` directly.
@@ -126,11 +130,13 @@ pub(crate) fn project(source: &dyn SessionStateSource) -> Option<SessionProjecti
 
 /// A `SessionStateSource` that never produces a snapshot.
 ///
-/// Used by the Phase 1 spike scaffold in `main.rs` until the real
-/// `RuntimeSession` integration lands, and by this module's tests as
-/// a deterministic empty source. The metrics handles are
-/// freshly-constructed `Arc<*Metrics>` so a future test can mutate the
-/// counters to verify projection plumbing.
+/// Used by the Phase 1 spike scaffold in `main.rs` (the blank-window
+/// placeholder; no real `RuntimeSession` is up yet) and by this
+/// module's tests as a deterministic empty source. The production path
+/// is [`mamut_runtime::StandaloneSessionHandle`] built from a live
+/// session via `from_session(&runtime_session)`. The metrics handles
+/// here are freshly-constructed `Arc<*Metrics>` so a future test can
+/// mutate the counters to verify projection plumbing.
 pub struct NullSource {
     transport: Arc<TransportMetrics>,
     input: Arc<InputMetrics>,
@@ -180,13 +186,14 @@ mod tests {
     // here. A fixture would require constructing EngineSnapshot
     // manually, which is impractical at this layer because
     // mamut_engine::DirectParameters has ~96 fields with no Default and
-    // several other snapshot sub-types lack Default too. This test
-    // lands in Step 3 sub-step 1.5 when the owned-handle source
-    // variant integrates a real RuntimeSession; at that point the test
-    // can drive a real engine through one tick and exercise project()
-    // end-to-end. The alternative (adding #[derive(Default)] across
-    // mamut-engine snapshot sub-types) is a separate, in-scope-for-its-
-    // own-commit change.
+    // several other snapshot sub-types lack Default too. The
+    // StandaloneSessionHandle from sub-step 1.5 does not change this —
+    // it forwards through the same EngineSnapshot. The natural place
+    // for this test is an integration test that drives a real engine
+    // through one tick once Step 3 sub-step 2+ widgets need it. The
+    // alternative (adding #[derive(Default)] across mamut-engine
+    // snapshot sub-types) is a separate, in-scope-for-its-own-commit
+    // change.
 
     #[test]
     fn project_returns_none_when_source_has_no_snapshot() {
