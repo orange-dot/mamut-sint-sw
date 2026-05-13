@@ -25,13 +25,7 @@
 
 use vizia::prelude::*;
 
-// Phase 1 palette. Two literal colors that are likely to be reused by
-// `slot_grid`, `perform_rail`, and the upcoming rotary-knob widget.
-// Lifting to module constants here keeps the palette single-sourced
-// until a `style.rs` / `palette.rs` module earns its own home in
-// Phase 3.
-const MACRO_TRACK_BG: Color = Color::rgb(42, 46, 53);
-const MACRO_FILL_ACCENT: Color = Color::rgb(92, 242, 230);
+use super::style::{FILL_ACCENT, TRACK_BG};
 
 /// One row in the macros panel: `label` (left) + horizontal bar
 /// (middle) + numeric value (right). Bound to a `Signal<f32>` whose
@@ -62,11 +56,11 @@ impl MacroMeter {
                     Element::new(cx)
                         .width(value.map(|v| Percentage(v.clamp(0.0, 1.0) * 100.0)))
                         .height(Stretch(1.0))
-                        .background_color(MACRO_FILL_ACCENT);
+                        .background_color(FILL_ACCENT);
                 })
                 .width(Pixels(200.0))
                 .height(Pixels(8.0))
-                .background_color(MACRO_TRACK_BG);
+                .background_color(TRACK_BG);
 
                 Label::new(cx, value.map(|v| format!("{:.2}", v))).width(Pixels(48.0));
             })

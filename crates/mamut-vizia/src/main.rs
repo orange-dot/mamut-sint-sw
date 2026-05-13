@@ -19,11 +19,16 @@ use vizia::prelude::*;
 
 use crate::app_model::AppModel;
 use crate::state_bridge::{NullSource, StateBridge};
-use crate::widgets::MacroMeter;
+use crate::widgets::{MacroMeter, PerformRail, PerformRailSignals};
 
 fn main() -> Result<(), ApplicationError> {
     Application::new(|cx| {
-        let model = AppModel::new(cx);
+        // No live `RuntimeSession` in the placeholder scaffold yet; the
+        // model's `command_sink` is `None`, so PANIC/RESET emits would
+        // be silent no-ops. Once Step 3 sub-step 3 wires a real session
+        // through `play`, this becomes
+        // `Some(Box::new(StandaloneCommandHandle::from_session(&session)))`.
+        let model = AppModel::new(cx, None);
         let macros = [
             ("gravitacija", model.macro_gravitacija),
             ("bloom", model.macro_bloom),
@@ -31,12 +36,20 @@ fn main() -> Result<(), ApplicationError> {
             ("ruin", model.macro_ruin),
             ("swarm", model.macro_swarm),
         ];
+        let rail_signals = PerformRailSignals {
+            patch_name: model.patch_name,
+            voice_count: model.voice_count,
+            sustain_down: model.sustain_down,
+            clip_detected: model.clip_detected,
+            xrun_count: model.xrun_count,
+        };
         model.build(cx);
 
         let bridge = StateBridge::new(Box::new(NullSource::new()));
         bridge.install(cx);
 
         VStack::new(cx, |cx| {
+            PerformRail::new(cx, rail_signals);
             Label::new(cx, "mamut-vizia — Phase 1 spike");
             for (label, signal) in macros {
                 MacroMeter::new(cx, label, signal);

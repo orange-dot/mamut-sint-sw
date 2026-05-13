@@ -12,5 +12,8 @@
 //! widget path). See ADR 0002 Phase 1 minimum widget set.
 
 mod macro_meter;
+mod perform_rail;
+mod style;
 
 pub use macro_meter::MacroMeter;
+pub use perform_rail::{PerformRail, PerformRailSignals};

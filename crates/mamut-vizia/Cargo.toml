@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 mamut-engine.workspace = true
+mamut-params.workspace = true
 mamut-runtime.workspace = true
 # vizia is pinned by git rev per ADR 0002. Do not bump without rerunning the
 # Phase 1 kill criteria and amending docs/adrs/0002-* in the same change.
