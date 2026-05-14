@@ -23,6 +23,19 @@ Start here:
 - `adrs/0001-standalone-midi-ingress-hardening.md` - accepted narrow bugfix
   decision for MIDI callback hygiene, drop visibility, and controller burst
   coalescing under the transport freeze
+- `adrs/0002-reopen-plugin-editor-track-via-vizia.md` - withdrawn
+  2026-05-13; preserved for context. The Phase 1 Vizia spike failed the
+  decision gate and the plugin/editor track returns to deferred per
+  ADR 0004.
+- `adrs/0003-gui-information-architecture.md` - accepted four-screen GUI
+  information architecture (`PERFORM`, `SOUND`, `SYSTEM`, `INSPECT`) with a
+  persistent perform-rail and a single cut rule for future GUI features
+- `adrs/0004-egui-ia-restructure-plan-b.md` - accepted decision to
+  implement the ADR 0003 IA inside the existing `crates/mamut-standalone`
+  `egui` codebase (no new GUI crate); supersedes ADR 0002 in posture
+- `ui/epm1-gui-design-system.md` - palette, typography, knob geometry,
+  panel chrome, density rules, screen wireframes, and high-risk widget
+  rendering strategies for the GUI redesign
 - `dsp/primitives-math.md` - formula companion for the low-level Rust DSP primitives
 - `dsp/render-path-math.md` - frame-level math for voice allocation, mixing, filtering, and final render stages
 - `dsp/control-identity-math.md` - macro, identity, and direct-parameter resolution math

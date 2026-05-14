@@ -1,11 +1,14 @@
-# EPM1 Vizia Design System
+# EPM1 GUI Design System
 
-Status: draft, governs ADR 0002 Phase 1 spike.
+Status: governs the `egui` IA restructure under ADR 0004.
 
-This document defines the visual and layout system for the new GUI. Tokens
-and rules are paradigm-independent and survive the ADR 0002 off-ramp; the
-implementation notes at the end split into a `vizia` (primary) section and
-an `egui` (off-ramp) section.
+This document defines the visual and layout system for the new GUI. The
+implementation lives in `crates/mamut-standalone/src/gui/` (`egui`).
+Tokens are paradigm-independent — they survived the withdrawal of ADR
+0002 — and apply directly to the `egui` Painter and style APIs used by
+the implementation. Where the spec previously offered toolkit-specific
+implementation notes, this version collapses to the `egui` side per
+ADR 0004.
 
 The aesthetic synthesis is hardware-instrument character (matte finish,
 arc-indicated knobs, panel chrome) over digital-plugin precision
@@ -42,8 +45,7 @@ return to the resting state.
 
 ## 2. Typography
 
-`vizia` exposes typography by family + size + weight. Fallback chain in
-parentheses.
+Typography is by family + size + weight. Fallback chain in parentheses.
 
 | Token | Family | Size | Weight | Use |
 |---|---|---|---|---|
@@ -253,64 +255,52 @@ sections like the rest. Switching sections changes only the right pane.
 
 ## 8. Window canonical size
 
-The canonical PERFORM-screen window is `1280 × 720` for Phase 1. The
-plugin path in ADR 0002 Phase 4 will negotiate window size with the host,
-but the same layout must work down to `1024 × 640` and up to `1920 × 1080`
-without breaking the cut. Section panels are responsive within ±20 %; if a
-panel would shrink below readability, an overflow indicator (`...`) is
-shown instead of crushing the controls.
+The canonical PERFORM-screen window is `1280 × 720`. The layout must
+work down to `1024 × 640` and up to `1920 × 1080` without breaking the
+cut. Section panels are responsive within ±20 %; if a panel would shrink
+below readability, an overflow indicator (`...`) is shown instead of
+crushing the controls.
 
 ## 9. High-risk widgets
 
 ### 9.1 GFM lattice paint
 
-The `mamut-field` GFM workbench renders a 2D scalar field. The current
-`egui` implementation uses `egui::Painter`. Two `vizia` strategies are
-viable; the decision is deferred until Phase 3 SOUND port.
+The `mamut-field` GFM workbench renders a 2D scalar field. The
+implementation uses `egui::Painter` to draw each lattice cell as a
+small rectangle. For a `32 × 32` lattice (1024 cells), this is well
+within `egui`'s rasterization budget at 60 fps.
 
-Strategy A — `femtovg::Canvas`:
+Build the cell rect list once per snapshot tick (every 75 ms per
+`PERFORMANCE_UI_REFRESH` in
+`crates/mamut-runtime/src/types/constants.rs`); redraw every frame.
+Color is sampled from `accent.secondary` (high amplitude) through
+`fg.label` (mid) to `bg.recessed` (low). Estimated cost: `~1 ms` per
+frame at `32 × 32`.
 
-- Each lattice cell is a small rectangle. For a `32 × 32` lattice
-  (1024 cells), this is well within `femtovg`'s CPU rasterization budget
-  at 60 fps.
-- Build a single `Path` per snapshot tick (every 75 ms, per
-  `PERFORMANCE_UI_REFRESH` in
-  `crates/mamut-runtime/src/types/constants.rs:22`), redraw the path
-  every frame. Color is sampled from `accent.secondary` (high amplitude)
-  through `fg.label` (mid) to `bg.recessed` (low).
-- Estimated cost: `~1 ms` per frame at `32 × 32`. Acceptable.
-
-Strategy B — `wgpu` custom view:
-
-- Fullscreen quad in the workbench panel; fragment shader samples a
-  texture uploaded each snapshot tick (R32F, 4096 floats for a `64 × 64`
-  lattice).
-- Required only if the lattice grows past `64 × 64` or if Strategy A
-  cannot sustain 30 fps.
-- Adds a `wgpu` dependency to the GUI crate; not free.
-
-Decision rule: start with Strategy A at `32 × 32`. Move to `64 × 64` in
-Strategy A if the coarser resolution is musically misleading. Move to
-Strategy B only if Strategy A misses the 30-fps floor on a `64 × 64`
-target.
+If the lattice grows past `64 × 64` or the `egui::Painter` path misses
+the 30 fps floor, evaluate `egui-wgpu` paint callbacks for a
+shader-based approach (fullscreen quad in the workbench panel,
+fragment shader sampling an `R32F` texture uploaded each snapshot
+tick). That decision is deferred until the workbench lands on `SOUND`
+in the IA restructure.
 
 ### 9.2 Master oscilloscope
 
 8192-frame ring buffer fed by the audio thread. At a 60-fps display, the
 scope downsamples to ~1024 sample points per frame via peak-pick (max,
 min) over each 8-sample window. The visible polyline is a single
-`femtovg` `Path` with `move_to` + `line_to`, stroked once in
-`accent.primary`. Sticky scope on `PERFORM` is `~150 px` tall; the full
-scope on `INSPECT` is sized to fit the available panel.
+`egui::Painter::add(Shape::line(...))` stroked in `accent.primary`.
+Sticky scope on `PERFORM` is `~150 px` tall; the full scope on `INSPECT`
+is sized to fit the available panel.
 
 ### 9.3 Rotary knob
 
-The custom `vizia` view used as the Phase 1 spike's custom-widget proof.
-Geometry per section 3. Mouse drag is vertical: `1 px` = `0.5 %` of full
-range by default, with `shift` modifier reducing sensitivity to `0.1 %`
-and `ctrl` modifier reducing to `0.02 %`. Scroll wheel is `1 notch` =
-`1 %`. Double-click opens an inline numeric entry. Right-click resets to
-the patch default.
+Custom `egui::Painter`-based widget in
+`crates/mamut-standalone/src/gui/widgets/`. Geometry per section 3.
+Mouse drag is vertical: `1 px` = `0.5 %` of full range by default, with
+`shift` modifier reducing sensitivity to `0.1 %` and `ctrl` modifier
+reducing to `0.02 %`. Scroll wheel is `1 notch` = `1 %`. Double-click
+opens an inline numeric entry. Right-click resets to the patch default.
 
 Knob taper (the mapping from `0..1` knob position to parameter range) is
 linear by default. Frequency-domain parameters (filter cutoffs,
@@ -321,33 +311,31 @@ from the parameter registry rather than carrying its own taper table.
 
 ## 10. Implementation notes
 
-### 10.1 vizia (primary)
+Token constants live in `crates/mamut-standalone/src/gui/style.rs`:
 
-- Each color, type, and dimension token from sections 1–6 lives as a
-  `const` in `crates/mamut-vizia/src/style.rs`.
-- `vizia` style sheets (`vizia` supports CSS-like styling) apply tokens by
-  class name; constants are referenced from Rust where dynamic.
-- Knob, oscilloscope, and lattice are custom `vizia` views in
-  `crates/mamut-vizia/src/widgets/`.
-- The `Cargo.toml` for `mamut-vizia` pins `vizia` by git rev, never by
-  version range. The pinned rev is recorded in the crate's `README.md`.
+- Palette tokens are `egui::Color32` constants reached via small
+  accessor functions (`style::accent_primary()`, `style::bg_panel()`,
+  etc.) so call sites never reach for `egui::Color32::from_rgb(...)`
+  literals.
+- Typography tokens are `egui::TextStyle` overrides on a custom
+  `egui::Style` applied at app construction.
+- Dimension constants (`KNOB_MAIN = 56.0`, `KNOB_FINE = 32.0`,
+  perform-rail height, panel padding) are bare `f32` constants used at
+  paint sites.
 
-### 10.2 egui (off-ramp)
-
-If ADR 0002 Phase 2 fails, the same tokens apply inside
-`crates/mamut-standalone/src/gui/style.rs`:
-
-- Palette tokens become `egui::Color32` constants.
-- Type tokens become `egui::TextStyle` overrides on a custom `egui::Style`.
-- Knob, oscilloscope, and lattice widgets are hand-rolled via
-  `egui::Painter` calls inside reusable `pub fn …` widgets in
-  `crates/mamut-standalone/src/gui/widgets/`.
-- Module reorganization follows the off-ramp section of ADR 0003.
+Custom widgets — knob, oscilloscope, GFM lattice, perform-rail,
+slot-grid, macro-meter, perform-badges — live in
+`crates/mamut-standalone/src/gui/widgets/`. Each widget is dumb: it
+takes data + closures + style accessors, returns an `egui::Response`,
+and never reaches for a `RuntimeSession` reference. Write surfaces
+(`panic`, `reset_controllers`, `set_macro`, `set_direct_param`) flow
+through `SessionCommandSink` per ADR 0004 doctrine; widgets do not
+hold the sink directly — the caller threads it through closures.
 
 ## 11. What this spec deliberately does not decide
 
-- Specific font files. The system fonts are acceptable for the spike;
-  vendored fonts are a Phase 3 polish concern.
+- Specific font files. The system fonts are acceptable for the
+  bring-up; vendored fonts are a later polish concern.
 - Animation timing beyond the `200 ms` transient pulse.
 - Locale or i18n; the GUI is English-only for `EPM1`.
 - Touch input; the GUI is mouse + keyboard, and a separate touch

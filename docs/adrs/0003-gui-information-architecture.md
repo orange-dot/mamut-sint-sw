@@ -112,22 +112,13 @@ the tab count.
   collapse into the new perform-rail. The footer's `PANIC` and `RESET`
   actions are preserved verbatim.
 
-### Module shape (Vizia path, ADR 0002 primary)
+### Module shape
 
-New `crates/mamut-vizia/` module skeleton:
-
-- `src/screens/perform.rs`
-- `src/screens/sound.rs`
-- `src/screens/system.rs`
-- `src/screens/inspect.rs`
-- `src/widgets/perform_rail.rs`
-- `src/widgets/macro_meter.rs`, `oscilloscope.rs`, `rotary_knob.rs`,
-  `slot_grid.rs`, …
-
-### Module shape (egui off-ramp, ADR 0002 fallback)
-
-If the Phase 1 gate from ADR 0002 fails, the same IA is applied inside
-`crates/mamut-standalone/src/gui/` with the following module
+ADR 0002 originally specified a parallel `crates/mamut-vizia/` skeleton
+as the primary path; that path was withdrawn on 2026-05-13 (see ADR
+0002 `## Withdrawal rationale` and ADR 0004). The same four-screen IA
+is realized inside the existing `crates/mamut-standalone/src/gui/`
+codebase (`egui`) per ADR 0004, with the following module
 reorganization:
 
 - `perform.rs` replaces the `LIVE`-tab portion of `live_methods.rs`.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-`mamut-sint-sw` is the canonical `EPM1` software line of the `Mamut EPM` program — a Linux-first standalone software synthesizer in Rust. The sibling repo `mamut-sint-hw` (`EPM2`) is the hardware continuation; shared identity language (`Horizont`, `Pec`, `Baklja`, `Gravitacija`) is consistent across both lines. Plugin/editor work was deferred during the early standalone maturation phase; ADR 0002 (`docs/adrs/0002-reopen-plugin-editor-track-via-vizia.md`) reopens that track on a phased `vizia` migration with an explicit off-ramp. The standalone runtime remains the primary proof path through the ADR 0002 Phase 3 cutover.
+`mamut-sint-sw` is the canonical `EPM1` software line of the `Mamut EPM` program — a Linux-first standalone software synthesizer in Rust. The sibling repo `mamut-sint-hw` (`EPM2`) is the hardware continuation; shared identity language (`Horizont`, `Pec`, `Baklja`, `Gravitacija`) is consistent across both lines. Plugin/editor work is deferred. ADR 0002 (`docs/adrs/0002-reopen-plugin-editor-track-via-vizia.md`) briefly reopened that track on a `vizia` migration but was withdrawn on 2026-05-13 per ADR 0004 (`docs/adrs/0004-egui-ia-restructure-plan-b.md`); the GUI redesign continues on `egui` in `crates/mamut-standalone`. The standalone runtime remains the primary proof path.
 
 The Rust workspace at the root edits real source. Read `AGENTS.md` first — it owns coding rules and agent discipline that govern every change. This file complements `AGENTS.md` with build/test commands, architectural reading order, and gotchas not covered there.
 
@@ -82,17 +82,16 @@ Cross-thread structure (read this before touching transport):
 
 ## GUI track (read this before designing UI)
 
-The current `egui` GUI is being redesigned. The information architecture moves from five legacy tabs (`LIVE`, `SOUND LAB`, `ENGINE`, `PC4`, `DEBUG`) to four screens (`PERFORM`, `SOUND`, `SYSTEM`, `INSPECT`) per ADR 0003. The toolkit moves from `egui` to `vizia` per ADR 0002, behind a phased plan with an explicit off-ramp. The plugin-editor track is reopened by ADR 0002 to enable `VST3` / `CLAP` distribution.
+The `egui` GUI in `crates/mamut-standalone` is being restructured in place. The information architecture moves from five legacy tabs (`LIVE`, `SOUND LAB`, `ENGINE`, `PC4`, `DEBUG`) to four screens (`PERFORM`, `SOUND`, `SYSTEM`, `INSPECT`) per ADR 0003. ADR 0002 reopened a plugin/editor track on `vizia` but was withdrawn on 2026-05-13; ADR 0004 is the active plan and supersedes 0002 in posture. The redesign is module-level reorganization plus widget extraction plus design-token application, alongside the existing legacy tabs until cutover.
 
 Read these in order before authoring GUI changes:
 
-- `docs/adrs/0002-reopen-plugin-editor-track-via-vizia.md` — toolkit decision, phase plan, off-ramp, Phase 1 kill criteria.
+- `docs/adrs/0004-egui-ia-restructure-plan-b.md` — accepted plan-B activation; the active plan.
 - `docs/adrs/0003-gui-information-architecture.md` — four-screen IA, cut rule, current → new mapping.
-- `docs/ui/vizia-design-system.md` — palette, typography, knob geometry, panel chrome, screen wireframes, high-risk widgets.
+- `docs/adrs/0002-reopen-plugin-editor-track-via-vizia.md` — withdrawn 2026-05-13; preserved for context.
+- `docs/ui/epm1-gui-design-system.md` — palette, typography, knob geometry, panel chrome, screen wireframes.
 
-During ADR 0002 Phases 1 through 3, the workspace carries both `egui` (via `mamut-standalone`) and `vizia` (via a new `mamut-vizia` crate added in Phase 1) in parallel. The toolkits do not share a feature flag. The Phase 3 cutover removes `crates/mamut-standalone/src/gui/`. Until then, `egui` work is restricted to narrow bugfixes; new GUI investment goes into the `mamut-vizia` crate.
-
-The transport freeze remains in effect. GUI work does not touch the transport boundary, the audio callback, the MIDI ingress callback, or the voice allocator. The `SessionStateSource` trait introduced in ADR 0002 is a read-only consumer interface over already-published metrics and snapshots; it does not reshape the transport. Its sibling `SessionCommandSink` (added by the 2026-05-13 amendment) covers the GUI's *write* surface — `panic`, `reset_controllers`, `set_macro`, `set_direct_param` — as a thin doctrine layer over already-shipped command paths (`Arc<PriorityActions>` and `mpsc::Sender<EngineCommand>`). Slot switching is deliberately not part of the command sink: `RuntimeSession::switch_patch` is `&mut self` because it rebuilds the audio runtime; Phase 1 routes slot-grid clicks as an `AppEvent::RequestSlotSwitch(slot)` consumed by `mamut-vizia`'s `main.rs`.
+The transport freeze remains in effect. GUI work does not touch the transport boundary, the audio callback, the MIDI ingress callback, or the voice allocator. The `SessionStateSource` trait in `crates/mamut-runtime/src/session/state_source.rs` is a read-only consumer interface over already-published metrics and snapshots. Its sibling `SessionCommandSink` (introduced 2026-05-13, doctrine retained under ADR 0004) covers the GUI's *write* surface — `panic`, `reset_controllers`, `set_macro`, `set_direct_param` — as a thin doctrine layer over already-shipped command paths (`Arc<PriorityActions>` and `mpsc::Sender<EngineCommand>`). Slot switching is deliberately not part of the sink: `RuntimeSession::switch_patch` is `&mut self` because it rebuilds the audio runtime; slot-grid clicks route as an `AppEvent::RequestSlotSwitch(slot)` consumed by the main loop where the session is still owned mutably.
 
 ## Review gates (mandatory for core changes)
 
@@ -124,7 +123,7 @@ tools/review/run-integrated-review.sh <paths-and-docs...>
 - Sample rate defaults to **96 kHz**. Supported: `44100`, `48000`, `88200`, `96000`, `176400`, `192000`. Pass `--sample-rate 44100` for the legacy path.
 - ALSA tuning: `--alsa-period-frames`, `--alsa-buffer-frames`, `--alsa-start-threshold-frames`. First 96 kHz AG03 live tests start at `512 / 2048 / 2048` (≈5.33 ms period, 21.33 ms buffer at 96 kHz).
 - `--midi-channel <1..16>`, `--controller-profile <path>` (default fallback maps `CC16..20` to the five public macros), `--trace-midi`, `--demo`, `--headless`.
-- A graphical session opens an `egui` performance window. The legacy tab structure (`LIVE`, `SOUND LAB`, `ENGINE`, `PC4`, `DEBUG`) is being redesigned to the four-screen information architecture in ADR 0003 (`PERFORM`, `SOUND`, `SYSTEM`, `INSPECT`) and re-implemented in `vizia` per ADR 0002; until that cutover, the legacy tabs remain in place. The `PC4` mirror is **read-only** in both the legacy GUI and the redesign — it displays Mamut's internal state for incoming controls; GUI clicks/drags do not send MIDI back.
+- A graphical session opens an `egui` performance window. The legacy tab structure (`LIVE`, `SOUND LAB`, `ENGINE`, `PC4`, `DEBUG`) is being restructured in place to the four-screen information architecture from ADR 0003 (`PERFORM`, `SOUND`, `SYSTEM`, `INSPECT`) per the active plan in ADR 0004; until cutover, legacy and new tabs coexist. The `PC4` mirror is **read-only** on both the legacy GUI and the new screens — it displays Mamut's internal state for incoming controls; GUI clicks/drags do not send MIDI back.
 
 Headless interactive controls (when stdin is a TTY and not `--headless`): `status`, `patches`, `favorites`, `favorite <slot>`, `patch`, `next`, `prev`, `demo-patch`, `macro`, `panic`, `reset-controllers`, `audio`, `midi`, `demo`, `quit`. Switching audio or patches mid-play resets held notes and live macro state cleanly.
 
@@ -146,10 +145,11 @@ Factory bank lives in `patches/factory/*.toml`; the locked 8-slot live set is `0
 7. `docs/review-gates.md` — exactly which agent gates are mandatory for which change type
 8. `docs/dsp/{primitives,render-path,control-identity}-math.md` — DSP math companions
 9. `docs/adrs/0001-standalone-midi-ingress-hardening.md` — accepted MIDI hygiene decision
-10. `docs/adrs/0002-reopen-plugin-editor-track-via-vizia.md` — accepted decision to reopen the plugin/editor track on a phased `vizia` migration with off-ramp
+10. `docs/adrs/0002-reopen-plugin-editor-track-via-vizia.md` — withdrawn 2026-05-13; preserved for context
 11. `docs/adrs/0003-gui-information-architecture.md` — accepted four-screen GUI information architecture (`PERFORM`, `SOUND`, `SYSTEM`, `INSPECT`)
-12. `docs/ui/vizia-design-system.md` — palette, typography, knob geometry, panel chrome, and screen wireframes that govern the GUI redesign
-13. `docs/live-sessions/` — real hardware run evidence (preserve as evidence; not portable defaults)
+12. `docs/adrs/0004-egui-ia-restructure-plan-b.md` — accepted plan-B activation; the active GUI redesign plan
+13. `docs/ui/epm1-gui-design-system.md` — palette, typography, knob geometry, panel chrome, and screen wireframes that govern the GUI redesign
+14. `docs/live-sessions/` — real hardware run evidence (preserve as evidence; not portable defaults)
 
 ## Things to avoid
 

@@ -1,6 +1,6 @@
 # ADR 0002: Reopen Plugin Editor Track via Vizia
 
-Status: Accepted
+Status: Withdrawn (2026-05-13). ADR 0004 supersedes the active GUI plan; this ADR's plugin/editor reopening is rolled back. See `## Withdrawal rationale` and `## Disposition` below.
 
 ## Context
 
@@ -232,3 +232,48 @@ The push-style plugin implementation deferred above (the
 `Arc<AtomicSnapshot>` consumer) is unchanged. Phase 4 will add both a
 `PluginSessionSource` and a `PluginCommandSink` impl in parallel; the
 trait pair is the surface the plugin editor binds against.
+
+## Withdrawal rationale (2026-05-13)
+
+Phase 1 of this ADR landed: `crates/mamut-vizia` shipped a runnable
+PERFORM screen scaffold with five widgets (persistent perform-rail,
+4×2 slot grid, five macro meters, a custom rotary knob bound to
+`output_trim_db`, a compact oscilloscope), wired against the
+`SessionStateSource` + `SessionCommandSink` doctrine from this ADR and
+the 2026-05-13 amendment.
+
+The Phase 2 decision gate was reached at the user's review of the
+running binary on 2026-05-13. Kill criterion 1 (general visual /
+interaction quality of the rendered surface, exemplified by the
+rotary-knob spike) failed at first sight. The user's verdict: the
+rendering quality of the `vizia` PERFORM screen was decisively rejected
+versus the existing `egui` surface in `crates/mamut-standalone`.
+
+Kill criteria 2 through 5 (oscilloscope frame rate, snapshot stability
+under polling, `vizia`-vs-`egui` LOC ratio, end-to-end engine
+interaction) were not exercised. Criterion 1 was load-bearing and
+failed first; exercising the remainder would have spent further effort
+against a toolkit the user had already rejected.
+
+## Disposition (2026-05-13)
+
+- `crates/mamut-vizia` is deleted in the same commit that flips this
+  ADR to `Withdrawn`. The widget code does not carry; the doctrine
+  work (`SessionStateSource`, `SessionCommandSink`, owned handles,
+  `CommandError`, twelve passing tests) survives in
+  `crates/mamut-runtime/src/session/state_source.rs` with doc-comment
+  framing neutralized.
+- The plugin/editor distribution track returns to the pre-ADR-0002
+  deferred posture in `CLAUDE.md`. No commitment to a toolkit, a host,
+  or a timeline.
+- The GUI redesign continues under ADR 0004
+  (`docs/adrs/0004-egui-ia-restructure-plan-b.md`) on `egui` inside
+  `crates/mamut-standalone`, realizing the same ADR 0003 IA
+  (`PERFORM` / `SOUND` / `SYSTEM` / `INSPECT`). The alongside cutover
+  is detailed in
+  `/home/dev/.claude/plans/general-ui-ux-redesign-iridescent-canyon.md`.
+- This ADR is recorded as **Withdrawn**, not **Superseded**. ADR 0004
+  does not inherit the Vizia direction; it answers the same
+  GUI-redesign question with a different toolkit choice and a
+  different posture toward plugin distribution. Preserving the
+  Withdrawn classification keeps the trail auditable.

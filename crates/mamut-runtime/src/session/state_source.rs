@@ -2,46 +2,43 @@ use super::*;
 
 /// Read-only consumer interface over already-published session state.
 ///
-/// `SessionStateSource` is the surface that GUI view code (`vizia` per
-/// ADR 0002 Phase 1, and the off-ramp `egui` redesign) reads from when
-/// it needs an [`EngineSnapshot`] or a reference to one of the published
-/// metrics counters. It carries no command surface, no scope-frame
-/// access, no patch-load or device-control behavior.
+/// `SessionStateSource` is the surface that GUI view code in
+/// `crates/mamut-standalone` (the `egui` performance window) reads from
+/// when it needs an [`EngineSnapshot`] or a reference to one of the
+/// published metrics counters. It carries no command surface, no
+/// scope-frame access, no patch-load or device-control behavior.
 ///
-/// Three properties of this trait are load-bearing per
-/// `docs/adrs/0002-reopen-plugin-editor-track-via-vizia.md`:
+/// Three properties of this trait are load-bearing per ADR 0004:
 ///
 /// - The standalone implementation ([`StandaloneSessionSource`]) is a
 ///   thin wrapper around [`RuntimeSession::request_snapshot`]. That
 ///   call is a blocking `mpsc` request/reply with a 500 ms timeout.
-///   The `vizia` Phase 1 spike polls at the `PERFORMANCE_UI_REFRESH`
-///   cadence (75 ms) defined in
-///   `crates/mamut-runtime/src/types/constants.rs`.
+///   The GUI polls at the `PERFORMANCE_UI_REFRESH` cadence (75 ms)
+///   defined in `crates/mamut-runtime/src/types/constants.rs`.
 /// - Scope-frame access is *not* part of this trait. The render-time
 ///   scope ring (`rtrb::Consumer`) requires `&mut` and is drained
 ///   through [`RuntimeSession::drain_scope_frames`] on the owner
 ///   thread.
 /// - A push-style plugin implementation (engine writes into an
-///   `Arc<AtomicSnapshot>` consumed by the editor) is an ADR 0002
-///   Phase 4 prerequisite, not a Phase 1 deliverable.
+///   `Arc<AtomicSnapshot>` consumed by an editor) is a natural future
+///   extension if the plugin track reopens; ADR 0004 defers it.
 ///
 /// **Blocking note.** A single [`poll_snapshot`](Self::poll_snapshot)
 /// call on [`StandaloneSessionSource`] can block the calling thread for
 /// up to 500 ms — about 6.7× the 75 ms poll cadence. Callers must not
 /// invoke it from a frame-deadline-sensitive thread (the render thread
 /// of a GUI toolkit, an audio callback, an IRQ handler) without an
-/// off-thread bridge. The expected pattern for the `vizia` Phase 1
-/// spike is a dedicated state-bridge thread (or a `vizia` timer) that
-/// polls into a [`vizia::Model`]-shaped buffer; view code reads the
-/// buffer.
+/// off-thread bridge. The expected pattern is a dedicated polling
+/// thread (or a GUI-toolkit timer) that buffers the snapshot into a
+/// projected app-state struct; view code reads the projection.
 ///
 /// **Auto-trait posture.** The trait deliberately carries no `Send` or
-/// `Sync` bound. Phase 1 callers run on a single GUI bridge; whether a
-/// given impl is `Send`/`Sync` falls out from its own fields, not from
-/// the trait. [`StandaloneSessionSource`] inherits whatever
-/// [`RuntimeSession`] permits through the `&RuntimeSession` borrow.
-/// Phase 4 may introduce a separate trait alias or impl that adds the
-/// bounds where they are load-bearing for the plugin host.
+/// `Sync` bound. Callers run on a single GUI bridge; whether a given
+/// impl is `Send`/`Sync` falls out from its own fields, not from the
+/// trait. [`StandaloneSessionSource`] inherits whatever
+/// [`RuntimeSession`] permits through the `&RuntimeSession` borrow. A
+/// future plugin-host impl may introduce a separate trait alias or
+/// impl that adds the bounds where they are load-bearing for the host.
 pub trait SessionStateSource {
     /// Request a fresh [`EngineSnapshot`] from the audio runtime.
     ///
@@ -52,15 +49,15 @@ pub trait SessionStateSource {
     ///   (the `mpsc` send fails);
     /// - the runtime is alive but did not reply within 500 ms.
     ///
-    /// The collapse is deliberate for Phase 1 — the GUI polls on a
-    /// fixed cadence, treats `None` as "render last-known-good", and a
-    /// transient missed poll is indistinguishable from a permanent
-    /// outage from a single sample. A persistent outage will be visible
-    /// in other surfaces (the audio device disappearing, the transport
-    /// counters freezing, the binary exiting). Phase 4's plugin push
-    /// implementation may introduce a richer error surface if the
-    /// editor needs to disambiguate; this trait will widen at that
-    /// point, not now.
+    /// The collapse is deliberate — the GUI polls on a fixed cadence,
+    /// treats `None` as "render last-known-good", and a transient
+    /// missed poll is indistinguishable from a permanent outage from a
+    /// single sample. A persistent outage will be visible in other
+    /// surfaces (the audio device disappearing, the transport counters
+    /// freezing, the binary exiting). A future plugin-host push
+    /// implementation may introduce a richer error surface if an editor
+    /// needs to disambiguate; this trait will widen at that point, not
+    /// now.
     ///
     /// The snapshot itself is informational, not load-bearing for
     /// correctness. The render path, voice allocator, and transport do
@@ -125,7 +122,7 @@ impl<'a> SessionStateSource for StandaloneSessionSource<'a> {
 
 /// Owned `'static` view of the same subset of [`RuntimeSession`] state
 /// as [`StandaloneSessionSource`], suitable for capture into a `'static`
-/// closure (the `vizia` timer closure for the Phase 1 spike).
+/// closure (a GUI-toolkit timer closure or polling-thread closure).
 ///
 /// [`StandaloneSessionSource`] borrows the session and therefore cannot
 /// be `Box<dyn SessionStateSource + 'static>`'d into a long-lived
@@ -165,7 +162,7 @@ impl<'a> SessionStateSource for StandaloneSessionSource<'a> {
 /// return `None` because the `send` fails (no receiver). The metrics
 /// accessors keep returning the last-published counter values from the
 /// `Arc<*Metrics>`, which is the right behavior for a GUI rendering
-/// last-known-good state per ADR 0002.
+/// last-known-good state per ADR 0004.
 ///
 /// **Auto-trait posture.** The handle is `Send` automatically: the
 /// three `Arc<*Metrics>` clones are `Send + Sync`, and
@@ -173,9 +170,8 @@ impl<'a> SessionStateSource for StandaloneSessionSource<'a> {
 /// handle is **not** `Sync`, because `mpsc::Sender` is famously
 /// single-producer-cell — shared access from multiple threads must go
 /// through `Sender::clone`, not `&Sender`. The trait itself imposes
-/// neither bound; Phase 1 vizia runs the timer on the UI thread, so
-/// `Sync` is not load-bearing and the missing auto-trait does not
-/// constrain the spike.
+/// neither bound; the current `egui` GUI runs the polling closure on a
+/// single bridge, so `Sync` is not load-bearing.
 pub struct StandaloneSessionHandle {
     tx: mpsc::Sender<EngineCommand>,
     transport_metrics: Arc<TransportMetrics>,
@@ -254,7 +250,8 @@ impl SessionStateSource for StandaloneSessionHandle {
 /// channel-backed writes (`set_macro`, `set_direct_param`) fail only
 /// when the engine worker has shut down and the [`mpsc::Sender::send`]
 /// returns an error. The trait collapses that one failure mode into
-/// a single variant; richer error surfaces are a Phase 4 concern.
+/// a single variant; richer error surfaces are deferred until a real
+/// consumer needs them.
 ///
 /// Derives `Copy + Hash` so callers can record-and-rethrow or key a
 /// one-shot toast by variant without per-error allocation. The
@@ -281,17 +278,18 @@ impl std::fmt::Display for CommandError {
 
 impl std::error::Error for CommandError {}
 
-/// Read-only write surface paired with [`SessionStateSource`].
+/// Write surface paired with [`SessionStateSource`].
 ///
-/// Per the ADR 0002 amendment (2026-05-13), this trait covers the
-/// GUI's *write* surface in the Phase 1 spike: priority actions
-/// (`panic`, `reset_controllers`) and controller-channel writes
-/// (`set_macro`, `set_direct_param`). Slot switching is deliberately
-/// not part of this trait — `RuntimeSession::switch_patch(path)` is
-/// `&mut self` and rebuilds the audio runtime; Phase 1 routes
-/// slot-grid clicks through an `AppEvent::RequestSlotSwitch(slot)`
-/// consumed by `main.rs` of `crates/mamut-vizia`, which holds
-/// `&mut RuntimeSession`. Phase 4 (plugin) will revisit.
+/// Introduced by the ADR 0002 amendment (2026-05-13) and retained
+/// verbatim under ADR 0004 (Plan B), this trait covers the GUI's
+/// *write* surface: priority actions (`panic`, `reset_controllers`)
+/// and controller-channel writes (`set_macro`, `set_direct_param`).
+/// Slot switching is deliberately not part of this trait —
+/// `RuntimeSession::switch_patch(path)` is `&mut self` and rebuilds
+/// the audio runtime; the GUI routes slot-grid clicks through an
+/// `AppEvent::RequestSlotSwitch(slot)` consumed by the main loop where
+/// the session is still owned mutably. A future plugin-host impl will
+/// revisit.
 ///
 /// **Transport-freeze posture.** This trait adds no new channels, no
 /// new queues, and no new worker threads. It is a thin doctrine layer
@@ -304,8 +302,8 @@ impl std::error::Error for CommandError {}
 /// matching [`SessionStateSource`]. The owned
 /// [`StandaloneCommandHandle`] inherits `Send` from
 /// `mpsc::Sender + Arc` but is **not** `Sync` because of
-/// `mpsc::Sender`'s single-producer-cell. The Vizia Phase 1 spike
-/// runs all widget callbacks on the UI thread, so `Sync` is not
+/// `mpsc::Sender`'s single-producer-cell. The current `egui` GUI runs
+/// all widget callbacks on the UI thread, so `Sync` is not
 /// load-bearing.
 ///
 /// **Clamping.** `set_macro` clamps to `[0.0, 1.0]` and
