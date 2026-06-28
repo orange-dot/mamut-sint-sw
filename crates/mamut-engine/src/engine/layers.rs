@@ -17,7 +17,7 @@ impl Engine {
             let Some(voice) = self.gfm_layer_voice.as_mut() else {
                 return (left, right);
             };
-            voice.next_sample_with_live_pressure(pressure)
+            voice.next_sample_with_live_control(pressure, effective_amount)
         };
         if effective_amount <= f32::EPSILON {
             self.finish_pending_auto_disarm_if_silent();

@@ -115,18 +115,15 @@ impl eframe::App for PerformanceApp {
                 }
                 match self.selected_tab {
                     PerformanceTab::Pc4 => self.render_pc4_tab(ui),
-                    PerformanceTab::Live
-                    | PerformanceTab::SoundLab
-                    | PerformanceTab::Engine
-                    | PerformanceTab::Debug => {
+                    PerformanceTab::SoundLab => self.render_sound_lab_tab(ui, ctx),
+                    PerformanceTab::Live | PerformanceTab::Engine | PerformanceTab::Debug => {
                         egui::ScrollArea::vertical()
                             .auto_shrink([false, false])
                             .show(ui, |ui| match self.selected_tab {
                                 PerformanceTab::Live => self.render_live_tab(ui, ctx),
-                                PerformanceTab::SoundLab => self.render_sound_lab_tab(ui, ctx),
                                 PerformanceTab::Engine => self.render_engine_tab(ui, ctx),
                                 PerformanceTab::Debug => self.render_debug_tab(ui),
-                                PerformanceTab::Pc4 => unreachable!(),
+                                PerformanceTab::SoundLab | PerformanceTab::Pc4 => unreachable!(),
                             });
                     }
                 }

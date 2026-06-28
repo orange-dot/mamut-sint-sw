@@ -1,9 +1,7 @@
 use super::*;
 
 impl PerformanceApp {
-    pub(crate) fn render_sound_lab_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        self.render_header(ui);
-        ui.add_space(12.0);
+    pub(crate) fn render_sound_lab_tab(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         let input = self.session.input_metrics_snapshot();
         let controller_profile = self.session.controller_profile.clone();
         let active_source =
@@ -17,27 +15,28 @@ impl PerformanceApp {
             return;
         };
 
-        self.render_sound_lab_export_panel(ui, &snapshot);
-        ui.add_space(12.0);
-        self.render_sound_lab_identity_panel(ui, &snapshot);
-        ui.add_space(12.0);
+        self.render_sound_lab_control_strip(
+            ui,
+            &snapshot,
+            input.last_control.as_ref(),
+            active_source,
+        );
+        ui.add_space(6.0);
         self.render_sound_lab_page_selector(ui);
-        ui.add_space(12.0);
-        self.render_sound_lab_midi_focus_panel(ui, input.last_control.as_ref(), active_source);
-        ui.add_space(12.0);
+        ui.add_space(6.0);
         self.render_sound_lab_page_content(ui, &snapshot, active_source);
-        ui.add_space(12.0);
-        self.render_footer(ui, ctx);
     }
 
     pub(crate) fn render_sound_lab_page_selector(&mut self, ui: &mut egui::Ui) {
-        epm_frame(epm_panel_deep()).show(ui, |ui| {
+        compact_epm_frame(epm_panel_deep()).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                for page in SoundLabPage::ALL {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for (slot, page) in SoundLabPage::ALL.iter().copied().enumerate() {
+                    let label = format!("SW{} {}", slot + 1, page.label());
                     if ui
                         .add_sized(
-                            [118.0, 34.0],
-                            epm_command_button(page.label(), false, self.sound_lab_page == page),
+                            [104.0, 28.0],
+                            epm_command_button(&label, false, self.sound_lab_page == page),
                         )
                         .clicked()
                     {
@@ -48,27 +47,38 @@ impl PerformanceApp {
         });
     }
 
-    pub(crate) fn render_sound_lab_midi_focus_panel(
-        &self,
+    pub(crate) fn render_sound_lab_control_strip(
+        &mut self,
         ui: &mut egui::Ui,
+        snapshot: &EngineSnapshot,
         last_control: Option<&LastControlEvent>,
         active_source: Option<SoundLabMidiSource>,
     ) {
-        epm_frame(epm_panel()).show(ui, |ui| {
+        let fallback_name = format!("{} Lab", snapshot.patch_name);
+        compact_epm_frame(epm_panel()).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                render_metric_tile(
+                ui.spacing_mut().item_spacing.x = 6.0;
+                render_metric_tile_sized(
                     ui,
                     true,
-                    "MIDI FOCUS",
-                    "Sound Lab",
+                    "PAGE",
                     self.sound_lab_page.label(),
+                    "SW1-SW9",
+                    104.0,
                 );
                 if let Some(event) = last_control.filter(|event| event_is_recent(event)) {
-                    render_metric_tile(ui, true, "LATEST", &event.label, &event.action);
+                    render_metric_tile_sized(
+                        ui,
+                        true,
+                        "LATEST",
+                        &event.label,
+                        &event.action,
+                        132.0,
+                    );
                 } else {
-                    render_metric_tile(ui, false, "LATEST", "none", "idle");
+                    render_metric_tile_sized(ui, false, "LATEST", "none", "idle", 92.0);
                 }
-                render_metric_tile(
+                render_metric_tile_sized(
                     ui,
                     active_source.is_some(),
                     "ACTIVE",
@@ -76,12 +86,109 @@ impl PerformanceApp {
                         .map(|source| source.badge())
                         .as_deref()
                         .unwrap_or("-"),
-                    "pc4 source",
+                    "pc4",
+                    76.0,
                 );
-                render_metric_tile(ui, false, "PAGE MAP", "K1-K7 K9", "primary controls");
-                render_metric_tile(ui, false, "PAGE MAP", "S1-S8", "secondary controls");
-                render_metric_tile(ui, false, "PAGE MACRO", "MW", "current page");
-                render_metric_tile(ui, false, "GLOBAL", "K8 S9 SW9", "layers stay live");
+                render_metric_tile_sized(
+                    ui,
+                    false,
+                    "HORIZ",
+                    &format!("{:.2}", snapshot.identity.horizont_open),
+                    &format!("air {:.2}", snapshot.identity.horizont_air),
+                    86.0,
+                );
+                render_metric_tile_sized(
+                    ui,
+                    false,
+                    "PEC",
+                    &format!("{:.2}", snapshot.identity.pec_mass),
+                    &format!("heat {:.2}", snapshot.identity.pec_heat),
+                    82.0,
+                );
+                render_metric_tile_sized(
+                    ui,
+                    false,
+                    "BAKLJA",
+                    &format!("{:.2}", snapshot.identity.baklja_ready),
+                    &format!("edge {:.2}", snapshot.identity.baklja_edge),
+                    88.0,
+                );
+                render_metric_tile_sized(
+                    ui,
+                    false,
+                    "BEND",
+                    &format!("{} st", snapshot.performance_response.bend_range_semitones),
+                    "range",
+                    76.0,
+                );
+                render_metric_tile_sized(
+                    ui,
+                    snapshot.gfm_layer.effective_amount > 0.001,
+                    "GFM",
+                    match snapshot.gfm_layer.mode {
+                        GfmLayerMode::Enabled { .. } => "on",
+                        GfmLayerMode::Disabled => "off",
+                    },
+                    &format!("{:.2}", snapshot.gfm_layer.effective_amount),
+                    72.0,
+                );
+                render_metric_tile_sized(
+                    ui,
+                    snapshot.bcs_layer.effective_gain > 0.001,
+                    "BCS",
+                    match snapshot.bcs_layer.mode {
+                        BcsLayerMode::Enabled { .. } => "on",
+                        BcsLayerMode::Disabled => "off",
+                    },
+                    &format!("{:.2}", snapshot.bcs_layer.effective_gain),
+                    72.0,
+                );
+                render_metric_tile_sized(
+                    ui,
+                    snapshot.clip_detected,
+                    "PEAK",
+                    &format!("{:.3}", snapshot.peak_output),
+                    if snapshot.clip_detected {
+                        "clip"
+                    } else {
+                        "clean"
+                    },
+                    86.0,
+                );
+                if ui
+                    .add_sized([72.0, 28.0], epm_command_button("PANIC", true, false))
+                    .clicked()
+                {
+                    self.run_action(|session| session.panic(), "panic");
+                }
+                if ui
+                    .add_sized([88.0, 28.0], epm_command_button("RESET", false, false))
+                    .clicked()
+                {
+                    self.run_action(|session| session.reset_controllers(), "reset controllers");
+                }
+                if ui
+                    .add_sized([78.0, 28.0], epm_command_button("EXPORT", false, false))
+                    .clicked()
+                {
+                    let requested_name = self.sound_lab_export_name.clone();
+                    match self.session.export_sound_lab_patch(&requested_name) {
+                        Ok(path) => {
+                            self.last_status_message =
+                                Some(format!("sound lab export -> {}", path.display()));
+                        }
+                        Err(error) => {
+                            self.last_status_message =
+                                Some(format!("sound lab export failed: {error}"));
+                        }
+                    }
+                }
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.sound_lab_export_name)
+                        .desired_width(140.0)
+                        .hint_text(fallback_name)
+                        .font(egui::TextStyle::Monospace),
+                );
             });
         });
     }
@@ -103,14 +210,14 @@ impl PerformanceApp {
             sound_lab_page_knob_bindings(self.sound_lab_page),
             active_source,
         );
-        ui.add_space(6.0);
+        ui.add_space(4.0);
         self.render_sound_lab_slider_bank(
             ui,
             sound_lab_page_slider_bindings(self.sound_lab_page),
             snapshot,
             active_source,
         );
-        ui.add_space(6.0);
+        ui.add_space(4.0);
         self.render_sound_lab_mod_wheel_panel(ui, snapshot, self.sound_lab_page, active_source);
     }
 
@@ -133,8 +240,8 @@ impl PerformanceApp {
             }
 
             let count = bindings.len().max(1) as f32;
-            let spacing = 8.0;
-            let width = ((ui.available_width() - spacing * (count - 1.0)) / count).max(78.0);
+            let spacing = 6.0;
+            let width = ((ui.available_width() - spacing * (count - 1.0)) / count).max(66.0);
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = spacing;
                 for binding in bindings {
@@ -143,7 +250,7 @@ impl PerformanceApp {
                         snapshot,
                         *binding,
                         active_source == Some(binding.source),
-                        egui::vec2(width, 124.0),
+                        egui::vec2(width, 94.0),
                     );
                 }
             });
@@ -169,8 +276,8 @@ impl PerformanceApp {
             }
 
             let count = bindings.len().max(1) as f32;
-            let spacing = 8.0;
-            let width = ((ui.available_width() - spacing * (count - 1.0)) / count).max(78.0);
+            let spacing = 6.0;
+            let width = ((ui.available_width() - spacing * (count - 1.0)) / count).max(66.0);
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = spacing;
                 for binding in bindings {
@@ -181,7 +288,7 @@ impl PerformanceApp {
                             snapshot,
                             *binding,
                             active_source == Some(binding.source),
-                            egui::vec2(width, 204.0),
+                            egui::vec2(width, 124.0),
                         );
                     } else {
                         self.render_sound_lab_slider(
@@ -189,7 +296,7 @@ impl PerformanceApp {
                             snapshot,
                             *binding,
                             active_source == Some(binding.source),
-                            egui::vec2(width, 204.0),
+                            egui::vec2(width, 124.0),
                         );
                     }
                 }
@@ -219,140 +326,9 @@ impl PerformanceApp {
                         snapshot,
                         *id,
                         active_source == Some(SoundLabMidiSource::ModWheel),
-                        egui::vec2(154.0, 58.0),
+                        egui::vec2(126.0, 46.0),
                     );
                 }
-            });
-        });
-    }
-
-    pub(crate) fn render_sound_lab_export_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        snapshot: &EngineSnapshot,
-    ) {
-        let fallback_name = format!("{} Lab", snapshot.patch_name);
-        epm_frame(epm_panel()).show(ui, |ui| {
-            ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(epm_eyebrow("SOUND LAB"));
-                    ui.label(epm_heading("Runtime Color Cockpit"));
-                    ui.label(epm_body(format!("export copy fallback: {fallback_name}")));
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    if ui
-                        .add(epm_command_button("EXPORT COPY", false, false))
-                        .clicked()
-                    {
-                        let requested_name = self.sound_lab_export_name.clone();
-                        match self.session.export_sound_lab_patch(&requested_name) {
-                            Ok(path) => {
-                                self.last_status_message =
-                                    Some(format!("sound lab export -> {}", path.display()));
-                            }
-                            Err(error) => {
-                                self.last_status_message =
-                                    Some(format!("sound lab export failed: {error}"));
-                            }
-                        }
-                    }
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.sound_lab_export_name)
-                            .desired_width(230.0)
-                            .hint_text(fallback_name)
-                            .font(egui::TextStyle::Monospace),
-                    );
-                });
-            });
-            ui.add_space(8.0);
-            ui.horizontal_wrapped(|ui| {
-                render_metric_tile(ui, false, "PATCH", &snapshot.patch_name, "runtime");
-                render_metric_tile(
-                    ui,
-                    snapshot.gfm_layer.effective_amount > 0.001,
-                    "GFM",
-                    match snapshot.gfm_layer.mode {
-                        GfmLayerMode::Enabled { .. } => "enabled",
-                        GfmLayerMode::Disabled => "disabled",
-                    },
-                    &format!("amount {:.2}", snapshot.gfm_layer.effective_amount),
-                );
-                render_metric_tile(
-                    ui,
-                    snapshot.bcs_layer.effective_gain > 0.001,
-                    "BCS",
-                    match snapshot.bcs_layer.mode {
-                        BcsLayerMode::Enabled { .. } => "enabled",
-                        BcsLayerMode::Disabled => "disabled",
-                    },
-                    &format!("gain {:.2}", snapshot.bcs_layer.effective_gain),
-                );
-                render_metric_tile(
-                    ui,
-                    snapshot.clip_detected,
-                    "PEAK",
-                    &format!("{:.3}", snapshot.peak_output),
-                    if snapshot.clip_detected {
-                        "clip"
-                    } else {
-                        "clean"
-                    },
-                );
-            });
-        });
-    }
-
-    pub(crate) fn render_sound_lab_identity_panel(
-        &self,
-        ui: &mut egui::Ui,
-        snapshot: &EngineSnapshot,
-    ) {
-        epm_frame(epm_panel_deep()).show(ui, |ui| {
-            ui.label(epm_eyebrow("IDENTITY"));
-            ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                render_metric_tile(
-                    ui,
-                    false,
-                    "HORIZONT",
-                    &format!("{:.2}", snapshot.identity.horizont_open),
-                    &format!("air {:.2}", snapshot.identity.horizont_air),
-                );
-                render_metric_tile(
-                    ui,
-                    false,
-                    "PEC",
-                    &format!("{:.2}", snapshot.identity.pec_mass),
-                    &format!("heat {:.2}", snapshot.identity.pec_heat),
-                );
-                render_metric_tile(
-                    ui,
-                    false,
-                    "BAKLJA",
-                    &format!("{:.2}", snapshot.identity.baklja_ready),
-                    &format!("edge {:.2}", snapshot.identity.baklja_edge),
-                );
-                render_metric_tile(
-                    ui,
-                    false,
-                    "GRAVITY",
-                    &format!("{:.2}", snapshot.identity.grav_pull),
-                    &format!("mass {:.2}", snapshot.derived.mass),
-                );
-                render_metric_tile(
-                    ui,
-                    false,
-                    "STRAIN",
-                    &format!("{:.2}", snapshot.derived.strain),
-                    &format!("threshold {:.2}", snapshot.derived.rupture_threshold),
-                );
-                render_metric_tile(
-                    ui,
-                    false,
-                    "BEND",
-                    &format!("{} st", snapshot.performance_response.bend_range_semitones),
-                    "readout",
-                );
             });
         });
     }
@@ -374,9 +350,9 @@ impl PerformanceApp {
         let active = highlighted || response.hovered() || response.dragged();
         draw_pc4_control_shell(&painter, rect, active);
 
-        let center = egui::pos2(rect.center().x, rect.top() + 48.0);
-        let radius = (rect.width().min(rect.height()) * 0.26).clamp(22.0, 34.0);
-        painter.circle_stroke(center, radius, egui::Stroke::new(5.0, epm_stroke().color));
+        let center = egui::pos2(rect.center().x, rect.top() + 35.0);
+        let radius = (rect.width().min(rect.height()) * 0.24).clamp(17.0, 25.0);
+        painter.circle_stroke(center, radius, egui::Stroke::new(4.0, epm_stroke().color));
         let marker_angle = pc4_knob_angle(display.normalized);
         draw_arc(
             &painter,
@@ -384,11 +360,11 @@ impl PerformanceApp {
             radius,
             PC4_KNOB_START_ANGLE,
             marker_angle,
-            egui::Stroke::new(5.0, if active { epm_ok() } else { epm_orange() }),
+            egui::Stroke::new(4.0, if active { epm_ok() } else { epm_orange() }),
         );
         let marker = egui::pos2(
-            center.x + marker_angle.cos() * (radius - 5.0),
-            center.y + marker_angle.sin() * (radius - 5.0),
+            center.x + marker_angle.cos() * (radius - 4.0),
+            center.y + marker_angle.sin() * (radius - 4.0),
         );
         painter.line_segment(
             [center, marker],
@@ -398,21 +374,14 @@ impl PerformanceApp {
         draw_centered_text(
             &painter,
             rect,
-            10.0,
+            6.0,
             &binding.source.badge(),
-            11.0,
+            10.0,
             epm_orange(),
         );
-        draw_centered_text(
-            &painter,
-            rect,
-            82.0,
-            &display.short_action,
-            10.0,
-            epm_cyan(),
-        );
-        draw_centered_text(&painter, rect, 98.0, &display.value, 13.0, epm_text());
-        draw_centered_text(&painter, rect, 114.0, "drag", 9.0, epm_muted());
+        draw_centered_text(&painter, rect, 61.0, &display.short_action, 9.0, epm_cyan());
+        draw_centered_text(&painter, rect, 75.0, &display.value, 12.0, epm_text());
+        draw_centered_text(&painter, rect, 88.0, "drag", 8.0, epm_muted());
 
         if (response.dragged() || response.clicked())
             && let Some(pointer) = response.interact_pointer_pos()
@@ -442,15 +411,15 @@ impl PerformanceApp {
         let active = highlighted || response.hovered() || response.dragged();
         draw_pc4_control_shell(&painter, rect, active);
 
-        let track_top = rect.top() + 36.0;
-        let track_bottom = rect.bottom() - 48.0;
+        let track_top = rect.top() + 30.0;
+        let track_bottom = rect.bottom() - 38.0;
         let track_x = rect.center().x;
         painter.line_segment(
             [
                 egui::pos2(track_x, track_top),
                 egui::pos2(track_x, track_bottom),
             ],
-            egui::Stroke::new(8.0, epm_stroke().color),
+            egui::Stroke::new(6.0, epm_stroke().color),
         );
         let handle_y = track_bottom - display.normalized * (track_bottom - track_top);
         painter.line_segment(
@@ -458,10 +427,10 @@ impl PerformanceApp {
                 egui::pos2(track_x, handle_y),
                 egui::pos2(track_x, track_bottom),
             ],
-            egui::Stroke::new(8.0, if active { epm_ok() } else { epm_orange() }),
+            egui::Stroke::new(6.0, if active { epm_ok() } else { epm_orange() }),
         );
         let handle =
-            egui::Rect::from_center_size(egui::pos2(track_x, handle_y), egui::vec2(36.0, 10.0));
+            egui::Rect::from_center_size(egui::pos2(track_x, handle_y), egui::vec2(30.0, 8.0));
         painter.rect_filled(handle, egui::CornerRadius::same(2), epm_text());
         painter.rect_stroke(
             handle,
@@ -473,33 +442,26 @@ impl PerformanceApp {
         draw_centered_text(
             &painter,
             rect,
-            10.0,
+            6.0,
             &binding.source.badge(),
-            11.0,
+            10.0,
             epm_orange(),
         );
+        draw_centered_text(&painter, rect, 19.0, &display.short_action, 9.0, epm_cyan());
         draw_centered_text(
             &painter,
             rect,
-            24.0,
-            &display.short_action,
-            10.0,
-            epm_cyan(),
-        );
-        draw_centered_text(
-            &painter,
-            rect,
-            rect.height() - 34.0,
+            rect.height() - 29.0,
             &display.value,
-            13.0,
+            12.0,
             epm_text(),
         );
         draw_centered_text(
             &painter,
             rect,
-            rect.height() - 18.0,
+            rect.height() - 15.0,
             "drag",
-            9.0,
+            8.0,
             epm_muted(),
         );
 
@@ -533,56 +495,49 @@ impl PerformanceApp {
         draw_pc4_control_shell(&painter, rect, active);
 
         let switch_rect = egui::Rect::from_center_size(
-            egui::pos2(rect.center().x, rect.top() + 78.0),
-            egui::vec2((rect.width() - 24.0).clamp(42.0, 76.0), 18.0),
+            egui::pos2(rect.center().x, rect.top() + 54.0),
+            egui::vec2((rect.width() - 22.0).clamp(38.0, 68.0), 16.0),
         );
-        painter.rect_filled(switch_rect, egui::CornerRadius::same(9), epm_panel());
+        painter.rect_filled(switch_rect, egui::CornerRadius::same(8), epm_panel());
         painter.rect_stroke(
             switch_rect,
-            egui::CornerRadius::same(9),
+            egui::CornerRadius::same(8),
             epm_stroke(),
             egui::StrokeKind::Inside,
         );
         let knob_x = if display.normalized >= 0.5 || active {
-            switch_rect.right() - 10.0
+            switch_rect.right() - 9.0
         } else {
-            switch_rect.left() + 10.0
+            switch_rect.left() + 9.0
         };
         painter.circle_filled(
             egui::pos2(knob_x, switch_rect.center().y),
-            7.0,
+            6.0,
             if active { epm_ok() } else { epm_orange_dim() },
         );
         draw_centered_text(
             &painter,
             rect,
-            10.0,
+            6.0,
             &binding.source.badge(),
-            11.0,
+            10.0,
             epm_orange(),
         );
+        draw_centered_text(&painter, rect, 23.0, &display.short_action, 9.0, epm_cyan());
         draw_centered_text(
             &painter,
             rect,
-            30.0,
-            &display.short_action,
-            10.0,
-            epm_cyan(),
-        );
-        draw_centered_text(
-            &painter,
-            rect,
-            rect.height() - 34.0,
+            rect.height() - 29.0,
             &display.value,
-            13.0,
+            12.0,
             epm_text(),
         );
         draw_centered_text(
             &painter,
             rect,
-            rect.height() - 18.0,
+            rect.height() - 15.0,
             "click",
-            9.0,
+            8.0,
             epm_muted(),
         );
 
@@ -611,16 +566,9 @@ impl PerformanceApp {
         let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
         draw_pc4_control_shell(&painter, rect, highlighted);
-        draw_centered_text(&painter, rect, 8.0, "MW", 11.0, epm_orange());
-        draw_centered_text(
-            &painter,
-            rect,
-            23.0,
-            &display.short_action,
-            10.0,
-            epm_cyan(),
-        );
-        draw_centered_text(&painter, rect, 39.0, &display.value, 13.0, epm_text());
+        draw_centered_text(&painter, rect, 6.0, "MW", 10.0, epm_orange());
+        draw_centered_text(&painter, rect, 20.0, &display.short_action, 9.0, epm_cyan());
+        draw_centered_text(&painter, rect, 34.0, &display.value, 12.0, epm_text());
     }
 
     pub(crate) fn send_sound_lab_param(&mut self, id: ParamId, value: f32) {

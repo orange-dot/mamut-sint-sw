@@ -1,4 +1,5 @@
 /target
+/.cross/
 /runs/
 /.pdf-extract/
 .codex/

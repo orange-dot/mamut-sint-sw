@@ -7,6 +7,7 @@ use mamut_dsp::{
     oscillator_preview_sample, sanitize_sample, sine_phase_sample, soft_clip,
     spectral_wavetable_sample,
 };
+pub use mamut_field::GfmPerformanceControls;
 pub use mamut_field::bcs::BcsScenario;
 use mamut_field::{
     GfmDiagnostics, GfmExcitation, GfmLattice16, GfmPerformanceGesture, GfmPerformanceProgram,
@@ -18,8 +19,8 @@ use mamut_identity::{
 };
 use mamut_params::{MacroId, ParamId, param_spec};
 use mamut_patch::{
-    CrossMixMode, FilterModel, ModDirection, NoiseColor, Osc2PitchMode, OscPhaseMode, PatchFileV1,
-    PatchValidationError, SpectralTable, validate_patch_v1,
+    CrossMixMode, FilterModel, GfmPatch, GfmPatchProgram, ModDirection, NoiseColor, Osc2PitchMode,
+    OscPhaseMode, PatchFileV1, PatchValidationError, SpectralTable, validate_patch_v1,
 };
 
 mod api;

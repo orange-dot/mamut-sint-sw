@@ -71,7 +71,7 @@ cargo run -p mamut-standalone -- list-factory
 cargo run -p mamut-standalone -- list-audio
 cargo run -p mamut-standalone -- list-midi
 tools/run-pc4-ag03.sh molten-horizon
-tools/run-pc4-ag03.sh --midi-channel 1 molten-horizon
+tools/run-pc4-ag03.sh --midi-channel 2 molten-horizon
 tools/run-pc4-ag03.sh --trace-midi molten-horizon
 PC4GEN_ROOT=/path/to/pc4gen PC4GEN_PROFILE=/path/to/profile.json tools/run-pc4gen-consumer-smoke.sh --audio-device hw:<card>,<device>
 cargo run -p mamut-standalone -- validate patches/factory/molten-horizon.toml

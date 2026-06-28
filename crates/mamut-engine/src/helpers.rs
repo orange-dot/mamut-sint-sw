@@ -62,7 +62,7 @@ pub(crate) fn filter_model_index(model: FilterModel) -> f32 {
     match model {
         FilterModel::Legacy => 0.0,
         FilterModel::TptClean => 1.0,
-        FilterModel::MatterDriven => 2.0,
+        FilterModel::NonlinearResonant => 2.0,
     }
 }
 

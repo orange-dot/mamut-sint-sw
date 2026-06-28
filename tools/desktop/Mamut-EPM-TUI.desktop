@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Mamut EPM TUI
+Comment=Launch Mamut EPM1 terminal performance rig
+Path=/home/dev/work-base-20260421/workspace/systems/mamut-sint-sw-remote-up-21-4
+Exec=/home/dev/work-base-20260421/workspace/systems/mamut-sint-sw-remote-up-21-4/tools/launch-mamut-tui-desktop.sh
+TryExec=/home/dev/work-base-20260421/workspace/systems/mamut-sint-sw-remote-up-21-4/tools/launch-mamut-tui-desktop.sh
+Icon=utilities-terminal
+Terminal=true
+Categories=AudioVideo;Audio;Midi;Music;
+StartupNotify=true

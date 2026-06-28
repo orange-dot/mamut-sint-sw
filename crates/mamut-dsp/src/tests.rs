@@ -434,7 +434,7 @@ fn tpt_svf_outputs_stay_finite_under_modulation() {
 
 #[test]
 fn resonant_matter_filter_stays_finite_and_bounded() {
-    let mut filter = ResonantMatterFilter::new();
+    let mut filter = NonlinearResonantSvf::new();
     for step in 0..16_000 {
         let phase = step as f32 * 0.023;
         let sample = filter.process(

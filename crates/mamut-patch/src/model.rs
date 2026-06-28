@@ -39,6 +39,8 @@ pub struct EnginePatchDefaults {
     pub spectral: SpectralPatch,
     #[serde(default)]
     pub additive: AdditivePatch,
+    #[serde(default)]
+    pub gfm: GfmPatch,
     #[serde(default = "default_source_pwm_rate_hz")]
     pub source_pwm_rate_hz: f32,
     #[serde(default)]
@@ -262,6 +264,55 @@ pub enum CrossMixMode {
     Difference,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GfmPatch {
+    #[serde(default)]
+    pub program: GfmPatchProgram,
+    #[serde(default = "default_gfm_depth")]
+    pub depth: f32,
+    #[serde(default = "default_gfm_heat")]
+    pub heat: f32,
+    #[serde(default = "default_gfm_spread")]
+    pub spread: f32,
+    #[serde(default = "default_gfm_rupture")]
+    pub rupture: f32,
+    #[serde(default = "default_gfm_recovery")]
+    pub recovery: f32,
+    #[serde(default = "default_gfm_motion")]
+    pub motion: f32,
+    #[serde(default = "default_gfm_body")]
+    pub body: f32,
+    #[serde(default = "default_gfm_brightness")]
+    pub brightness: f32,
+}
+
+impl Default for GfmPatch {
+    fn default() -> Self {
+        Self {
+            program: GfmPatchProgram::Auto,
+            depth: default_gfm_depth(),
+            heat: default_gfm_heat(),
+            spread: default_gfm_spread(),
+            rupture: default_gfm_rupture(),
+            recovery: default_gfm_recovery(),
+            motion: default_gfm_motion(),
+            body: default_gfm_body(),
+            brightness: default_gfm_brightness(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GfmPatchProgram {
+    #[default]
+    Auto,
+    Horizont,
+    Pec,
+    Baklja,
+}
+
 fn default_half() -> f32 {
     0.5
 }
@@ -276,6 +327,38 @@ fn default_source_pwm_rate_hz() -> f32 {
 
 fn default_additive_partial_count() -> u8 {
     6
+}
+
+fn default_gfm_depth() -> f32 {
+    0.55
+}
+
+fn default_gfm_heat() -> f32 {
+    0.35
+}
+
+fn default_gfm_spread() -> f32 {
+    0.50
+}
+
+fn default_gfm_rupture() -> f32 {
+    0.25
+}
+
+fn default_gfm_recovery() -> f32 {
+    0.55
+}
+
+fn default_gfm_motion() -> f32 {
+    0.35
+}
+
+fn default_gfm_body() -> f32 {
+    0.50
+}
+
+fn default_gfm_brightness() -> f32 {
+    0.45
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -309,7 +392,11 @@ pub enum FilterModel {
     #[default]
     Legacy,
     TptClean,
-    MatterDriven,
+    // Wire string pinned to `matter_driven` for back-compat with shipped factory
+    // patches (e.g. cathedral-bloom). The Rust identifier names the DSP honestly:
+    // a nonlinear resonant SVF (see mamut-dsp `NonlinearResonantSvf`).
+    #[serde(rename = "matter_driven")]
+    NonlinearResonant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

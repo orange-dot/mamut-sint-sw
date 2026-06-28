@@ -180,9 +180,16 @@ fn sound_lab_pc4_source_detection_matches_profile_surface() {
         sound_lab_source_for_cc(1, Some(&profile)),
         Some(SoundLabMidiSource::ModWheel)
     );
+    assert_eq!(
+        sound_lab_source_for_cc(80, Some(&profile)),
+        Some(SoundLabMidiSource::Switch(1))
+    );
+    assert_eq!(
+        sound_lab_source_for_cc(90, Some(&profile)),
+        Some(SoundLabMidiSource::Switch(9))
+    );
     assert_eq!(sound_lab_source_for_cc(3, Some(&profile)), None);
     assert_eq!(sound_lab_source_for_cc(28, Some(&profile)), None);
-    assert_eq!(sound_lab_source_for_cc(90, Some(&profile)), None);
     assert_eq!(sound_lab_source_for_cc(64, Some(&profile)), None);
 }
 
@@ -275,6 +282,57 @@ fn sound_lab_overlay_is_inactive_without_focus() {
         sound_lab_midi_overlay_events(&[0xB0, 71, 127], Some(&profile), None),
         None
     );
+    assert_eq!(
+        sound_lab_midi_overlay_events(&[0xB0, 90, 127], Some(&profile), None),
+        None
+    );
+}
+
+#[test]
+fn sound_lab_switch_overlay_selects_pages_when_focus_is_active() {
+    let profile = pc4_full_profile();
+
+    for page in SoundLabPage::ALL {
+        let switch_index = page as u8 + 1;
+        let cc = profile
+            .bindings_by_cc
+            .values()
+            .find(|binding| {
+                binding.section == ControllerBindingSection::Switch
+                    && binding.index == Some(switch_index)
+            })
+            .unwrap_or_else(|| panic!("missing SW{switch_index} profile binding"))
+            .cc;
+
+        let overlay = sound_lab_midi_overlay_events(
+            &[0xB0, cc, 127],
+            Some(&profile),
+            Some(SoundLabPage::Osc1),
+        )
+        .unwrap_or_else(|| panic!("SW{switch_index} should select {}", page.label()));
+
+        assert_eq!(overlay.page, SoundLabPage::Osc1);
+        assert_eq!(overlay.source, SoundLabMidiSource::Switch(switch_index));
+        assert_eq!(overlay.page_select, Some(page));
+        assert_eq!(overlay.iter().count(), 0);
+        assert_eq!(
+            sound_lab_midi_overlay_events(&[0xB0, cc, 0], Some(&profile), Some(page)),
+            None
+        );
+    }
+}
+
+#[test]
+fn sound_lab_midi_focus_page_request_is_single_consumer() {
+    let focus = SoundLabMidiFocus::default();
+
+    assert_eq!(focus.take_page_request(), None);
+    focus.request_page(SoundLabPage::Motion);
+    assert_eq!(focus.take_page_request(), Some(SoundLabPage::Motion));
+    assert_eq!(focus.take_page_request(), None);
+
+    focus.set(Some(SoundLabPage::Osc2));
+    assert_eq!(focus.page(), Some(SoundLabPage::Osc2));
 }
 
 #[test]
@@ -283,7 +341,6 @@ fn sound_lab_overlay_leaves_global_controls_unclaimed() {
     for message in [
         [0xB0, 3, 127],  // K8 GFM gate
         [0xB0, 28, 127], // S9 BCS gain
-        [0xB0, 90, 127], // SW9 BCS enable
         [0xB0, 64, 127], // sustain
         [0x90, 60, 100], // note on
     ] {

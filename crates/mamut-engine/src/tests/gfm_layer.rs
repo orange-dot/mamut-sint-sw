@@ -45,8 +45,8 @@ fn gfm_layer_gate_without_aftertouch_does_not_auto_arm() {
     let snapshot = engine.snapshot();
 
     assert_eq!(snapshot.gfm_layer.mode, GfmLayerMode::Disabled);
-    assert_eq!(snapshot.gfm_layer.amount, 0.0);
-    assert_eq!(snapshot.gfm_layer.pressure, 0.65);
+    assert_eq!(snapshot.gfm_layer.amount, 0.65);
+    assert_eq!(snapshot.gfm_layer.pressure, 0.0);
     assert_eq!(snapshot.gfm_layer.effective_amount, 0.0);
     assert_eq!(snapshot.gfm_layer.active_program_id, None);
     assert!(snapshot.gfm_layer.diagnostics.is_none());
@@ -109,7 +109,8 @@ fn gfm_layer_gate_zero_disarms_auto_armed_layer_after_release() {
     let snapshot = engine.snapshot();
 
     assert_eq!(snapshot.gfm_layer.mode, GfmLayerMode::Disabled);
-    assert_eq!(snapshot.gfm_layer.pressure, 0.0);
+    assert_eq!(snapshot.gfm_layer.amount, 0.0);
+    assert_eq!(snapshot.gfm_layer.pressure, 0.72);
     assert_eq!(snapshot.gfm_layer.effective_amount, 0.0);
     assert_eq!(snapshot.gfm_layer.active_program_id, None);
     assert!(snapshot.gfm_layer.diagnostics.is_none());
@@ -379,8 +380,8 @@ fn gfm_layer_enable_clears_stale_momentary_controls_without_clearing_aftertouch_
         output: None,
     });
     let before = engine.snapshot();
-    assert_eq!(before.gfm_layer.amount, 0.72);
-    assert_eq!(before.gfm_layer.pressure, 1.0);
+    assert_eq!(before.gfm_layer.amount, 1.0);
+    assert_eq!(before.gfm_layer.pressure, 0.72);
     assert!(before.effective_macros.gravitacija > before.live_macros.gravitacija);
 
     engine.set_gfm_layer_mode(GfmLayerMode::Enabled {
@@ -536,14 +537,164 @@ fn gfm_layer_amount_zero_mutes_layer_without_disabling_voice() {
         muted_stats.peak_abs.to_bits(),
         baseline_stats.peak_abs.to_bits()
     );
-    assert_eq!(snapshot.gfm_layer.amount, 0.85);
-    assert_eq!(snapshot.gfm_layer.pressure, 0.0);
+    assert_eq!(snapshot.gfm_layer.amount, 0.0);
+    assert_eq!(snapshot.gfm_layer.pressure, 0.85);
     assert_eq!(snapshot.gfm_layer.effective_amount, 0.0);
     assert_eq!(
         snapshot.gfm_layer.active_program_id,
         Some(GfmProgramId::HorizontPerformance)
     );
     assert!(snapshot.gfm_layer.diagnostics.is_some());
+}
+
+#[derive(Clone, Copy)]
+struct GfmLiveSweepScenario {
+    amount: f32,
+    pressure: f32,
+}
+
+const GFM_LIVE_LOW: GfmLiveSweepScenario = GfmLiveSweepScenario {
+    amount: 0.34,
+    pressure: 0.32,
+};
+const GFM_LIVE_MID: GfmLiveSweepScenario = GfmLiveSweepScenario {
+    amount: 0.68,
+    pressure: 0.62,
+};
+const GFM_LIVE_HIGH: GfmLiveSweepScenario = GfmLiveSweepScenario {
+    amount: 1.0,
+    pressure: 0.90,
+};
+
+fn render_gfm_layer_live_sweep(
+    patch_source: &str,
+    scenario: GfmLiveSweepScenario,
+) -> (u64, EngineLayerRenderStats) {
+    let patch = load_patch_toml(patch_source).expect("factory patch must parse");
+    let note_events = engine_layer_note_on_events(select_gfm_program_for_patch(&patch).program_id);
+    let mut engine = Engine::new(
+        EngineConfig {
+            sample_rate_hz: ENGINE_LAYER_TEST_RATE_HZ as f32,
+            max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+            voice_count: 6,
+        },
+        patch,
+    )
+    .expect("engine must validate");
+    engine.set_gfm_layer_mode(GfmLayerMode::Enabled {
+        seed: GFM_PERFORMANCE_BASELINE_SEED,
+    });
+    let controller_events = [
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::GfmLayerAmount {
+                amount: scenario.amount,
+            },
+        },
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::ChannelAftertouch {
+                pressure: scenario.pressure,
+            },
+        },
+    ];
+
+    render_engine_layer_signature_with_notes_and_controllers(
+        &mut engine,
+        ENGINE_LAYER_TEST_RATE_HZ as usize * 3,
+        note_events,
+        &controller_events,
+    )
+}
+
+fn gfm_live_rupture_profile(stats: EngineLayerRenderStats) -> usize {
+    let diagnostics = stats
+        .gfm_diagnostics
+        .expect("GFM diagnostics must be present");
+    diagnostics.max_rupture_count
+        + diagnostics.health.suspect
+        + diagnostics.health.recovering
+        + diagnostics.health.quarantined
+}
+
+#[test]
+fn gfm_layer_live_sweep_separates_horizont_without_rupture() {
+    let (low_signature, low_stats) = render_gfm_layer_live_sweep(CATHEDRAL_BLOOM, GFM_LIVE_LOW);
+    let (mid_signature, mid_stats) = render_gfm_layer_live_sweep(CATHEDRAL_BLOOM, GFM_LIVE_MID);
+    let (high_signature, high_stats) = render_gfm_layer_live_sweep(CATHEDRAL_BLOOM, GFM_LIVE_HIGH);
+
+    assert_ne!(low_signature, mid_signature);
+    assert_ne!(mid_signature, high_signature);
+    assert!(
+        (high_stats.rms - low_stats.rms).abs() > 0.0001,
+        "low={low_stats:?} high={high_stats:?}"
+    );
+    for stats in [low_stats, mid_stats, high_stats] {
+        let diagnostics = stats
+            .gfm_diagnostics
+            .expect("GFM diagnostics must be present");
+        assert!(stats.finite, "stats={stats:?}");
+        assert!(stats.peak_abs <= MASTER_SAFETY_CEILING, "stats={stats:?}");
+        assert_eq!(
+            stats.gfm_program_id,
+            Some(GfmProgramId::HorizontPerformance)
+        );
+        assert_eq!(diagnostics.max_rupture_count, 0);
+    }
+}
+
+#[test]
+fn gfm_layer_live_sweep_separates_pec_without_rupture() {
+    let (low_signature, low_stats) = render_gfm_layer_live_sweep(EMBER_VAULT, GFM_LIVE_LOW);
+    let (mid_signature, mid_stats) = render_gfm_layer_live_sweep(EMBER_VAULT, GFM_LIVE_MID);
+    let (high_signature, high_stats) = render_gfm_layer_live_sweep(EMBER_VAULT, GFM_LIVE_HIGH);
+
+    assert_ne!(low_signature, mid_signature);
+    assert_ne!(mid_signature, high_signature);
+    assert!(
+        high_stats.rms > low_stats.rms,
+        "low={low_stats:?} high={high_stats:?}"
+    );
+    for stats in [low_stats, mid_stats, high_stats] {
+        let diagnostics = stats
+            .gfm_diagnostics
+            .expect("GFM diagnostics must be present");
+        assert!(stats.finite, "stats={stats:?}");
+        assert!(stats.peak_abs <= MASTER_SAFETY_CEILING, "stats={stats:?}");
+        assert_eq!(stats.gfm_program_id, Some(GfmProgramId::PecPerformance));
+        assert_eq!(diagnostics.max_rupture_count, 0);
+    }
+}
+
+#[test]
+fn gfm_layer_live_sweep_scales_baklja_rupture() {
+    let (low_signature, low_stats) = render_gfm_layer_live_sweep(RAZOR_THAW, GFM_LIVE_LOW);
+    let (mid_signature, mid_stats) = render_gfm_layer_live_sweep(RAZOR_THAW, GFM_LIVE_MID);
+    let (high_signature, high_stats) = render_gfm_layer_live_sweep(RAZOR_THAW, GFM_LIVE_HIGH);
+    let low_ruptures = low_stats
+        .gfm_diagnostics
+        .expect("GFM diagnostics must be present")
+        .max_rupture_count;
+    let mid_ruptures = mid_stats
+        .gfm_diagnostics
+        .expect("GFM diagnostics must be present")
+        .max_rupture_count;
+    let high_ruptures = high_stats
+        .gfm_diagnostics
+        .expect("GFM diagnostics must be present")
+        .max_rupture_count;
+
+    assert_ne!(low_signature, mid_signature);
+    assert_ne!(mid_signature, high_signature);
+    assert!(high_ruptures > 0);
+    assert!(low_ruptures != mid_ruptures || mid_ruptures != high_ruptures);
+    assert!(gfm_live_rupture_profile(high_stats) > gfm_live_rupture_profile(low_stats));
+    assert!(gfm_live_rupture_profile(high_stats) > gfm_live_rupture_profile(mid_stats));
+    for stats in [low_stats, mid_stats, high_stats] {
+        assert!(stats.finite, "stats={stats:?}");
+        assert!(stats.peak_abs <= MASTER_SAFETY_CEILING, "stats={stats:?}");
+        assert_eq!(stats.gfm_program_id, Some(GfmProgramId::BakljaPerformance));
+    }
 }
 
 #[test]
@@ -564,12 +715,35 @@ fn gfm_layer_is_finite_bounded_and_recovery_safe() {
     }
 
     let patch = load_patch_toml(RAZOR_THAW).expect("factory patch must parse");
-    let frames = ENGINE_LAYER_RECOVERY_RATE_HZ as usize * GFM_PERFORMANCE_DURATION_SECONDS;
-    let (_, stats) = render_engine_layer_signature_at_rate(
+    let note_events = engine_layer_note_on_events(select_gfm_program_for_patch(&patch).program_id);
+    let mut engine = Engine::new(
+        EngineConfig {
+            sample_rate_hz: ENGINE_LAYER_RECOVERY_RATE_HZ as f32,
+            max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+            voice_count: 6,
+        },
         patch,
-        Some(GFM_PERFORMANCE_BASELINE_SEED),
-        ENGINE_LAYER_RECOVERY_RATE_HZ,
+    )
+    .expect("engine must validate");
+    engine.set_gfm_layer_mode(GfmLayerMode::Enabled {
+        seed: GFM_PERFORMANCE_BASELINE_SEED,
+    });
+    let frames = ENGINE_LAYER_RECOVERY_RATE_HZ as usize * GFM_PERFORMANCE_DURATION_SECONDS;
+    let controllers = [
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::GfmLayerAmount { amount: 1.0 },
+        },
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::ChannelAftertouch { pressure: 0.9 },
+        },
+    ];
+    let (_, stats) = render_engine_layer_signature_with_notes_and_controllers(
+        &mut engine,
         frames,
+        note_events,
+        &controllers,
     );
     let diagnostics = stats
         .gfm_diagnostics
@@ -611,6 +785,12 @@ fn gfm_layer_snapshot_exposes_mode_selection_program_and_diagnostics() {
     assert_eq!(
         snapshot.gfm_layer.active_program_id,
         Some(GfmProgramId::PecPerformance)
+    );
+    assert_eq!(
+        snapshot.gfm_layer.controls,
+        Some(crate::gfm_layer::gfm_controls_from_patch(
+            engine.patch.engine.gfm
+        ))
     );
     assert!(snapshot.gfm_layer.diagnostics.is_some());
     assert_eq!(snapshot.gfm_layer.amount, 0.0);

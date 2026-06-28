@@ -249,6 +249,7 @@ if ((headless)); then
   cmd+=(--headless)
 else
   mode_label="windowed"
+  cmd+=(--gui)
 fi
 
 if ((demo)); then

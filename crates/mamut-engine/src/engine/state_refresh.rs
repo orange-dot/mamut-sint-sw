@@ -124,6 +124,7 @@ impl Engine {
             mode: self.gfm_layer_mode,
             selection: self.gfm_layer_selection,
             active_program_id: self.gfm_layer_voice.as_ref().map(GfmFieldVoice::program_id),
+            controls: self.gfm_layer_voice.as_ref().map(GfmFieldVoice::controls),
             diagnostics: self.gfm_layer_diagnostics(),
             amount: self.control.gfm_layer_amount,
             pressure: self.control.gfm_layer_pressure,

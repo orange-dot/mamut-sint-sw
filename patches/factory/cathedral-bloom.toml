@@ -72,6 +72,17 @@ mix = 0.18
 size = 0.58
 damping = 0.34
 
+[engine.gfm]
+program = "horizont"
+depth = 0.50
+heat = 0.22
+spread = 0.84
+rupture = 0.08
+recovery = 0.72
+motion = 0.30
+body = 0.42
+brightness = 0.38
+
 [macros]
 gravitacija = 0.22
 bloom = 0.84

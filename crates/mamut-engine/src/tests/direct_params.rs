@@ -232,7 +232,7 @@ fn source_expansion_direct_params_update_snapshot_and_exported_patch() {
     assert_eq!(exported.engine.osc2.bandlimit, 0.20);
     assert_eq!(exported.engine.noise_color, NoiseColor::Dark);
     assert_eq!(exported.engine.cross_mix_mode, CrossMixMode::Difference);
-    assert_eq!(exported.engine.filter.model, FilterModel::MatterDriven);
+    assert_eq!(exported.engine.filter.model, FilterModel::NonlinearResonant);
     assert_eq!(exported.engine.spectral.level, 0.38);
     assert_eq!(exported.engine.spectral.table, SpectralTable::Metallic);
     assert_eq!(exported.engine.spectral.position, 0.72);

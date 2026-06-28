@@ -113,6 +113,7 @@ pub struct GfmLayerSnapshot {
     pub mode: GfmLayerMode,
     pub selection: GfmVoiceProgramSelection,
     pub active_program_id: Option<GfmProgramId>,
+    pub controls: Option<GfmPerformanceControls>,
     pub diagnostics: Option<GfmDiagnostics>,
     pub amount: f32,
     pub pressure: f32,

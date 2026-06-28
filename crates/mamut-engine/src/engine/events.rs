@@ -30,10 +30,10 @@ impl Engine {
             }
             ControllerEvent::ChannelAftertouch { pressure } => {
                 let pressure = pressure.clamp(0.0, 1.0);
-                let gfm_amount = normalize_gfm_layer_control(pressure);
+                let gfm_pressure = normalize_gfm_layer_control(pressure);
                 self.control.aftertouch = pressure;
-                self.control.gfm_layer_amount = gfm_amount;
-                if gfm_amount > f32::EPSILON {
+                self.control.gfm_layer_pressure = gfm_pressure;
+                if gfm_pressure > f32::EPSILON {
                     self.maybe_auto_enable_gfm_layer_for_momentary_control();
                 } else {
                     self.begin_auto_disarm_gfm_layer_if_momentary_control_released();
@@ -41,9 +41,9 @@ impl Engine {
                 self.update_gfm_layer_smoothing_targets();
             }
             ControllerEvent::GfmLayerAmount { amount } => {
-                let pressure = normalize_gfm_layer_control(amount);
-                self.control.gfm_layer_pressure = pressure;
-                if pressure > f32::EPSILON {
+                let amount = normalize_gfm_layer_control(amount);
+                self.control.gfm_layer_amount = amount;
+                if amount > f32::EPSILON {
                     self.maybe_auto_enable_gfm_layer_for_momentary_control();
                 } else {
                     self.begin_auto_disarm_gfm_layer_if_momentary_control_released();

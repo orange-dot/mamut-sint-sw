@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+target="${MAMUT_RPI_TARGET:-aarch64-unknown-linux-gnu}"
+pi_host="${MAMUT_PI_HOST:-}"
+sysroot="${MAMUT_RPI_SYSROOT:-$repo_root/.cross/rpi3b/sysroot}"
+env_file="${MAMUT_RPI_ENV_FILE:-$repo_root/.cross/rpi3b/env.sh}"
+skip_dnf=0
+skip_rustup=0
+skip_pi_prepare=0
+skip_sysroot=0
+verify=1
+
+usage() {
+  cat <<'EOF'
+usage: tools/install-rpi3b-cross-fedora.sh [options]
+
+Install the Fedora host pieces needed to cross-build the EPM1 RPi3B
+headless binary for Raspberry Pi OS Lite 64-bit.
+
+Default work:
+  - install Fedora aarch64 cross compiler/linker packages
+  - install the Rust aarch64-unknown-linux-gnu target
+  - optionally prepare and sync a Raspberry Pi OS sysroot when --pi-host is set
+  - write .cross/rpi3b/env.sh with the cargo/pkg-config environment
+
+options:
+  --pi-host <user@host>       SSH target for an actual Raspberry Pi OS 64-bit
+                              install; also accepted via MAMUT_PI_HOST.
+  --sysroot <path>            Local sysroot destination
+                              (default: .cross/rpi3b/sysroot).
+  --env-file <path>           Env file to write
+                              (default: .cross/rpi3b/env.sh).
+  --target <triple>           Rust target triple
+                              (default: aarch64-unknown-linux-gnu).
+  --skip-dnf                  Do not install Fedora packages.
+  --skip-rustup               Do not run rustup target add.
+  --skip-pi-prepare           Do not apt-install Pi-side sysroot packages.
+  --skip-sysroot              Do not sync a Pi sysroot.
+  --no-verify                 Skip final tool/sysroot checks.
+  -h, --help                  Show this help.
+
+Examples:
+  tools/install-rpi3b-cross-fedora.sh
+  tools/install-rpi3b-cross-fedora.sh --pi-host pi@raspberrypi.local
+
+After a sysroot sync:
+  source .cross/rpi3b/env.sh
+  tools/build-rpi3b-headless.sh
+
+Why a Pi sysroot:
+  Fedora can install the cross compiler, but the target runtime is Raspberry Pi
+  OS. Linking against a Pi sysroot avoids accidentally producing a binary tied
+  to Fedora aarch64 glibc/ALSA versions.
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+log() {
+  printf '\n==> %s\n' "$*"
+}
+
+while (($#)); do
+  case "$1" in
+    --pi-host)
+      [[ $# -ge 2 ]] || die "--pi-host requires a value"
+      pi_host="$2"
+      shift 2
+      ;;
+    --sysroot)
+      [[ $# -ge 2 ]] || die "--sysroot requires a value"
+      sysroot="$2"
+      shift 2
+      ;;
+    --env-file)
+      [[ $# -ge 2 ]] || die "--env-file requires a value"
+      env_file="$2"
+      shift 2
+      ;;
+    --target)
+      [[ $# -ge 2 ]] || die "--target requires a value"
+      target="$2"
+      shift 2
+      ;;
+    --skip-dnf)
+      skip_dnf=1
+      shift
+      ;;
+    --skip-rustup)
+      skip_rustup=1
+      shift
+      ;;
+    --skip-pi-prepare)
+      skip_pi_prepare=1
+      shift
+      ;;
+    --skip-sysroot)
+      skip_sysroot=1
+      shift
+      ;;
+    --no-verify)
+      verify=0
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown option: $1"
+      ;;
+  esac
+done
+
+[[ -r /etc/os-release ]] || die "/etc/os-release not found"
+# shellcheck disable=SC1091
+. /etc/os-release
+[[ "${ID:-}" == "fedora" ]] || die "this installer is for Fedora; detected ID=${ID:-unknown}"
+
+if [[ "$target" != "aarch64-unknown-linux-gnu" ]]; then
+  die "this script currently supports only aarch64-unknown-linux-gnu, got: $target"
+fi
+
+sudo_cmd=()
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || die "sudo is required when not running as root"
+  sudo_cmd=(sudo)
+fi
+
+if (( ! skip_dnf )); then
+  log "Installing Fedora host cross-build packages"
+  "${sudo_cmd[@]}" dnf install -y \
+    gcc-aarch64-linux-gnu \
+    binutils-aarch64-linux-gnu \
+    pkgconf-pkg-config \
+    alsa-lib-devel \
+    rsync \
+    openssh-clients \
+    file \
+    make
+fi
+
+if (( ! skip_rustup )); then
+  log "Installing Rust target $target"
+  command -v rustup >/dev/null 2>&1 || die "rustup not found in PATH"
+  rustup target add "$target"
+fi
+
+if [[ -n "$pi_host" && $skip_sysroot -eq 0 ]]; then
+  if (( ! skip_pi_prepare )); then
+    log "Preparing Raspberry Pi OS target packages on $pi_host"
+    ssh "$pi_host" "sudo apt-get update && sudo apt-get install -y libasound2-dev alsa-utils pkg-config rsync build-essential"
+  fi
+
+  log "Syncing Raspberry Pi OS sysroot from $pi_host to $sysroot"
+  mkdir -p "$sysroot"
+  rsync -aL --delete \
+    --include='/lib/' \
+    --include='/lib/aarch64-linux-gnu/***' \
+    --include='/usr/' \
+    --include='/usr/include/***' \
+    --include='/usr/lib/' \
+    --include='/usr/lib/aarch64-linux-gnu/***' \
+    --include='/usr/lib/pkgconfig/***' \
+    --include='/usr/share/' \
+    --include='/usr/share/pkgconfig/***' \
+    --exclude='*' \
+    "$pi_host:/" "$sysroot/"
+
+  mkdir -p "$(dirname "$env_file")"
+  cat >"$env_file" <<EOF
+# Generated by tools/install-rpi3b-cross-fedora.sh
+export MAMUT_RPI_TARGET="$target"
+export MAMUT_RPI_SYSROOT="$sysroot"
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="aarch64-linux-gnu-gcc"
+export PKG_CONFIG_ALLOW_CROSS="1"
+export PKG_CONFIG_SYSROOT_DIR="\$MAMUT_RPI_SYSROOT"
+export PKG_CONFIG_LIBDIR="\$MAMUT_RPI_SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:\$MAMUT_RPI_SYSROOT/usr/lib/pkgconfig:\$MAMUT_RPI_SYSROOT/usr/share/pkgconfig"
+export CFLAGS_aarch64_unknown_linux_gnu="--sysroot=\$MAMUT_RPI_SYSROOT"
+export CXXFLAGS_aarch64_unknown_linux_gnu="--sysroot=\$MAMUT_RPI_SYSROOT"
+export RUSTFLAGS="-C link-arg=--sysroot=\$MAMUT_RPI_SYSROOT -L native=\$MAMUT_RPI_SYSROOT/usr/lib/aarch64-linux-gnu -L native=\$MAMUT_RPI_SYSROOT/lib/aarch64-linux-gnu"
+EOF
+else
+  mkdir -p "$(dirname "$env_file")"
+  cat >"$env_file" <<EOF
+# Generated by tools/install-rpi3b-cross-fedora.sh
+# Host tools are installed. For Raspberry Pi OS ALSA/glibc linking, rerun with:
+#   tools/install-rpi3b-cross-fedora.sh --pi-host pi@raspberrypi.local
+export MAMUT_RPI_TARGET="$target"
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="aarch64-linux-gnu-gcc"
+export PKG_CONFIG_ALLOW_CROSS="1"
+EOF
+fi
+
+if (( verify )); then
+  log "Verifying installed host tools"
+  command -v aarch64-linux-gnu-gcc >/dev/null 2>&1 || die "aarch64-linux-gnu-gcc not found"
+  command -v pkg-config >/dev/null 2>&1 || die "pkg-config not found"
+  rustup target list --installed | grep -qx "$target" || die "Rust target not installed: $target"
+
+  if [[ -n "$pi_host" && $skip_sysroot -eq 0 ]]; then
+    [[ -e "$sysroot/usr/include/alsa/asoundlib.h" ]] || die "ALSA header missing in sysroot"
+    [[ -d "$sysroot/usr/lib/aarch64-linux-gnu" ]] || die "aarch64 lib dir missing in sysroot"
+  fi
+fi
+
+log "Done"
+printf 'Env file:\n  %s\n' "$env_file"
+if [[ -n "$pi_host" && $skip_sysroot -eq 0 ]]; then
+  printf 'Next command:\n  source %q && tools/build-rpi3b-headless.sh\n' "$env_file"
+else
+  printf 'Host tools are installed. For a full Raspberry Pi OS cross-link sysroot, rerun with:\n'
+  printf '  tools/install-rpi3b-cross-fedora.sh --pi-host pi@raspberrypi.local\n'
+fi

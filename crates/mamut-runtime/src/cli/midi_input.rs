@@ -112,6 +112,10 @@ pub fn open_midi_input(
                 }
                 if let Some(overlay) = overlay {
                     input_metrics.record_midi_message();
+                    if let Some(page) = overlay.page_select {
+                        sound_lab_midi_focus.request_page(page);
+                        input_metrics.record_midi_message_accepted();
+                    }
                     for event in overlay.iter() {
                         publish_realtime_midi(
                             &midi_input_queue,

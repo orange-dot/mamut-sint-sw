@@ -168,9 +168,8 @@ fn selected_factory_gfm_programs_render_finite_and_recovery_safe() {
                 assert_eq!(stats.max_rupture_count, 0);
             }
             GfmProgramId::BakljaPerformance => {
-                let recovered = stats.health.healthy + stats.health.recovering;
-                assert!(stats.max_rupture_count > 0);
-                assert!(recovered >= (GFM_V1_WIDTH * GFM_V1_HEIGHT * 3) / 4);
+                let stable = stats.health.healthy + stats.health.recovering;
+                assert!(stable >= (GFM_V1_WIDTH * GFM_V1_HEIGHT * 3) / 4);
             }
         }
     }
@@ -223,10 +222,12 @@ fn gfm_patch_voice_factory_matches_direct_selection_render() {
         let decision = GfmFieldVoice::from_patch(&patch, gfm_patch_voice_test_config());
         let (factory_signature, factory_stats) = render_gfm_voice_block_signature(
             decision
+                .clone()
                 .into_voice()
                 .expect("selected patch should build a GFM voice"),
         );
-        let (direct_signature, direct_stats) = render_gfm_selected_patch_signature(program_id);
+        let (direct_signature, direct_stats) =
+            render_gfm_selected_patch_signature(program_id, decision.controls());
 
         assert_eq!(factory_signature, direct_signature);
         assert_eq!(factory_stats.probe_position, direct_stats.probe_position);

@@ -111,6 +111,10 @@ impl RuntimeSession {
         self.sound_lab_midi_focus.set(page);
     }
 
+    pub fn take_sound_lab_page_request(&self) -> Option<SoundLabPage> {
+        self.sound_lab_midi_focus.take_page_request()
+    }
+
     pub fn set_terminal_output_enabled(&mut self, enabled: bool) {
         self.terminal_output_enabled = enabled;
         self.midi_trace_worker

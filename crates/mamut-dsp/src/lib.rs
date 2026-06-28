@@ -24,7 +24,7 @@ pub use bandlimited::{
 pub use block::{MonoBlockMut, StereoBlockMut};
 pub use delay::{AllpassFilter, CombFilter, DelayLine, OnePoleDamping};
 pub use envelope::{AdsrEnvelope, AdsrTiming, EnvelopeStage};
-pub use filter::{ResonantMatterFilter, StateVariableFilter, TptStateVariableFilter, TptSvfOutput};
+pub use filter::{NonlinearResonantSvf, StateVariableFilter, TptStateVariableFilter, TptSvfOutput};
 pub use fx::{SimpleChorus, SimpleReverb};
 pub use math::{
     bipolar_to_unipolar, cents_to_ratio, db_to_gain, equal_power_pan, gain_to_db, lerp,

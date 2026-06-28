@@ -40,6 +40,7 @@ mod tests {
         assert_eq!(patch.engine.cross_mix_mode, CrossMixMode::Sum);
         assert_eq!(patch.engine.spectral, SpectralPatch::default());
         assert_eq!(patch.engine.additive, AdditivePatch::default());
+        assert_eq!(patch.engine.gfm, GfmPatch::default());
     }
 
     #[test]
@@ -77,13 +78,56 @@ mod tests {
         patch.engine.additive.inharmonicity = 0.28;
         patch.engine.additive.spectral_tilt = 0.62;
         patch.engine.additive.random_detune_cents = 12.5;
-        patch.engine.filter.model = FilterModel::MatterDriven;
+        patch.engine.filter.model = FilterModel::NonlinearResonant;
 
         validate_patch_v1(&patch).expect("source controls validate");
         let serialized = save_patch_toml(&patch).expect("source controls serialize");
         let reparsed = load_patch_toml(&serialized).expect("source controls parse");
 
         assert_eq!(patch, reparsed);
+    }
+
+    #[test]
+    fn gfm_patch_controls_validate_and_round_trip() {
+        let mut patch = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        patch.engine.gfm = GfmPatch {
+            program: GfmPatchProgram::Baklja,
+            depth: 0.72,
+            heat: 0.46,
+            spread: 0.34,
+            rupture: 0.82,
+            recovery: 0.38,
+            motion: 0.64,
+            body: 0.58,
+            brightness: 0.78,
+        };
+
+        validate_patch_v1(&patch).expect("GFM controls validate");
+        let serialized = save_patch_toml(&patch).expect("GFM controls serialize");
+        let reparsed = load_patch_toml(&serialized).expect("GFM controls parse");
+
+        assert_eq!(patch, reparsed);
+    }
+
+    #[test]
+    fn rejects_invalid_gfm_controls() {
+        let invalid_program = MOLTEN_HORIZON.replace(
+            "[engine.osc1]",
+            "[engine.gfm]\nprogram = \"swarm\"\n\n[engine.osc1]",
+        );
+        assert!(load_patch_toml(&invalid_program).is_err());
+
+        let mut invalid_depth = load_patch_toml(MOLTEN_HORIZON).expect("fixture must parse");
+        invalid_depth.engine.gfm.depth = 1.1;
+        assert_eq!(
+            validate_patch_v1(&invalid_depth).expect_err("invalid GFM depth must fail"),
+            PatchValidationError::RangeViolation {
+                field: "engine.gfm.depth",
+                min: 0.0,
+                max: 1.0,
+                value: 1.1,
+            }
+        );
     }
 
     #[test]

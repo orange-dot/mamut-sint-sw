@@ -103,6 +103,7 @@ impl SoundLabPage {
 pub enum SoundLabMidiSource {
     Knob(u8),
     Slider(u8),
+    Switch(u8),
     ModWheel,
 }
 
@@ -111,6 +112,7 @@ impl SoundLabMidiSource {
         match self {
             Self::Knob(index) => format!("K{index}"),
             Self::Slider(index) => format!("S{index}"),
+            Self::Switch(index) => format!("SW{index}"),
             Self::ModWheel => "MW".to_string(),
         }
     }
@@ -128,12 +130,14 @@ pub const SOUND_LAB_MIDI_FOCUS_DISABLED: u8 = u8::MAX;
 #[derive(Debug)]
 pub struct SoundLabMidiFocus {
     page: AtomicU8,
+    page_request: AtomicU8,
 }
 
 impl Default for SoundLabMidiFocus {
     fn default() -> Self {
         Self {
             page: AtomicU8::new(SOUND_LAB_MIDI_FOCUS_DISABLED),
+            page_request: AtomicU8::new(SOUND_LAB_MIDI_FOCUS_DISABLED),
         }
     }
 }
@@ -150,12 +154,24 @@ impl SoundLabMidiFocus {
     pub fn page(&self) -> Option<SoundLabPage> {
         SoundLabPage::from_index(self.page.load(Ordering::Relaxed))
     }
+
+    pub fn request_page(&self, page: SoundLabPage) {
+        self.page_request.store(page as u8, Ordering::Relaxed);
+    }
+
+    pub fn take_page_request(&self) -> Option<SoundLabPage> {
+        SoundLabPage::from_index(
+            self.page_request
+                .swap(SOUND_LAB_MIDI_FOCUS_DISABLED, Ordering::Relaxed),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SoundLabOverlayEvents {
     pub page: SoundLabPage,
     pub source: SoundLabMidiSource,
+    pub page_select: Option<SoundLabPage>,
     pub events: [Option<ControllerEvent>; SOUND_LAB_OVERLAY_EVENT_CAPACITY],
 }
 
@@ -164,6 +180,7 @@ impl SoundLabOverlayEvents {
         Self {
             page,
             source,
+            page_select: None,
             events: [None; SOUND_LAB_OVERLAY_EVENT_CAPACITY],
         }
     }
@@ -174,11 +191,25 @@ impl SoundLabOverlayEvents {
         events
     }
 
+    pub fn select_page(current_page: SoundLabPage, switch_index: u8, page: SoundLabPage) -> Self {
+        let mut events = Self::empty(current_page, SoundLabMidiSource::Switch(switch_index));
+        events.page_select = Some(page);
+        events
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = ControllerEvent> + '_ {
         self.events.iter().filter_map(|event| *event)
     }
 
     pub fn trace_summary(&self) -> String {
+        if let Some(page) = self.page_select {
+            return format!(
+                "sound lab page source={} -> {}",
+                self.source.badge(),
+                page.label()
+            );
+        }
+
         let targets = self
             .iter()
             .map(describe_controller_event_target)
@@ -292,7 +323,7 @@ pub fn sound_lab_page_binding_for_source(
     let bindings = match source {
         SoundLabMidiSource::Knob(_) => sound_lab_page_knob_bindings(page),
         SoundLabMidiSource::Slider(_) => sound_lab_page_slider_bindings(page),
-        SoundLabMidiSource::ModWheel => return None,
+        SoundLabMidiSource::Switch(_) | SoundLabMidiSource::ModWheel => return None,
     };
     bindings
         .iter()

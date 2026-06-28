@@ -64,6 +64,13 @@ impl PerformanceApp {
             }
         }
 
+        if let Some(page) = self.session.take_sound_lab_page_request()
+            && self.selected_tab == PerformanceTab::SoundLab
+        {
+            self.sound_lab_page = page;
+            self.last_status_message = Some(format!("sound lab page -> {}", page.label()));
+        }
+
         let input = self.session.input_metrics_snapshot();
         if input.midi_messages != self.last_midi_message_count {
             self.last_midi_message_count = input.midi_messages;

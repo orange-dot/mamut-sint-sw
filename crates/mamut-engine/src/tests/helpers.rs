@@ -509,8 +509,15 @@ pub(super) fn render_gfm_chunked_signature(
 
 pub(super) fn render_gfm_selected_patch_signature(
     program_id: GfmProgramId,
+    controls: GfmPerformanceControls,
 ) -> (u64, GfmDryRunStats) {
-    render_gfm_block_signature(program_id)
+    let voice = GfmFieldVoice::new_live(
+        program_id,
+        GFM_PERFORMANCE_BASELINE_SEED,
+        GFM_TEST_RATE_HZ,
+        controls,
+    );
+    render_gfm_voice_block_signature(voice)
 }
 
 pub(super) fn gfm_patch_voice_test_config() -> GfmPatchVoiceConfig {

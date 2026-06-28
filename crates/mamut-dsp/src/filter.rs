@@ -76,25 +76,25 @@ impl Default for TptStateVariableFilter {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ResonantMatterFilter {
+pub struct NonlinearResonantSvf {
     core: TptStateVariableFilter,
-    body_state: f32,
-    pressure_state: f32,
+    low_env_state: f32,
+    band_env_state: f32,
 }
 
-impl ResonantMatterFilter {
+impl NonlinearResonantSvf {
     pub fn new() -> Self {
         Self {
             core: TptStateVariableFilter::new(),
-            body_state: 0.0,
-            pressure_state: 0.0,
+            low_env_state: 0.0,
+            band_env_state: 0.0,
         }
     }
 
     pub fn reset(&mut self) {
         self.core.reset();
-        self.body_state = 0.0;
-        self.pressure_state = 0.0;
+        self.low_env_state = 0.0;
+        self.band_env_state = 0.0;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -105,46 +105,46 @@ impl ResonantMatterFilter {
         resonance: f32,
         drive: f32,
         strain: f32,
-        matter: f32,
+        intensity: f32,
         sample_rate_hz: f32,
     ) -> f32 {
         let drive = finite_or(drive, 0.0).clamp(0.0, 1.0);
         let strain = finite_or(strain, 0.0).clamp(0.0, 1.0);
-        let matter = finite_or(matter, 0.0).clamp(0.0, 1.0);
+        let intensity = finite_or(intensity, 0.0).clamp(0.0, 1.0);
         let resonance = finite_or(resonance, 0.0).clamp(0.0, 1.0);
-        let input_gain = 1.0 + drive * 2.2 + strain * 0.45 + matter * 0.35;
+        let input_gain = 1.0 + drive * 2.2 + strain * 0.45 + intensity * 0.35;
         let shaped_input = asymmetric_diode(
             input * input_gain,
-            drive * 0.70 + matter * 0.25,
+            drive * 0.70 + intensity * 0.25,
             strain * 0.9,
         );
         let output = self
             .core
             .process(shaped_input, cutoff_hz, resonance, sample_rate_hz);
 
-        let body_rate = 0.012 + matter * 0.030 + strain * 0.010;
-        let pressure_rate = 0.035 + resonance * 0.025 + matter * 0.020;
-        self.body_state += (output.low - self.body_state) * body_rate;
-        self.pressure_state += (output.band - self.pressure_state) * pressure_rate;
-        self.body_state = sanitize_state(self.body_state);
-        self.pressure_state = sanitize_state(self.pressure_state);
+        let low_env_rate = 0.012 + intensity * 0.030 + strain * 0.010;
+        let band_env_rate = 0.035 + resonance * 0.025 + intensity * 0.020;
+        self.low_env_state += (output.low - self.low_env_state) * low_env_rate;
+        self.band_env_state += (output.band - self.band_env_state) * band_env_rate;
+        self.low_env_state = sanitize_state(self.low_env_state);
+        self.band_env_state = sanitize_state(self.band_env_state);
 
-        let mass = 0.88 + matter * 0.24;
-        let pressure = matter * (0.20 + resonance * 0.28 + strain * 0.16);
-        let air = matter * (0.04 + drive * 0.08);
-        let body_feedback = self.body_state * (0.18 + matter * 0.18);
-        let pressure_feedback = self.pressure_state * (0.05 + strain * 0.14);
-        let mixed = output.low * mass
-            + output.band * pressure
-            + output.notch * air
-            + body_feedback
-            + pressure_feedback;
+        let low_mix_gain = 0.88 + intensity * 0.24;
+        let band_mix_gain = intensity * (0.20 + resonance * 0.28 + strain * 0.16);
+        let notch_mix_gain = intensity * (0.04 + drive * 0.08);
+        let low_env_feedback = self.low_env_state * (0.18 + intensity * 0.18);
+        let band_env_feedback = self.band_env_state * (0.05 + strain * 0.14);
+        let mixed = output.low * low_mix_gain
+            + output.band * band_mix_gain
+            + output.notch * notch_mix_gain
+            + low_env_feedback
+            + band_env_feedback;
         let clipped = cubic_soft_clip_compensated(mixed * (1.0 + drive * 0.25));
-        tanh_drive_compensated(clipped, drive * 0.35 + strain * 0.20 + matter * 0.12)
+        tanh_drive_compensated(clipped, drive * 0.35 + strain * 0.20 + intensity * 0.12)
     }
 }
 
-impl Default for ResonantMatterFilter {
+impl Default for NonlinearResonantSvf {
     fn default() -> Self {
         Self::new()
     }
@@ -155,7 +155,7 @@ pub struct StateVariableFilter {
     low: f32,
     band: f32,
     tpt: TptStateVariableFilter,
-    matter: ResonantMatterFilter,
+    nonlinear_resonant: NonlinearResonantSvf,
 }
 
 impl StateVariableFilter {
@@ -164,7 +164,7 @@ impl StateVariableFilter {
             low: 0.0,
             band: 0.0,
             tpt: TptStateVariableFilter::new(),
-            matter: ResonantMatterFilter::new(),
+            nonlinear_resonant: NonlinearResonantSvf::new(),
         }
     }
 
@@ -172,7 +172,7 @@ impl StateVariableFilter {
         self.low = 0.0;
         self.band = 0.0;
         self.tpt.reset();
-        self.matter.reset();
+        self.nonlinear_resonant.reset();
     }
 
     pub fn process(
@@ -221,7 +221,7 @@ impl StateVariableFilter {
         resonance: f32,
         drive: f32,
         strain: f32,
-        matter: f32,
+        intensity: f32,
         filter_model: f32,
         sample_rate_hz: f32,
     ) -> f32 {
@@ -231,13 +231,13 @@ impl StateVariableFilter {
                     .process(input, cutoff_hz, resonance, sample_rate_hz)
                     .low
             }
-            2 => self.matter.process(
+            2 => self.nonlinear_resonant.process(
                 input,
                 cutoff_hz,
                 resonance,
                 drive,
                 strain,
-                matter,
+                intensity,
                 sample_rate_hz,
             ),
             _ => self.process(input, cutoff_hz, resonance, drive, strain, sample_rate_hz),

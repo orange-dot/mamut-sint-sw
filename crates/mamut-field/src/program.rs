@@ -3,6 +3,50 @@ use super::*;
 pub const GFM_PERFORMANCE_BASELINE_SEED: u64 = 0x6A46_4D40;
 pub const GFM_PERFORMANCE_DURATION_SECONDS: usize = 14;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GfmPerformanceControls {
+    pub depth: f32,
+    pub heat: f32,
+    pub spread: f32,
+    pub rupture: f32,
+    pub recovery: f32,
+    pub motion: f32,
+    pub body: f32,
+    pub brightness: f32,
+}
+
+impl GfmPerformanceControls {
+    pub const DEFAULT: Self = Self {
+        depth: 0.55,
+        heat: 0.35,
+        spread: 0.50,
+        rupture: 0.25,
+        recovery: 0.55,
+        motion: 0.35,
+        body: 0.50,
+        brightness: 0.45,
+    };
+
+    pub fn sanitized(self) -> Self {
+        Self {
+            depth: sanitize_unit(self.depth, Self::DEFAULT.depth),
+            heat: sanitize_unit(self.heat, Self::DEFAULT.heat),
+            spread: sanitize_unit(self.spread, Self::DEFAULT.spread),
+            rupture: sanitize_unit(self.rupture, Self::DEFAULT.rupture),
+            recovery: sanitize_unit(self.recovery, Self::DEFAULT.recovery),
+            motion: sanitize_unit(self.motion, Self::DEFAULT.motion),
+            body: sanitize_unit(self.body, Self::DEFAULT.body),
+            brightness: sanitize_unit(self.brightness, Self::DEFAULT.brightness),
+        }
+    }
+}
+
+impl Default for GfmPerformanceControls {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GfmProgramId {
     HorizontPerformance,
@@ -34,32 +78,25 @@ pub struct GfmPerformanceProgram {
 
 impl GfmPerformanceProgram {
     pub fn new(id: GfmProgramId, sample_rate_hz: f32) -> Self {
-        let params = match id {
-            GfmProgramId::HorizontPerformance => {
-                let mut params = GfmParams::horizont(sample_rate_hz);
-                params.output_gain = 0.92;
-                params
-            }
-            GfmProgramId::PecPerformance => {
-                let mut params = GfmParams::pec(sample_rate_hz);
-                params.output_gain = 0.86;
-                params
-            }
-            GfmProgramId::BakljaPerformance => {
-                let mut params = GfmParams::baklja(sample_rate_hz);
-                params.output_gain = 0.38;
-                params.ruin = 0.86;
-                params.rupture_threshold = 0.42;
-                params.rupture_response = 0.72;
-                params.suspect_energy_ceiling = 2.75;
-                params.suspect_strain_ceiling = 2.75;
-                params.suspect_damping = 0.38;
-                params.recovery_after_samples = 180;
-                params
-            }
-        };
+        Self::with_controls(id, sample_rate_hz, GfmPerformanceControls::DEFAULT)
+    }
+
+    pub fn with_controls(
+        id: GfmProgramId,
+        sample_rate_hz: f32,
+        controls: GfmPerformanceControls,
+    ) -> Self {
+        let params = apply_performance_controls(base_params(id, sample_rate_hz), controls);
 
         Self { id, params }
+    }
+
+    pub fn params_for_controls(
+        id: GfmProgramId,
+        sample_rate_hz: f32,
+        controls: GfmPerformanceControls,
+    ) -> GfmParams {
+        apply_performance_controls(base_params(id, sample_rate_hz), controls)
     }
 
     pub fn all(sample_rate_hz: f32) -> [Self; 3] {
@@ -80,6 +117,33 @@ impl GfmPerformanceProgram {
 
     pub const fn wav_file_name(self) -> &'static str {
         self.id.wav_file_name()
+    }
+}
+
+fn base_params(id: GfmProgramId, sample_rate_hz: f32) -> GfmParams {
+    match id {
+        GfmProgramId::HorizontPerformance => {
+            let mut params = GfmParams::horizont(sample_rate_hz);
+            params.output_gain = 0.92;
+            params
+        }
+        GfmProgramId::PecPerformance => {
+            let mut params = GfmParams::pec(sample_rate_hz);
+            params.output_gain = 0.86;
+            params
+        }
+        GfmProgramId::BakljaPerformance => {
+            let mut params = GfmParams::baklja(sample_rate_hz);
+            params.output_gain = 0.38;
+            params.ruin = 0.86;
+            params.rupture_threshold = 0.42;
+            params.rupture_response = 0.72;
+            params.suspect_energy_ceiling = 2.75;
+            params.suspect_strain_ceiling = 2.75;
+            params.suspect_damping = 0.38;
+            params.recovery_after_samples = 180;
+            params
+        }
     }
 }
 
@@ -172,4 +236,49 @@ fn performance_rupture_accent(seconds: f32) -> f32 {
     } else {
         1.0 - (local - 0.016) / 0.464
     }
+}
+
+fn apply_performance_controls(
+    mut params: GfmParams,
+    controls: GfmPerformanceControls,
+) -> GfmParams {
+    let controls = controls.sanitized();
+    let defaults = GfmPerformanceControls::DEFAULT;
+    let depth = controls.depth - defaults.depth;
+    let heat = controls.heat - defaults.heat;
+    let spread = controls.spread - defaults.spread;
+    let rupture = controls.rupture - defaults.rupture;
+    let recovery = controls.recovery - defaults.recovery;
+    let motion = controls.motion - defaults.motion;
+    let body = controls.body - defaults.body;
+    let brightness = controls.brightness - defaults.brightness;
+
+    params.output_gain *= 1.0 + depth * 0.72 + body * 0.18 + brightness * 0.10;
+    params.heat_dispersion += heat * 0.54 + brightness * 0.12;
+    params.spatial_spread += spread * 0.44;
+    params.omega_dispersion += motion * 0.50 + brightness * 0.12;
+    params.thermal_noise += heat.max(0.0) * 0.16 + motion.max(0.0) * 0.08;
+    params.grav_coupling *= 1.0 + body * 0.58 + depth * 0.16;
+    params.ruin += rupture * 0.34;
+    params.rupture_response += rupture * 0.30 + brightness * 0.08;
+    params.rupture_threshold -= rupture * 0.22;
+    params.suspect_damping += (0.0 - recovery) * 0.16 + rupture.max(0.0) * 0.08;
+    params.suspect_coupling_scale += recovery * 0.10 - rupture.max(0.0) * 0.08;
+    params.suspect_output_scale += recovery * 0.08 - rupture.max(0.0) * 0.06;
+    params.recovery_after_samples = scale_u16(params.recovery_after_samples, 1.0 - recovery * 0.44);
+    params.quarantine_after_samples = scale_u16(
+        params.quarantine_after_samples,
+        1.0 - recovery * 0.20 + rupture * 0.12,
+    );
+
+    params.sanitized()
+}
+
+fn scale_u16(value: u16, scale: f32) -> u16 {
+    let value = value as f32 * sanitize_positive(scale, 1.0);
+    value.round().clamp(1.0, u16::MAX as f32) as u16
+}
+
+fn sanitize_unit(value: f32, fallback: f32) -> f32 {
+    sanitize_f32(value, fallback).clamp(0.0, 1.0)
 }

@@ -1,0 +1,137 @@
+[meta]
+schema_version = 1
+patch_name = "Rupture Gate"
+author = "Mamut"
+description = "Controlled fracture lead with hard GFM rupture gates"
+tags = ["lead", "rupture", "gfm", "edge"]
+
+[engine.osc1]
+saw_level = 0.78
+pulse_level = 0.26
+triangle_level = 0.00
+noise_level = 0.01
+fine_tune_cents = -3.0
+
+[engine.osc2]
+saw_level = 0.68
+pulse_level = 0.20
+triangle_level = 0.00
+interval_semitones = 0
+fine_tune_cents = 8.0
+sync_amount = 0.12
+crossmod_amount = 0.07
+
+[engine.sub]
+level = 0.20
+octave_offset = -1
+
+[engine.mixer]
+pre_filter_drive = 0.48
+body_mix = 0.44
+
+[engine.filter]
+cutoff_hz = 2100.0
+resonance = 0.46
+drive = 0.34
+keytrack = 0.42
+
+[engine.amp_env]
+attack_ms = 6.0
+decay_ms = 230.0
+sustain = 0.76
+release_ms = 320.0
+
+[engine.filter_env]
+attack_ms = 10.0
+decay_ms = 360.0
+sustain = 0.18
+release_ms = 300.0
+depth = 0.72
+
+[engine.voice]
+stereo_width = 0.54
+detune_spread_cents = 12.0
+velocity_to_level = 0.24
+velocity_to_filter = 0.38
+
+[engine.gfm]
+program = "baklja"
+depth = 0.84
+heat = 0.62
+spread = 0.35
+rupture = 0.92
+recovery = 0.34
+motion = 0.62
+body = 0.58
+brightness = 0.86
+
+[engine.final_stage]
+body_drive = 0.40
+asymmetry = 0.24
+low_mid_emphasis = 0.50
+output_trim_db = -6.0
+
+[engine.fx.chorus]
+enabled = true
+mix = 0.10
+depth = 0.18
+rate_hz = 0.24
+
+[engine.fx.reverb]
+enabled = true
+mix = 0.08
+size = 0.28
+damping = 0.56
+
+[macros]
+gravitacija = 0.62
+bloom = 0.16
+heat = 0.58
+ruin = 0.86
+swarm = 0.28
+
+[macro_response.gravitacija]
+sensitivity = 1.05
+curve = "late_rise"
+softness = 0.38
+
+[macro_response.bloom]
+sensitivity = 0.82
+curve = "linear"
+softness = 0.30
+
+[macro_response.heat]
+sensitivity = 1.12
+curve = "early_rise"
+softness = 0.34
+
+[macro_response.ruin]
+sensitivity = 1.18
+curve = "early_rise"
+softness = 0.18
+
+[macro_response.swarm]
+sensitivity = 0.86
+curve = "linear"
+softness = 0.26
+
+[identity_bias]
+horizont_bias = -0.10
+pec_bias = 0.26
+baklja_bias = 0.38
+gravitacija_pressure_bias = 0.14
+rupture_threshold_bias = -0.16
+body_focus_bias = 0.18
+
+[performance_response]
+velocity_to_level = 0.24
+velocity_to_filter = 0.42
+aftertouch_to_gravitacija = 0.18
+aftertouch_to_baklja = 0.34
+mod_wheel_to_bloom = 0.26
+mod_wheel_to_swarm = 0.16
+bend_range_semitones = 2
+
+[ui]
+preferred_page = "macros"
+favorite = false

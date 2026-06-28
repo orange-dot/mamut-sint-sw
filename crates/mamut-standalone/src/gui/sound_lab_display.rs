@@ -59,6 +59,10 @@ pub(crate) fn sound_lab_source_for_cc(
 pub(crate) fn sound_lab_source_for_controller_binding(
     binding: &ControllerBinding,
 ) -> Option<SoundLabMidiSource> {
+    if let (ControllerBindingSection::Switch, Some(index)) = (binding.section, binding.index) {
+        return Some(SoundLabMidiSource::Switch(index));
+    }
+
     if matches!(
         binding.action,
         ControllerBindingAction::GfmLayerAmount

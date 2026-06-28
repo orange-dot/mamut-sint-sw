@@ -376,6 +376,61 @@ mod tests {
     }
 
     #[test]
+    fn performance_controls_are_neutral_at_default_and_bounded_at_extremes() {
+        for program_id in GfmProgramId::ALL_PERFORMANCE {
+            let baseline = GfmPerformanceProgram::new(program_id, TEST_RATE).params();
+            let neutral = GfmPerformanceProgram::params_for_controls(
+                program_id,
+                TEST_RATE,
+                GfmPerformanceControls::DEFAULT,
+            );
+            assert_eq!(baseline, neutral);
+
+            let low = GfmPerformanceProgram::params_for_controls(
+                program_id,
+                TEST_RATE,
+                GfmPerformanceControls {
+                    depth: 0.0,
+                    heat: 0.0,
+                    spread: 0.0,
+                    rupture: 0.0,
+                    recovery: 1.0,
+                    motion: 0.0,
+                    body: 0.0,
+                    brightness: 0.0,
+                },
+            );
+            let high = GfmPerformanceProgram::params_for_controls(
+                program_id,
+                TEST_RATE,
+                GfmPerformanceControls {
+                    depth: 1.0,
+                    heat: 1.0,
+                    spread: 1.0,
+                    rupture: 1.0,
+                    recovery: 0.0,
+                    motion: 1.0,
+                    body: 1.0,
+                    brightness: 1.0,
+                },
+            );
+            let mut low_lattice = GfmLattice16::new(0xC047_7001, low);
+            let mut high_lattice = GfmLattice16::new(0xC047_7001, high);
+            let low_stats = render_stats(&mut low_lattice, 4_000);
+            let high_stats = render_stats(&mut high_lattice, 4_000);
+
+            assert!(low_stats.finite);
+            assert!(high_stats.finite);
+            assert!(low_stats.peak_abs <= 1.0);
+            assert!(high_stats.peak_abs <= 1.0);
+            assert_ne!(
+                render_pcm_signature(0xC047_7001, low, 4_000),
+                render_pcm_signature(0xC047_7001, high, 4_000)
+            );
+        }
+    }
+
+    #[test]
     fn baklja_rupture_quorum_stays_local() {
         let mut params = GfmParams::baklja(TEST_RATE);
         params.ruin = 0.95;

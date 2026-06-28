@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Mamut EPM GUI
+Comment=Launch Mamut EPM1 graphical performance rig
+Path=/home/dev/work-base-20260421/workspace/systems/mamut-sint-sw-remote-up-21-4
+Exec=/home/dev/work-base-20260421/workspace/systems/mamut-sint-sw-remote-up-21-4/tools/launch-mamut-gui-desktop.sh
+TryExec=/home/dev/work-base-20260421/workspace/systems/mamut-sint-sw-remote-up-21-4/tools/launch-mamut-gui-desktop.sh
+Icon=audio-card
+Terminal=false
+Categories=AudioVideo;Audio;Midi;Music;
+StartupNotify=true

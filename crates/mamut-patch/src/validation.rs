@@ -23,6 +23,7 @@ pub fn validate_patch_v1(patch: &PatchFileV1) -> Result<(), PatchValidationError
     validate_osc2(&patch.engine.osc2)?;
     validate_spectral(&patch.engine.spectral)?;
     validate_additive(&patch.engine.additive)?;
+    validate_gfm(&patch.engine.gfm)?;
     validate_source_controls(&patch.engine)?;
     validate_sub(&patch.engine.sub)?;
     validate_mixer(&patch.engine.mixer)?;
@@ -271,6 +272,18 @@ fn validate_fx(fx: &FxPatch) -> Result<(), PatchValidationError> {
     check_range("engine.fx.reverb.mix", fx.reverb.mix, 0.0, 1.0)?;
     check_range("engine.fx.reverb.size", fx.reverb.size, 0.0, 1.0)?;
     check_range("engine.fx.reverb.damping", fx.reverb.damping, 0.0, 1.0)?;
+    Ok(())
+}
+
+fn validate_gfm(gfm: &GfmPatch) -> Result<(), PatchValidationError> {
+    check_range("engine.gfm.depth", gfm.depth, 0.0, 1.0)?;
+    check_range("engine.gfm.heat", gfm.heat, 0.0, 1.0)?;
+    check_range("engine.gfm.spread", gfm.spread, 0.0, 1.0)?;
+    check_range("engine.gfm.rupture", gfm.rupture, 0.0, 1.0)?;
+    check_range("engine.gfm.recovery", gfm.recovery, 0.0, 1.0)?;
+    check_range("engine.gfm.motion", gfm.motion, 0.0, 1.0)?;
+    check_range("engine.gfm.body", gfm.body, 0.0, 1.0)?;
+    check_range("engine.gfm.brightness", gfm.brightness, 0.0, 1.0)?;
     Ok(())
 }
 

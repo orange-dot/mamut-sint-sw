@@ -45,6 +45,29 @@ masnoca is organized mass across the whole signal chain
 
 It is not a single EQ move, drive knob, or post-effect.
 
+## What Is And Is Not Novel Here
+
+Intellectual honesty about this approach, so the rest of the document is not
+mistaken for a novelty claim:
+
+- Distributed nonlinearity, oscillator-as-mechanism, driven feedback-aware
+  filters, and bus glue are the **established analog-modeling method**. Every
+  serious circuit-modeled synth already spreads mild nonlinearity across the
+  chain. None of this is a Mamut invention or a new algorithm.
+- The DSP building blocks are standard and well known: `tanh` saturation,
+  cubic soft-clip, asymmetric diode shaping, wavefolding, and a driven
+  state-variable filter (`mamut-dsp::NonlinearResonantSvf`, selected as the
+  `matter_driven` filter model). Composing them across stages is conventional
+  voicing craft, not novel signal processing.
+- What `EPM1` actually contributes here is **discipline, not algorithm**:
+  bounded, deterministic, allocation-free, testable placement of standard
+  nonlinearities, mapped through identity macros. The value is reliability and
+  repeatability, not a sound no one else can make.
+- The genuinely distinctive nonlinear-dynamics work in this program lives
+  elsewhere — `mamut-field` (BCS bifurcation-coordinate synthesis, GFM phase
+  lattice), not in this note. This document is voicing doctrine for a
+  conventional VA-plus-saturation path.
+
 ## Mamut Context
 
 `mamut-sint-sw` is the current software/runtime line for `EPM1`.

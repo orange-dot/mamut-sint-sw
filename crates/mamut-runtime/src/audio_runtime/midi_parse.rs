@@ -135,6 +135,17 @@ pub fn sound_lab_midi_overlay_events(
 
     let cc = message[1];
     let normalized = message[2] as f32 / 127.0;
+    if normalized >= 0.5
+        && let Some((switch_index, selected_page)) =
+            sound_lab_page_switch_for_cc(cc, controller_profile)
+    {
+        return Some(SoundLabOverlayEvents::select_page(
+            page,
+            switch_index,
+            selected_page,
+        ));
+    }
+
     let source = sound_lab_overlay_source_for_cc(cc, controller_profile)?;
     match source {
         SoundLabMidiSource::ModWheel => sound_lab_mod_wheel_events(page, normalized),
@@ -146,7 +157,20 @@ pub fn sound_lab_midi_overlay_events(
                 direct_param_overlay_event(binding.id, normalized),
             ))
         }
+        SoundLabMidiSource::Switch(_) => None,
     }
+}
+
+fn sound_lab_page_switch_for_cc(
+    cc: u8,
+    controller_profile: Option<&ControllerProfile>,
+) -> Option<(u8, SoundLabPage)> {
+    let binding = controller_profile.and_then(|profile| profile.binding_for_cc(cc))?;
+    let (ControllerBindingSection::Switch, Some(index)) = (binding.section, binding.index) else {
+        return None;
+    };
+    let page = SoundLabPage::from_index(index.checked_sub(1)?)?;
+    Some((index, page))
 }
 
 fn sound_lab_overlay_source_for_cc(

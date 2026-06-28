@@ -72,6 +72,17 @@ mix = 0.10
 size = 0.24
 damping = 0.52
 
+[engine.gfm]
+program = "baklja"
+depth = 0.72
+heat = 0.48
+spread = 0.28
+rupture = 0.86
+recovery = 0.42
+motion = 0.54
+body = 0.52
+brightness = 0.82
+
 [macros]
 gravitacija = 0.68
 bloom = 0.14

@@ -308,6 +308,18 @@ impl PerformanceApp {
                     );
                     render_metric_tile(
                         ui,
+                        snapshot.controls.is_some(),
+                        "CONTROL",
+                        &snapshot
+                            .controls
+                            .map(|controls| {
+                                format!("{:.2}/{:.2}", controls.depth, controls.rupture)
+                            })
+                            .unwrap_or_else(|| "-".to_string()),
+                        "depth/rupture",
+                    );
+                    render_metric_tile(
+                        ui,
                         snapshot
                             .diagnostics
                             .is_some_and(|diagnostics| diagnostics.max_rupture_count > 0),

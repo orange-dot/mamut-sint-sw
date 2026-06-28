@@ -28,7 +28,7 @@ pub(super) fn noise_color_from_index(value: f32) -> NoiseColor {
 pub(super) fn filter_model_from_index(value: f32) -> FilterModel {
     match value.round() as i32 {
         1 => FilterModel::TptClean,
-        2 => FilterModel::MatterDriven,
+        2 => FilterModel::NonlinearResonant,
         _ => FilterModel::Legacy,
     }
 }
