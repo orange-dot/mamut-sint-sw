@@ -1,0 +1,144 @@
+[meta]
+schema_version = 1
+patch_name = "Electric Tambal Mare"
+author = "Mamut"
+description = "Clean struck cimbalom — classic two-oscillator subtractive voice, no GFM, no drive, no waveshaping"
+tags = ["instrument", "tambal", "cimbalom", "clean", "subtractive"]
+
+[engine.osc1]
+saw_level = 0.55
+pulse_level = 0.18
+triangle_level = 0.45
+noise_level = 0.03
+
+[engine.osc2]
+saw_level = 0.45
+pulse_level = 0.12
+triangle_level = 0.30
+interval_semitones = 0
+fine_tune_cents = 6.0
+sync_amount = 0.0
+crossmod_amount = 0.0
+level = 0.85
+
+[engine.spectral]
+level = 0.0
+
+[engine.additive]
+level = 0.0
+
+[engine.gfm]
+program = "auto"
+depth = 0.0
+heat = 0.0
+spread = 0.0
+rupture = 0.0
+recovery = 0.0
+motion = 0.0
+body = 0.0
+brightness = 0.0
+
+[engine.sub]
+level = 0.20
+octave_offset = -1
+
+[engine.mixer]
+pre_filter_drive = 0.0
+body_mix = 0.20
+
+[engine.filter]
+model = "tpt_clean"
+cutoff_hz = 6500.0
+resonance = 0.12
+drive = 0.0
+keytrack = 0.65
+
+[engine.amp_env]
+attack_ms = 3.0
+decay_ms = 520.0
+sustain = 0.20
+release_ms = 340.0
+
+[engine.filter_env]
+attack_ms = 3.0
+decay_ms = 300.0
+sustain = 0.15
+release_ms = 320.0
+depth = 0.55
+
+[engine.voice]
+stereo_width = 0.45
+detune_spread_cents = 7.0
+velocity_to_level = 0.55
+velocity_to_filter = 0.45
+
+[engine.final_stage]
+body_drive = 0.0
+asymmetry = 0.0
+low_mid_emphasis = 0.20
+output_trim_db = -3.0
+
+[engine.fx.chorus]
+enabled = true
+mix = 0.15
+depth = 0.20
+rate_hz = 0.40
+
+[engine.fx.reverb]
+enabled = true
+mix = 0.12
+size = 0.38
+damping = 0.50
+
+[macros]
+gravitacija = 0.0
+bloom = 0.0
+heat = 0.0
+ruin = 0.0
+swarm = 0.0
+
+[macro_response.gravitacija]
+sensitivity = 1.0
+curve = "linear"
+softness = 0.30
+
+[macro_response.bloom]
+sensitivity = 1.0
+curve = "linear"
+softness = 0.30
+
+[macro_response.heat]
+sensitivity = 1.0
+curve = "linear"
+softness = 0.30
+
+[macro_response.ruin]
+sensitivity = 1.0
+curve = "linear"
+softness = 0.30
+
+[macro_response.swarm]
+sensitivity = 1.0
+curve = "linear"
+softness = 0.30
+
+[identity_bias]
+horizont_bias = 0.0
+pec_bias = 0.0
+baklja_bias = 0.0
+gravitacija_pressure_bias = 0.0
+rupture_threshold_bias = 0.0
+body_focus_bias = 0.0
+
+[performance_response]
+velocity_to_level = 0.55
+velocity_to_filter = 0.45
+aftertouch_to_gravitacija = 0.0
+aftertouch_to_baklja = 0.25
+mod_wheel_to_bloom = 0.0
+mod_wheel_to_swarm = 0.0
+bend_range_semitones = 2
+
+[ui]
+preferred_page = "macros"
+favorite = false
