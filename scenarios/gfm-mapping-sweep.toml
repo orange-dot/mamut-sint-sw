@@ -1,0 +1,168 @@
+# EPM1 GFM Live Bug Playbook — Pass 2 (Mapping/Focus Loss), scripted.
+#
+# Synthetic development evidence (mamut-seq virtual port). Control names resolve
+# through profiles/pc4-full.toml; CC numbers are never hardcoded. Pass 2 moves
+# ONE control at a time with settle gaps so the trace and the sound can be
+# compared per control. See docs/EPM1_GFM_LIVE_BUG_PLAYBOOK.md Pass 2.
+
+schema_version = 1
+name = "gfm-mapping-sweep"
+description = "GFM live-bug Pass 2: one control at a time (K8 gate, aftertouch, K1, K2, mod wheel) with settle gaps."
+channel = 2
+
+# cathedral-bloom is live slot 1.
+[[timeline]]
+kind = "program_change"
+program = 1
+
+[[timeline]]
+kind = "wait"
+ms = 250
+
+# Hold a stable chord for the entire sweep.
+[[timeline]]
+kind = "chord"
+notes = [48, 55, 60]
+velocity = 96
+duration_ms = 24000
+
+[[timeline]]
+kind = "wait"
+ms = 600
+
+# --- Candidate GFM control: K8 GFM Gate ---
+[[timeline]]
+kind = "section"
+name = "sweep-k8-gfm-gate"
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K8 GFM Gate"
+from = 0.0
+to = 0.9
+duration_ms = 600
+steps = 12
+
+[[timeline.steps]]
+kind = "wait"
+ms = 2000
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K8 GFM Gate"
+from = 0.9
+to = 0.0
+duration_ms = 600
+steps = 12
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1500
+
+# --- Aftertouch ---
+[[timeline]]
+kind = "section"
+name = "sweep-aftertouch"
+
+[[timeline.steps]]
+kind = "aftertouch_envelope"
+peak = 1.0
+attack_ms = 500
+hold_ms = 1500
+release_ms = 500
+steps = 12
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1500
+
+# --- K1 (Filter 1 / gravitacija macro) ---
+[[timeline]]
+kind = "section"
+name = "sweep-k1"
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K1"
+from = 0.0
+to = 0.9
+duration_ms = 600
+steps = 12
+
+[[timeline.steps]]
+kind = "wait"
+ms = 2000
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K1"
+from = 0.9
+to = 0.0
+duration_ms = 600
+steps = 12
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1500
+
+# --- K2 (Filter 2 / bloom macro) ---
+[[timeline]]
+kind = "section"
+name = "sweep-k2"
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K2"
+from = 0.0
+to = 0.9
+duration_ms = 600
+steps = 12
+
+[[timeline.steps]]
+kind = "wait"
+ms = 2000
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K2"
+from = 0.9
+to = 0.0
+duration_ms = 600
+steps = 12
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1500
+
+# --- Mod wheel (CC1; standard controller, not a profile knob) ---
+[[timeline]]
+kind = "section"
+name = "sweep-mod-wheel"
+
+[[timeline.steps]]
+kind = "mod_wheel"
+value = 0.3
+
+[[timeline.steps]]
+kind = "wait"
+ms = 700
+
+[[timeline.steps]]
+kind = "mod_wheel"
+value = 0.6
+
+[[timeline.steps]]
+kind = "wait"
+ms = 700
+
+[[timeline.steps]]
+kind = "mod_wheel"
+value = 0.9
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1500
+
+[[timeline.steps]]
+kind = "mod_wheel"
+value = 0.0

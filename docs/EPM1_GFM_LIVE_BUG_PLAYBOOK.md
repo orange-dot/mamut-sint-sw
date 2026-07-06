@@ -25,6 +25,27 @@ Recommended patches:
 - `cathedral-bloom` for the original Gravitacija/GFM line
 - `molten-horizon` as a second heavy live patch
 
+## Synthetic `mamut-seq` Rig (development-time)
+
+Each pass below can be run either on the physical PC4 rig or on the synthetic
+`mamut-seq` rig — the laptop MIDI sequencer (`crates/mamut-seq`) sending scripted
+gestures over a virtual port. The scripted equivalents are:
+
+- Pass 1 (Gate/Arm) — `scenarios/gfm-gate-arm.toml`
+- Pass 2 (Mapping/Focus) — `scenarios/gfm-mapping-sweep.toml`
+- Pass 3 (Host Load) — `scenarios/gfm-host-load.toml`
+
+Run the two-process flow with `tools/run-seq-smoke.sh` (Mamut in one terminal,
+`mamut-seq` in the other; see `docs/EPM1_BACKLOG_SET3_LAPTOP_MIDI_SEQUENCER.md`).
+
+**Evidence class is not interchangeable.** A `mamut-seq` run is **synthetic
+development evidence**: deterministic control streams, useful for development-time
+classification and regression. It does **not** substitute for a real-rig run.
+Final classification of a live-rig failure still requires the physical
+`PC4 → mioXM → EPM1` path, and hardware evidence stays in `docs/live-sessions/`.
+State which rig produced any evidence you save, and never file synthetic runs as
+hardware evidence.
+
 ## Important Current Truth
 
 Before running the playbook, hold these repo truths constant:

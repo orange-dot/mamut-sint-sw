@@ -2210,6 +2210,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mamut-seq"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossterm",
+ "midir",
+ "ratatui",
+ "serde",
+ "thiserror 2.0.18",
+ "toml",
+]
+
+[[package]]
 name = "mamut-standalone"
 version = "0.1.0"
 dependencies = [

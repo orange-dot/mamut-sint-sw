@@ -1,0 +1,100 @@
+# "Masnoća" (tonal-architecture / fatness) listening scenario, scripted.
+#
+# Synthetic development evidence (mamut-seq virtual port). Single sustained notes
+# across the range, then dense chord blocks, so the body/weight of the tone can
+# be judged without playing by hand. No profile-mapped controls are moved — this
+# is pure note material for listening.
+
+schema_version = 1
+name = "masnoca-listening"
+description = "Single sustained notes then dense chord blocks for tonal-architecture (masnoca) listening."
+channel = 2
+
+# molten-horizon is live slot 0 (wide Horizont body — the reference demo patch).
+[[timeline]]
+kind = "program_change"
+program = 0
+
+[[timeline]]
+kind = "wait"
+ms = 300
+
+# --- Single sustained notes, low to high, each rung to hear the body ---
+[[timeline]]
+kind = "section"
+name = "single-sustained-notes"
+
+[[timeline.steps]]
+kind = "note"
+note = 36
+velocity = 100
+duration_ms = 3000
+
+[[timeline.steps]]
+kind = "wait"
+ms = 3300
+
+[[timeline.steps]]
+kind = "note"
+note = 48
+velocity = 100
+duration_ms = 3000
+
+[[timeline.steps]]
+kind = "wait"
+ms = 3300
+
+[[timeline.steps]]
+kind = "note"
+note = 60
+velocity = 100
+duration_ms = 3000
+
+[[timeline.steps]]
+kind = "wait"
+ms = 3300
+
+[[timeline.steps]]
+kind = "note"
+note = 72
+velocity = 100
+duration_ms = 3000
+
+[[timeline.steps]]
+kind = "wait"
+ms = 3300
+
+# --- Dense chord blocks, growing in weight ---
+[[timeline]]
+kind = "section"
+name = "dense-chord-blocks"
+
+[[timeline.steps]]
+kind = "chord"
+notes = [36, 48, 55]
+velocity = 104
+duration_ms = 4000
+
+[[timeline.steps]]
+kind = "wait"
+ms = 4300
+
+[[timeline.steps]]
+kind = "chord"
+notes = [36, 43, 48, 55, 60]
+velocity = 108
+duration_ms = 4000
+
+[[timeline.steps]]
+kind = "wait"
+ms = 4300
+
+[[timeline.steps]]
+kind = "chord"
+notes = [31, 36, 43, 48, 55, 60, 64]
+velocity = 112
+duration_ms = 5000
+
+[[timeline.steps]]
+kind = "wait"
+ms = 5300
