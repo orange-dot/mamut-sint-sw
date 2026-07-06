@@ -18,6 +18,8 @@ and editor work deferred unless the task explicitly reopens that boundary.
 - `crates/mamut-runtime`: runtime-facing transport/session logic.
 - `crates/mamut-tui`: terminal UI surface.
 - `crates/mamut-standalone`: standalone audio/MIDI/demo application.
+- `crates/mamut-seq`: laptop MIDI sequencer (virtual-port scenario player); pure
+  MIDI source, no `mamut-runtime` dependency.
 - `docs/`: product, runtime, review-gate, and live-session documentation.
 - `patches/`, `profiles/`, and `tools/`: factory patches, controller profiles,
   and repo-local helper scripts.

@@ -1,0 +1,129 @@
+# EPM1 GFM Live Bug Playbook — Pass 3 (GFM Host Underrun/Xrun), scripted.
+#
+# Synthetic development evidence (mamut-seq virtual port). ~90 s of dense live
+# use: repeated chords, sustain, aftertouch, the GFM color gesture (K8), mod
+# wheel, and one patch change. Watch underrun_*/xrun_recoveries on the Mamut
+# side. See docs/EPM1_GFM_LIVE_BUG_PLAYBOOK.md Pass 3.
+
+schema_version = 1
+name = "gfm-host-load"
+description = "GFM live-bug Pass 3: ~90 s of dense chords + sustain + aftertouch + K8 GFM color + mod wheel + one patch change."
+channel = 2
+
+# gravity-wake is live slot 4 (Gravitacija performance patch).
+[[timeline]]
+kind = "program_change"
+program = 4
+
+[[timeline]]
+kind = "wait"
+ms = 300
+
+# First block: ~45 s of dense repeated chords under GFM color and sustain.
+[[timeline]]
+kind = "loop"
+count = 6
+
+[[timeline.steps]]
+kind = "sustain"
+down = true
+
+[[timeline.steps]]
+kind = "chord"
+notes = [40, 47, 52, 55, 59]
+velocity = 104
+duration_ms = 3200
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K8 GFM Gate"
+from = 0.0
+to = 0.85
+duration_ms = 900
+steps = 12
+
+[[timeline.steps]]
+kind = "aftertouch_envelope"
+peak = 0.9
+attack_ms = 400
+hold_ms = 700
+release_ms = 400
+
+[[timeline.steps]]
+kind = "mod_wheel"
+value = 0.6
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K8 GFM Gate"
+from = 0.85
+to = 0.0
+duration_ms = 900
+steps = 12
+
+[[timeline.steps]]
+kind = "sustain"
+down = false
+
+[[timeline.steps]]
+kind = "mod_wheel"
+value = 0.0
+
+[[timeline.steps]]
+kind = "wait"
+ms = 900
+
+# One patch change mid-pass (furnace-choir, dense poly body — slot 5).
+[[timeline]]
+kind = "program_change"
+program = 5
+
+[[timeline]]
+kind = "wait"
+ms = 400
+
+# Second block: ~45 s more under the new patch.
+[[timeline]]
+kind = "loop"
+count = 6
+
+[[timeline.steps]]
+kind = "sustain"
+down = true
+
+[[timeline.steps]]
+kind = "chord"
+notes = [43, 50, 55, 58, 62]
+velocity = 108
+duration_ms = 3200
+
+[[timeline.steps]]
+kind = "aftertouch_envelope"
+peak = 1.0
+attack_ms = 400
+hold_ms = 800
+release_ms = 400
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K8 GFM Gate"
+from = 0.0
+to = 0.9
+duration_ms = 900
+steps = 12
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K8 GFM Gate"
+from = 0.9
+to = 0.0
+duration_ms = 900
+steps = 12
+
+[[timeline.steps]]
+kind = "sustain"
+down = false
+
+[[timeline.steps]]
+kind = "wait"
+ms = 900

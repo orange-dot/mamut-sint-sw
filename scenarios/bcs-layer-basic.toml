@@ -1,0 +1,106 @@
+# BCS (bifurcation-coordinate synthesis) layer basic check, scripted.
+#
+# Synthetic development evidence (mamut-seq virtual port). Enables the BCS layer
+# (SW9), raises its gain (S9), exercises the lowest-held-note follow, then checks
+# release-to-silence. Control names resolve through profiles/pc4-full.toml.
+
+schema_version = 1
+name = "bcs-layer-basic"
+description = "BCS layer: SW9 enable, S9 gain, lowest-held-note follow, release-to-silence."
+channel = 2
+
+# cathedral-bloom is live slot 1 (a stable pad to hear the BCS layer against).
+[[timeline]]
+kind = "program_change"
+program = 1
+
+[[timeline]]
+kind = "wait"
+ms = 250
+
+# Enable the BCS layer and bring up its gain.
+[[timeline]]
+kind = "cc"
+control = "SW9 BCS Enable"
+value = 1.0
+
+[[timeline]]
+kind = "cc_ramp"
+control = "S9 BCS Gain"
+from = 0.0
+to = 0.8
+duration_ms = 600
+steps = 12
+
+[[timeline]]
+kind = "wait"
+ms = 400
+
+# Lowest-held-note follow: hold a low root, then add upper notes above it. The
+# BCS layer should track the lowest held note (the root), not the newest note.
+[[timeline]]
+kind = "section"
+name = "lowest-held-note-follow"
+
+[[timeline.steps]]
+kind = "note_on"
+note = 36
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1200
+
+[[timeline.steps]]
+kind = "note_on"
+note = 52
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1200
+
+[[timeline.steps]]
+kind = "note_on"
+note = 59
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1200
+
+# Drop the upper notes; the root (lowest) stays held — follow should not jump.
+[[timeline.steps]]
+kind = "note_off"
+note = 59
+
+[[timeline.steps]]
+kind = "note_off"
+note = 52
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1500
+
+# Release-to-silence: release the root and confirm the BCS layer decays out.
+[[timeline]]
+kind = "section"
+name = "release-to-silence"
+
+[[timeline.steps]]
+kind = "note_off"
+note = 36
+
+[[timeline.steps]]
+kind = "wait"
+ms = 2000
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "S9 BCS Gain"
+from = 0.8
+to = 0.0
+duration_ms = 400
+steps = 8
+
+[[timeline.steps]]
+kind = "cc"
+control = "SW9 BCS Enable"
+value = 0.0

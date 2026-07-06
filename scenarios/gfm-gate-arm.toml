@@ -1,0 +1,90 @@
+# EPM1 GFM Live Bug Playbook — Pass 1 (Gate/Arm Silent Layer), scripted.
+#
+# Synthetic development evidence: this runs on the `mamut-seq` virtual port, not
+# the PC4 rig. Control names resolve through profiles/pc4-full.toml; CC numbers
+# are never hardcoded here. See docs/EPM1_GFM_LIVE_BUG_PLAYBOOK.md Pass 1.
+#
+# Structure: select cathedral-bloom, hold a chord, run one phase with the K8 GFM
+# gate opened/closed and NO aftertouch, then one phase with a clear aftertouch
+# press and release while the gate is open.
+
+schema_version = 1
+name = "gfm-gate-arm"
+description = "GFM live-bug Pass 1: hold a chord, K8 gate open/close, aftertouch press/release."
+channel = 2
+
+# cathedral-bloom is live slot 1 (program change 0..7 selects the locked set).
+[[timeline]]
+kind = "program_change"
+program = 1
+
+[[timeline]]
+kind = "wait"
+ms = 250
+
+# Hold a simple chord for the whole pass (auto-released well after the gestures).
+[[timeline]]
+kind = "chord"
+notes = [45, 52, 57]
+velocity = 100
+duration_ms = 9000
+
+[[timeline]]
+kind = "wait"
+ms = 500
+
+# --- Phase A: gate open/close, no aftertouch ---
+[[timeline]]
+kind = "section"
+name = "phase-a-no-aftertouch"
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K8 GFM Gate"
+from = 0.0
+to = 0.95
+duration_ms = 800
+steps = 16
+
+[[timeline.steps]]
+kind = "wait"
+ms = 1500
+
+[[timeline.steps]]
+kind = "cc_ramp"
+control = "K8 GFM Gate"
+from = 0.95
+to = 0.0
+duration_ms = 800
+steps = 16
+
+[[timeline.steps]]
+kind = "wait"
+ms = 800
+
+# --- Phase B: gate open WITH an aftertouch press/release ---
+[[timeline]]
+kind = "section"
+name = "phase-b-aftertouch"
+
+[[timeline.steps]]
+kind = "cc"
+control = "K8 GFM Gate"
+value = 0.95
+
+[[timeline.steps]]
+kind = "aftertouch_envelope"
+peak = 1.0
+attack_ms = 500
+hold_ms = 900
+release_ms = 500
+steps = 16
+
+[[timeline.steps]]
+kind = "wait"
+ms = 400
+
+[[timeline.steps]]
+kind = "cc"
+control = "K8 GFM Gate"
+value = 0.0

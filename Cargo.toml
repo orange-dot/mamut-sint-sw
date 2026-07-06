@@ -9,6 +9,7 @@ members = [
     "crates/mamut-runtime",
     "crates/mamut-tui",
     "crates/mamut-standalone",
+    "crates/mamut-seq",
 ]
 resolver = "2"
 

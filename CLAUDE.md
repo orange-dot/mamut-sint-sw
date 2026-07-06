@@ -48,8 +48,20 @@ mamut-runtime     — runtime-facing transport/session logic: ALSA playback, MID
                     midi trace, headless command surface
 mamut-tui         — ratatui/crossterm terminal UI; depends on mamut-runtime + mamut-engine
 mamut-standalone  — standalone binary: composes mamut-runtime + mamut-tui + eframe (egui)
-                    performance window; the only crate with a `main`
+                    performance window; the primary product binary
+mamut-seq         — laptop MIDI sequencer binary (Backlog SET3): opens a virtual ALSA
+                    output port and plays deterministic scenario files, plus an interactive
+                    live TUI (`live`). Pure MIDI source: no dependency on any other mamut
+                    crate; the transport freeze is respected by construction. See
+                    docs/EPM1_BACKLOG_SET3_*.
 ```
+
+There are three binaries with a `main`: `mamut-standalone` (the product),
+`mamut-seq` (the development-time MIDI source), and `mamut-tui` (a lib+bin — the
+terminal-UI library `mamut-standalone` composes, which also ships its own
+headless/TUI `play` binary). `mamut-seq` is a leaf tool — it depends only on
+external crates (`midir`, `serde`/`toml`, `ratatui`/`crossterm`,
+`anyhow`/`thiserror`) and reads `profiles/pc4-full.toml` as data.
 
 Key invariant: a crate must not depend "upward". `mamut-dsp` and `mamut-field` are the real-time leaves; `mamut-engine` orchestrates them; `mamut-runtime` owns transport; `mamut-standalone` owns the binary surface. `mamut-runtime` was extracted from what used to live in `mamut-standalone/src/{audio_runtime,cli,commands,devices,midi_trace,runtime,session,types}.rs`.
 

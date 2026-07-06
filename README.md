@@ -60,7 +60,10 @@ Workspace crates:
 - `mamut-dsp` - shared DSP blocks and real-time utilities
 - `mamut-field` - Rust-first offline GFM lattice model and render evidence
 - `mamut-engine` - voice allocation, identity resolution, and audio render path
+- `mamut-runtime` - runtime-facing transport/session logic (ALSA playback, MIDI ingress, CLI)
+- `mamut-tui` - ratatui/crossterm terminal UI (lib + headless/TUI `play` binary)
 - `mamut-standalone` - standalone runtime with audio, MIDI, and demo performer
+- `mamut-seq` - laptop MIDI sequencer: virtual-port scenario player (default development-time input)
 
 Quick start:
 
@@ -81,7 +84,41 @@ cargo run -p mamut-standalone -- play --demo patches/factory/molten-horizon.toml
 cargo run -p mamut-standalone -- play --audio-device hw:<card>,<device> cathedral-bloom
 cargo run -p mamut-standalone -- play --audio-device 0 --midi-device 1 gravity-wake
 cargo run -p mamut-standalone -- play --headless --audio-device hw:<card>,<device> molten-horizon
+cargo run -p mamut-seq -- ports
+cargo run -p mamut-seq -- validate scenarios/gfm-gate-arm.toml
+cargo run -p mamut-seq -- play scenarios/gfm-gate-arm.toml
+cargo run -p mamut-seq -- live
 ```
+
+## Laptop MIDI input (`mamut-seq`)
+
+`mamut-seq` is the default development-time MIDI source: instead of the physical
+`PC4 -> mioXM` rig, generate MIDI on the laptop. It is a pure MIDI source over a
+virtual ALSA port, so it changes nothing in the runtime. The stage path
+(`PC4 -> mioXM -> EPM1`, see `docs/EPM1_FIRST_PERFORMANCE_PLAYBOOK.md`) is
+unchanged, and `mamut-seq` runs are synthetic development evidence — real-rig
+evidence in `docs/live-sessions/` stays a separate, hardware-only class.
+
+Two-terminal flow — Mamut in one terminal, `mamut-seq` in the other:
+
+```bash
+# terminal 1 - Mamut, selecting the mamut-seq port as input
+cargo run -p mamut-standalone -- play \
+  --audio-device hw:<card>,<device> \
+  --midi-device mamut-seq --midi-channel 2 \
+  --controller-profile profiles/pc4-full.toml --trace-midi cathedral-bloom
+
+# terminal 2 - mamut-seq, sending a scripted scenario
+cargo run -p mamut-seq -- play scenarios/gfm-gate-arm.toml
+```
+
+`tools/run-seq-smoke.sh` prints this quickstart (and, with `--run --audio-device
+<selector>`, drives it end-to-end). Scenarios live in `scenarios/` and address
+controls by profile name (never raw CC), resolved through `profiles/pc4-full.toml`.
+`mamut-seq validate <scenario>` prints the expanded schedule without sending;
+`mamut-seq live` is an interactive computer-keyboard mode for ad-hoc sound checks
+(the keymap is shown in-app). Full design:
+`docs/EPM1_BACKLOG_SET3_LAPTOP_MIDI_SEQUENCER.md`.
 
 If you want the shortest product-facing smoke instead of the full test suite:
 

@@ -18,6 +18,21 @@ Start here:
 - `EPM1_TRANSPORT_FREEZE.md` - local freeze/resume note for the last direct `EPM1` transport slice
 - `EPM1_SPRINT_6_PC4_PERFORMANCE_RIG.md` - Sprint 6 backlog, acceptance bar, and live-rig contract
 - `EPM1_SPRINT_6A_HOST_UNDERRUN_STABILITY.md` - next work item for real-host underrun diagnosis and performance stabilization
+- `EPM1_BACKLOG_SET1_GFM_PLAYABLE_FIELD.md` - proposed backlog: note-driven
+  field excitation, stereo field probe, and the `INSPECT` field view
+- `EPM1_BACKLOG_SET2_GFM_RUPTURE_AND_COST.md` - proposed backlog: GFM cost
+  baseline and rate policy plus rupture/recovery as a performance gesture
+- `EPM1_BACKLOG_SET3_LAPTOP_MIDI_SEQUENCER.md` - proposed backlog:
+  `mamut-seq` laptop MIDI sequencer as the default development-time input
+  replacing the physical `PC4` rig
+- `EPM1_SEQ_V0.1_VIRTUAL_PORT_EVIDENCE.md` - SET3-1 evidence: `mamut-seq` virtual
+  MIDI output port opens and is enumerated by `mamut-standalone list-midi`
+- `EPM1_SEQ_V0.2_SCENARIO_PLAYER_EVIDENCE.md` - SET3-2 evidence: deterministic
+  scenario schema and expansion, plus measured send jitter on the reference host
+- `EPM1_SEQ_V0.3_SCENARIO_LIBRARY_EVIDENCE.md` - SET3-3 evidence: the six shipped
+  `scenarios/*.toml`, `mod_wheel`/`sustain` steps, and `tools/run-seq-smoke.sh`
+- `EPM1_SEQ_V0.4_LIVE_MODE_EVIDENCE.md` - SET3-4 evidence: the interactive `live`
+  TUI, kitty keyboard-protocol detection, and the gate/latch note-model fallback
 - `EPM1_PC4_LIVE_PROFILE.md` - locked Sprint 6 `PC4` control map, live slot policy, and performance-window truth model
 - `EPM1_FIRST_PERFORMANCE_PLAYBOOK.md` - shortest trustworthy path for the first real `PC4` performance session
 - `adrs/0001-standalone-midi-ingress-hardening.md` - accepted narrow bugfix
