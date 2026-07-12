@@ -13,11 +13,11 @@ impl Engine {
 
         let pressure = self.gfm_layer_pressure.next_value();
         let effective_amount = self.gfm_layer_mix.next_value();
-        let gfm_sample = {
+        let (gfm_left, gfm_right) = {
             let Some(voice) = self.gfm_layer_voice.as_mut() else {
                 return (left, right);
             };
-            voice.next_sample_with_live_control(pressure, effective_amount)
+            voice.next_sample_stereo_with_live_control(pressure, effective_amount)
         };
         if effective_amount <= f32::EPSILON {
             self.finish_pending_auto_disarm_if_silent();
@@ -29,11 +29,12 @@ impl Engine {
         } else {
             (0.20 + activity * 0.80).clamp(0.0, 1.0)
         };
-        let layer = gfm_sample * gate * gfm_engine_layer_gain(program_id) * effective_amount;
-        let spread = (direct.stereo_width * 0.16 + direct.stereo_crossfeed * 0.04).clamp(0.0, 0.22);
-        let left = soft_clip(left + layer * (1.0 - spread), direct.final_asymmetry * 0.20);
+        // Real field stereo from the offset probe pair; the former
+        // stereo_width/crossfeed artificial spread is retired for this layer.
+        let layer_gain = gate * gfm_engine_layer_gain(program_id) * effective_amount;
+        let left = soft_clip(left + gfm_left * layer_gain, direct.final_asymmetry * 0.20);
         let right = soft_clip(
-            right + layer * (1.0 + spread),
+            right + gfm_right * layer_gain,
             -direct.final_asymmetry * 0.20,
         );
 

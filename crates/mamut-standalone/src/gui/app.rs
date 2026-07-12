@@ -33,15 +33,19 @@ pub(crate) enum PerformanceTab {
     Engine,
     Pc4,
     Debug,
+    /// First screen of the ADR 0003/0004 four-screen IA, alongside the
+    /// legacy tabs until cutover. Read-only GFM field view (SET1-3).
+    Inspect,
 }
 
 impl PerformanceTab {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Live,
         Self::SoundLab,
         Self::Engine,
         Self::Pc4,
         Self::Debug,
+        Self::Inspect,
     ];
 
     pub(crate) fn label(self) -> &'static str {
@@ -51,6 +55,7 @@ impl PerformanceTab {
             Self::Engine => "Engine",
             Self::Pc4 => "PC4",
             Self::Debug => "Debug",
+            Self::Inspect => "Inspect",
         }
     }
 
@@ -116,13 +121,17 @@ impl eframe::App for PerformanceApp {
                 match self.selected_tab {
                     PerformanceTab::Pc4 => self.render_pc4_tab(ui),
                     PerformanceTab::SoundLab => self.render_sound_lab_tab(ui, ctx),
-                    PerformanceTab::Live | PerformanceTab::Engine | PerformanceTab::Debug => {
+                    PerformanceTab::Live
+                    | PerformanceTab::Engine
+                    | PerformanceTab::Debug
+                    | PerformanceTab::Inspect => {
                         egui::ScrollArea::vertical()
                             .auto_shrink([false, false])
                             .show(ui, |ui| match self.selected_tab {
                                 PerformanceTab::Live => self.render_live_tab(ui, ctx),
                                 PerformanceTab::Engine => self.render_engine_tab(ui, ctx),
                                 PerformanceTab::Debug => self.render_debug_tab(ui),
+                                PerformanceTab::Inspect => self.render_inspect_tab(ui),
                                 PerformanceTab::SoundLab | PerformanceTab::Pc4 => unreachable!(),
                             });
                     }

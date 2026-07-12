@@ -81,6 +81,7 @@ impl Engine {
             self.last_direct.osc2_start_phase,
             self.last_direct.additive_random_detune_cents,
         );
+        self.strike_gfm_layer_note_on(note, velocity);
         self.refresh_bcs_layer_pitch();
     }
 
@@ -93,12 +94,16 @@ impl Engine {
             .min_by_key(|(_, voice)| voice.age)
             .map(|(index, _)| index)
         {
-            let voice = &mut self.voices[index];
-            if self.control.sustain_down {
-                voice.phase = VoicePhase::SustainedReleased;
-            } else {
-                voice.start_release();
-            }
+            let release_velocity = {
+                let voice = &mut self.voices[index];
+                if self.control.sustain_down {
+                    voice.phase = VoicePhase::SustainedReleased;
+                } else {
+                    voice.start_release();
+                }
+                voice.velocity
+            };
+            self.strike_gfm_layer_note_off(note, release_velocity);
         }
         if !self
             .voices
@@ -110,6 +115,24 @@ impl Engine {
             self.update_gfm_layer_smoothing_targets();
         }
         self.refresh_bcs_layer_pitch();
+    }
+
+    pub(super) fn strike_gfm_layer_note_on(&mut self, note: u8, velocity: f32) {
+        if !self.gfm_note_strikes_enabled {
+            return;
+        }
+        if let Some(voice) = self.gfm_layer_voice.as_mut() {
+            voice.strike_note_on(note, velocity);
+        }
+    }
+
+    pub(super) fn strike_gfm_layer_note_off(&mut self, note: u8, velocity: f32) {
+        if !self.gfm_note_strikes_enabled {
+            return;
+        }
+        if let Some(voice) = self.gfm_layer_voice.as_mut() {
+            voice.strike_note_off(note, velocity);
+        }
     }
 
     pub(super) fn allocate_voice_index(&self) -> usize {

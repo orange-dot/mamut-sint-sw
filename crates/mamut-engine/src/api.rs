@@ -118,6 +118,10 @@ pub struct GfmLayerSnapshot {
     pub amount: f32,
     pub pressure: f32,
     pub effective_amount: f32,
+    pub note_strikes_enabled: bool,
+    /// Present while a GFM voice is armed. Fixed-size (16x16 quantized
+    /// planes); copying the snapshot allocates nothing.
+    pub terrain: Option<GfmTerrainSnapshot16>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

@@ -30,6 +30,7 @@ pub struct GfmDiagnostics {
     pub last_rupture_count: usize,
     pub max_rupture_count: usize,
     pub suspect_damping_events: u64,
+    pub strike_count: u64,
     pub health: GfmHealthHistogram,
 }
 

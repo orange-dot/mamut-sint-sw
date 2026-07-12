@@ -293,7 +293,7 @@ Any accepted value must be proven through:
 This document is about tone architecture. It does not change:
 
 - patch schema contracts
-- transport freeze posture
+- transport posture (see ADR 0005)
 - ALSA/runtime ownership
 - evidence requirements
 - factory-bank acceptance rules

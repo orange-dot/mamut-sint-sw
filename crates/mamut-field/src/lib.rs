@@ -21,5 +21,11 @@ pub use lattice::*;
 mod render;
 pub use render::*;
 
+mod strike;
+pub use strike::*;
+
+mod terrain;
+pub use terrain::*;
+
 #[cfg(test)]
 mod tests;

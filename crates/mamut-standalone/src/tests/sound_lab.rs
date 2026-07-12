@@ -35,7 +35,7 @@ fn user_patch_filename_uses_sound_lab_export_contract() {
 }
 
 #[test]
-fn performance_tabs_include_sound_lab() {
+fn performance_tabs_include_sound_lab_and_inspect() {
     assert_eq!(
         PerformanceTab::ALL,
         [
@@ -43,7 +43,8 @@ fn performance_tabs_include_sound_lab() {
             PerformanceTab::SoundLab,
             PerformanceTab::Engine,
             PerformanceTab::Pc4,
-            PerformanceTab::Debug
+            PerformanceTab::Debug,
+            PerformanceTab::Inspect
         ]
     );
 }

@@ -154,6 +154,19 @@ Interpretation:
   DSP bug; it is the current gate contract
 - if aftertouch is present but the layer still never opens, that is a real bug
 
+Classification aid (`INSPECT` field view, SET1-3):
+
+- Open the `INSPECT` screen while running this pass. When a GFM voice is
+  armed it renders the live 16×16 field (energy heat-map, health borders,
+  rupture and note-strike markers, probe taps) directly from the engine
+  snapshot's `gfm_layer.terrain`, independent of the audible gate.
+- A field that visibly evolves while the sound stays dry disambiguates
+  "armed but gated silent" (the field is alive; `effective_amount` is `0.0`)
+  from a dead layer (the field is static/empty — a real DSP or arming bug).
+  The view carries the same `note strikes on/off`, `strikes`, and
+  `max ruptures` readout as the diagnostics so the two signals can be
+  cross-checked.
+
 ## Pass 2: Mapping/Focus Loss
 
 Goal:

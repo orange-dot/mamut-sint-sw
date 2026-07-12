@@ -837,3 +837,399 @@ fn gfm_layer_rebuilds_when_patch_loads() {
         Some(GfmProgramId::BakljaPerformance)
     );
 }
+
+#[test]
+fn gfm_layer_note_strikes_change_armed_render_and_stay_bounded() {
+    for patch_source in [CATHEDRAL_BLOOM, EMBER_VAULT, RAZOR_THAW] {
+        let patch = load_patch_toml(patch_source).expect("factory patch must parse");
+        let frames = ENGINE_LAYER_TEST_RATE_HZ as usize * 2;
+        let note_events =
+            engine_layer_note_on_events(select_gfm_program_for_patch(&patch).program_id);
+        let controller_events = [
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::GfmLayerAmount { amount: 1.0 },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::ChannelAftertouch { pressure: 0.72 },
+            },
+        ];
+
+        let mut struck_engine = Engine::new(
+            EngineConfig {
+                sample_rate_hz: ENGINE_LAYER_TEST_RATE_HZ as f32,
+                max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+                voice_count: 6,
+            },
+            patch.clone(),
+        )
+        .expect("engine must validate");
+        struck_engine.set_gfm_layer_mode(GfmLayerMode::Enabled {
+            seed: GFM_PERFORMANCE_BASELINE_SEED,
+        });
+        assert!(struck_engine.gfm_note_strikes_enabled());
+        let (struck_signature, struck_stats) =
+            render_engine_layer_signature_with_notes_and_controllers(
+                &mut struck_engine,
+                frames,
+                note_events,
+                &controller_events,
+            );
+
+        let mut center_engine = Engine::new(
+            EngineConfig {
+                sample_rate_hz: ENGINE_LAYER_TEST_RATE_HZ as f32,
+                max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+                voice_count: 6,
+            },
+            patch,
+        )
+        .expect("engine must validate");
+        center_engine.set_gfm_layer_mode(GfmLayerMode::Enabled {
+            seed: GFM_PERFORMANCE_BASELINE_SEED,
+        });
+        center_engine.set_gfm_note_strikes_enabled(false);
+        let (center_signature, center_stats) =
+            render_engine_layer_signature_with_notes_and_controllers(
+                &mut center_engine,
+                frames,
+                note_events,
+                &controller_events,
+            );
+
+        assert_ne!(struck_signature, center_signature);
+        assert!(struck_stats.finite);
+        assert!(center_stats.finite);
+        assert!(struck_stats.peak_abs <= MASTER_SAFETY_CEILING);
+        assert!(center_stats.peak_abs <= MASTER_SAFETY_CEILING);
+        assert!(struck_engine.snapshot().gfm_layer.note_strikes_enabled);
+        assert!(!center_engine.snapshot().gfm_layer.note_strikes_enabled);
+
+        let struck_diagnostics = struck_stats
+            .gfm_diagnostics
+            .expect("armed layer exposes diagnostics");
+        let center_diagnostics = center_stats
+            .gfm_diagnostics
+            .expect("armed layer exposes diagnostics");
+        assert!(struck_diagnostics.strike_count > 0);
+        assert_eq!(center_diagnostics.strike_count, 0);
+        match struck_stats.gfm_program_id {
+            Some(GfmProgramId::HorizontPerformance | GfmProgramId::PecPerformance) => {
+                assert_eq!(struck_diagnostics.max_rupture_count, 0);
+            }
+            Some(GfmProgramId::BakljaPerformance) => {
+                assert!(
+                    struck_diagnostics.max_rupture_count <= (GFM_V1_WIDTH * GFM_V1_HEIGHT * 2) / 5,
+                    "struck Baklja layer rupture count exceeded limit: {}",
+                    struck_diagnostics.max_rupture_count
+                );
+            }
+            None => panic!("armed layer must select a program"),
+        }
+    }
+}
+
+#[test]
+fn gfm_layer_note_strike_render_is_byte_identical_across_runs() {
+    let frames = ENGINE_LAYER_TEST_RATE_HZ as usize * 2;
+    let mut signatures = [0_u64; 2];
+    for signature in &mut signatures {
+        let patch = load_patch_toml(RAZOR_THAW).expect("factory patch must parse");
+        let note_events =
+            engine_layer_note_on_events(select_gfm_program_for_patch(&patch).program_id);
+        let controller_events = [
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::GfmLayerAmount { amount: 1.0 },
+            },
+            Scheduled {
+                frame_offset: 0,
+                event: ControllerEvent::ChannelAftertouch { pressure: 0.72 },
+            },
+        ];
+        let mut engine = Engine::new(
+            EngineConfig {
+                sample_rate_hz: ENGINE_LAYER_TEST_RATE_HZ as f32,
+                max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+                voice_count: 6,
+            },
+            patch,
+        )
+        .expect("engine must validate");
+        engine.set_gfm_layer_mode(GfmLayerMode::Enabled {
+            seed: GFM_PERFORMANCE_BASELINE_SEED,
+        });
+        let (rendered_signature, stats) = render_engine_layer_signature_with_notes_and_controllers(
+            &mut engine,
+            frames,
+            note_events,
+            &controller_events,
+        );
+        assert!(stats.finite);
+        *signature = rendered_signature;
+    }
+
+    assert_eq!(signatures[0], signatures[1]);
+}
+
+#[test]
+fn gfm_layer_note_off_adds_release_strike_only_while_armed() {
+    let patch = load_patch_toml(CATHEDRAL_BLOOM).expect("factory patch must parse");
+    let mut engine = Engine::new(
+        EngineConfig {
+            sample_rate_hz: ENGINE_LAYER_TEST_RATE_HZ as f32,
+            max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+            voice_count: 6,
+        },
+        patch,
+    )
+    .expect("engine must validate");
+
+    let note_on = [Scheduled {
+        frame_offset: 0,
+        event: NoteEvent::NoteOn {
+            note: 55,
+            velocity: 0.8,
+        },
+    }];
+    let note_off = [Scheduled {
+        frame_offset: 0,
+        event: NoteEvent::NoteOff { note: 55 },
+    }];
+
+    // Disabled layer: note events must not build a voice or strike anything.
+    engine.process_block(ProcessBlock {
+        frame_count: 16,
+        note_events: &note_on,
+        controller_events: &[],
+        macro_state: None,
+        output: None,
+    });
+    assert!(engine.snapshot().gfm_layer.diagnostics.is_none());
+
+    engine.set_gfm_layer_mode(GfmLayerMode::Enabled {
+        seed: GFM_PERFORMANCE_BASELINE_SEED,
+    });
+    engine.process_block(ProcessBlock {
+        frame_count: 16,
+        note_events: &note_on,
+        controller_events: &[],
+        macro_state: None,
+        output: None,
+    });
+    let after_note_on = engine
+        .snapshot()
+        .gfm_layer
+        .diagnostics
+        .expect("armed layer exposes diagnostics");
+    assert_eq!(after_note_on.strike_count, 1);
+
+    engine.process_block(ProcessBlock {
+        frame_count: 16,
+        note_events: &note_off,
+        controller_events: &[],
+        macro_state: None,
+        output: None,
+    });
+    let after_note_off = engine
+        .snapshot()
+        .gfm_layer
+        .diagnostics
+        .expect("armed layer exposes diagnostics");
+    assert_eq!(after_note_off.strike_count, 2);
+}
+
+#[test]
+fn gfm_field_voice_stereo_live_control_is_decorrelated_and_deterministic() {
+    // This is the exact readout the engine's `apply_gfm_layer` consumes:
+    // one field step read through the two offset stereo probe tap sets.
+    for program_id in GfmProgramId::ALL_PERFORMANCE {
+        let mut voice = GfmFieldVoice::new_live(
+            program_id,
+            GFM_PERFORMANCE_BASELINE_SEED,
+            ENGINE_LAYER_TEST_RATE_HZ,
+            GfmPerformanceControls::DEFAULT,
+        );
+        let mut repeat = GfmFieldVoice::new_live(
+            program_id,
+            GFM_PERFORMANCE_BASELINE_SEED,
+            ENGINE_LAYER_TEST_RATE_HZ,
+            GfmPerformanceControls::DEFAULT,
+        );
+
+        let mut left_power = 0.0_f32;
+        let mut right_power = 0.0_f32;
+        let mut cross_power = 0.0_f32;
+        let mut diff_power = 0.0_f32;
+        let mut fold_peak = 0.0_f32;
+        let mut finite = true;
+        let frames = ENGINE_LAYER_TEST_RATE_HZ as usize * 2;
+        for _ in 0..frames {
+            let (left, right) = voice.next_sample_stereo_with_live_control(0.62, 0.7);
+            let (repeat_left, repeat_right) =
+                repeat.next_sample_stereo_with_live_control(0.62, 0.7);
+            assert_eq!(left.to_bits(), repeat_left.to_bits());
+            assert_eq!(right.to_bits(), repeat_right.to_bits());
+            finite &= left.is_finite() && right.is_finite();
+            assert!(left.abs() <= 1.0 && right.abs() <= 1.0);
+            left_power += left * left;
+            right_power += right * right;
+            cross_power += left * right;
+            let diff = left - right;
+            diff_power += diff * diff;
+            fold_peak = fold_peak.max(((left + right) * 0.5).abs());
+        }
+
+        let correlation = cross_power / (left_power * right_power).sqrt().max(0.000_001);
+        let diff_rms = (diff_power / frames as f32).sqrt();
+
+        assert!(finite);
+        assert!(fold_peak <= 1.0);
+        assert!(left_power > 0.0 && right_power > 0.0);
+        assert!(
+            correlation < 0.999,
+            "{program_id:?} stereo probe stayed correlated in the engine voice: {correlation}"
+        );
+        assert!(
+            diff_rms > 0.001,
+            "{program_id:?} stereo probe channels are numerically indistinct: {diff_rms}"
+        );
+    }
+}
+
+#[test]
+fn gfm_layer_stereo_mix_output_is_finite_bounded_and_not_dual_mono() {
+    // End-to-end: an armed layer must land a genuinely stereo image in the
+    // final mix (the former artificial spread is retired for this layer).
+    let patch = load_patch_toml(CATHEDRAL_BLOOM).expect("factory patch must parse");
+    let note_events = engine_layer_note_on_events(select_gfm_program_for_patch(&patch).program_id);
+    let controller_events = [
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::GfmLayerAmount { amount: 1.0 },
+        },
+        Scheduled {
+            frame_offset: 0,
+            event: ControllerEvent::ChannelAftertouch { pressure: 0.72 },
+        },
+    ];
+    let mut engine = Engine::new(
+        EngineConfig {
+            sample_rate_hz: ENGINE_LAYER_TEST_RATE_HZ as f32,
+            max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+            voice_count: 6,
+        },
+        patch,
+    )
+    .expect("engine must validate");
+    engine.set_gfm_layer_mode(GfmLayerMode::Enabled {
+        seed: GFM_PERFORMANCE_BASELINE_SEED,
+    });
+
+    let frames = ENGINE_LAYER_TEST_RATE_HZ as usize * 2;
+    let mut left = [0.0_f32; ENGINE_LAYER_BLOCK_FRAMES];
+    let mut right = [0.0_f32; ENGINE_LAYER_BLOCK_FRAMES];
+    let mut rendered = 0;
+    let mut side_power = 0.0_f32;
+    let mut mid_power = 0.0_f32;
+    let mut peak = 0.0_f32;
+    let mut finite = true;
+    while rendered < frames {
+        let frame_count = (frames - rendered).min(ENGINE_LAYER_BLOCK_FRAMES);
+        let (block_notes, block_controllers): (&[ScheduledNoteEvent], _) = if rendered == 0 {
+            (&note_events, &controller_events[..])
+        } else {
+            (&[], &[][..])
+        };
+        engine.process_block(ProcessBlock {
+            frame_count,
+            note_events: block_notes,
+            controller_events: block_controllers,
+            macro_state: None,
+            output: Some(StereoBlockMut::new(
+                &mut left[..frame_count],
+                &mut right[..frame_count],
+            )),
+        });
+        for index in 0..frame_count {
+            let l = left[index];
+            let r = right[index];
+            finite &= l.is_finite() && r.is_finite();
+            peak = peak.max(l.abs().max(r.abs()));
+            let side = (l - r) * 0.5;
+            let mid = (l + r) * 0.5;
+            side_power += side * side;
+            mid_power += mid * mid;
+        }
+        rendered += frame_count;
+    }
+
+    assert!(finite);
+    assert!(peak <= MASTER_SAFETY_CEILING);
+    // A dual-mono layer over a near-mono patch would leave side energy at
+    // essentially zero; a real field-stereo image puts measurable energy in
+    // the side channel.
+    assert!(
+        side_power > 0.0 && mid_power > 0.0,
+        "mix collapsed to silence or perfect mono"
+    );
+    assert!(
+        side_power / mid_power > 1.0e-6,
+        "GFM stereo image is indistinguishable from dual-mono: side/mid={}",
+        side_power / mid_power
+    );
+}
+
+#[test]
+fn gfm_layer_snapshot_carries_terrain_only_while_armed() {
+    let patch = load_patch_toml(CATHEDRAL_BLOOM).expect("factory patch must parse");
+    let mut engine = Engine::new(
+        EngineConfig {
+            sample_rate_hz: ENGINE_LAYER_TEST_RATE_HZ as f32,
+            max_block_frames: ENGINE_LAYER_BLOCK_FRAMES,
+            voice_count: 6,
+        },
+        patch,
+    )
+    .expect("engine must validate");
+    assert!(engine.snapshot().gfm_layer.terrain.is_none());
+
+    engine.set_gfm_layer_mode(GfmLayerMode::Enabled {
+        seed: GFM_PERFORMANCE_BASELINE_SEED,
+    });
+    let note_on = [Scheduled {
+        frame_offset: 0,
+        event: NoteEvent::NoteOn {
+            note: 55,
+            velocity: 0.8,
+        },
+    }];
+    engine.process_block(ProcessBlock {
+        frame_count: 32,
+        note_events: &note_on,
+        controller_events: &[],
+        macro_state: None,
+        output: None,
+    });
+
+    let terrain = engine
+        .snapshot()
+        .gfm_layer
+        .terrain
+        .expect("armed layer exposes terrain");
+    assert_eq!(
+        terrain.health_histogram().total(),
+        GFM_V1_WIDTH * GFM_V1_HEIGHT
+    );
+    assert_eq!(terrain.frame_index, 32);
+    let newest = terrain.recent_strikes[0].expect("note-on recorded a strike marker");
+    let expected = mamut_field::note_strike_position::<GFM_V1_WIDTH, GFM_V1_HEIGHT>(
+        55,
+        GFM_PERFORMANCE_BASELINE_SEED,
+    );
+    assert_eq!((newest.x as usize, newest.y as usize), expected);
+
+    engine.set_gfm_layer_mode(GfmLayerMode::Disabled);
+    assert!(engine.snapshot().gfm_layer.terrain.is_none());
+}

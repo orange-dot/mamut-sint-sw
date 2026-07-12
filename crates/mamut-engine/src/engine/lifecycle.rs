@@ -45,6 +45,7 @@ impl Engine {
             gfm_layer_pressure: LinearSmoother::new(0.0),
             gfm_layer_selection: GfmVoiceProgramSelection::default(),
             gfm_layer_voice: None,
+            gfm_note_strikes_enabled: true,
             bcs_layer_mode: BcsLayerMode::Disabled,
             bcs_layer_mix: LinearSmoother::new(0.0),
             bcs_layer_note: None,
@@ -230,6 +231,17 @@ impl Engine {
             target,
             smoothing_sample_count(self.config.sample_rate_hz, mix_ms),
         );
+    }
+
+    /// Session control (not patch state): note-driven strikes into the armed
+    /// GFM layer. Enabled by default; disabling restores the center-only
+    /// excitation baseline.
+    pub fn set_gfm_note_strikes_enabled(&mut self, enabled: bool) {
+        self.gfm_note_strikes_enabled = enabled;
+    }
+
+    pub const fn gfm_note_strikes_enabled(&self) -> bool {
+        self.gfm_note_strikes_enabled
     }
 
     pub const fn gfm_layer_mode(&self) -> GfmLayerMode {

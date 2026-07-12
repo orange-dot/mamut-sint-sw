@@ -2,7 +2,7 @@ use std::{env, path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use eframe::{NativeOptions, egui};
-use mamut_engine::{BcsLayerMode, BcsScenario, EngineSnapshot, GfmLayerMode};
+use mamut_engine::{BcsLayerMode, BcsScenario, EngineSnapshot, GfmLayerMode, GfmTerrainSnapshot16};
 use mamut_params::{MacroId, ParamId, ParamSection, ParamSpec, ParamUnit, all_params, param_spec};
 use mamut_runtime::*;
 
@@ -35,6 +35,7 @@ pub(crate) use app::*;
 mod app_methods;
 mod debug_methods;
 mod engine_methods;
+mod inspect_methods;
 mod live_methods;
 mod pc4_methods;
 mod sound_lab_methods;

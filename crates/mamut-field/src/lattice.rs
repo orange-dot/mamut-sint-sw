@@ -1,5 +1,17 @@
 use super::*;
 
+pub(crate) const GFM_CELL_ENERGY_CEILING: f32 = 2.8;
+pub(crate) const GFM_CELL_STRAIN_CEILING: f32 = 2.8;
+pub(crate) const GFM_CELL_HEAT_CEILING: f32 = 2.2;
+
+pub const GFM_STEREO_PROBE_OFFSET_COLUMNS: usize = 2;
+
+const GFM_STRIKE_WINDOW_CELLS: isize = 3;
+const GFM_STRIKE_RADIUS: f32 = 3.0;
+const GFM_STRIKE_ENERGY_DEPOSIT: f32 = 1.10;
+const GFM_STRIKE_HEAT_DEPOSIT: f32 = 0.45;
+const GFM_STRIKE_STRAIN_DEPOSIT: f32 = 0.14;
+
 #[derive(Debug, Clone)]
 pub struct GfmLattice<const W: usize, const H: usize> {
     params: GfmParams,
@@ -18,6 +30,9 @@ pub struct GfmLattice<const W: usize, const H: usize> {
     last_rupture_count: usize,
     max_rupture_count: usize,
     suspect_damping_events: u64,
+    strike_count: u64,
+    recent_strikes: [Option<GfmStrikeMarker>; GFM_TERRAIN_RECENT_STRIKES],
+    recent_strike_cursor: usize,
 }
 
 impl<const W: usize, const H: usize> GfmLattice<W, H> {
@@ -44,6 +59,9 @@ impl<const W: usize, const H: usize> GfmLattice<W, H> {
             last_rupture_count: 0,
             max_rupture_count: 0,
             suspect_damping_events: 0,
+            strike_count: 0,
+            recent_strikes: [None; GFM_TERRAIN_RECENT_STRIKES],
+            recent_strike_cursor: 0,
         };
         lattice.reset(seed);
         lattice
@@ -60,6 +78,9 @@ impl<const W: usize, const H: usize> GfmLattice<W, H> {
         self.last_rupture_count = 0;
         self.max_rupture_count = 0;
         self.suspect_damping_events = 0;
+        self.strike_count = 0;
+        self.recent_strikes = [None; GFM_TERRAIN_RECENT_STRIKES];
+        self.recent_strike_cursor = 0;
 
         let mut rng = self.rng_state;
         for y in 0..H {
@@ -91,6 +112,22 @@ impl<const W: usize, const H: usize> GfmLattice<W, H> {
         (W / 2, H / 2)
     }
 
+    /// Left/right stereo probe tap centers: the mono center cross offset by
+    /// `GFM_STEREO_PROBE_OFFSET_COLUMNS` columns to each side (toroidal).
+    pub fn stereo_probe_positions(&self) -> ((usize, usize), (usize, usize)) {
+        let center_x = W / 2;
+        let center_y = H / 2;
+        let offset = GFM_STEREO_PROBE_OFFSET_COLUMNS as isize;
+        (
+            (wrap_index(center_x as isize - offset, W), center_y),
+            (wrap_index(center_x as isize + offset, W), center_y),
+        )
+    }
+
+    pub const fn seed(&self) -> u64 {
+        self.seed
+    }
+
     pub fn health_histogram(&self) -> GfmHealthHistogram {
         let mut histogram = GfmHealthHistogram::default();
         for y in 0..H {
@@ -116,12 +153,120 @@ impl<const W: usize, const H: usize> GfmLattice<W, H> {
             last_rupture_count: self.last_rupture_count,
             max_rupture_count: self.max_rupture_count,
             suspect_damping_events: self.suspect_damping_events,
+            strike_count: self.strike_count,
             health: self.health_histogram(),
         }
     }
 
+    /// Deposit one strike into the cell fields through a small bounded
+    /// footprint. Event-boundary work: no allocation, no RNG draw, fixed
+    /// iteration bound, clamped to the same per-cell ceilings the update
+    /// loop enforces.
+    pub fn inject_strike(&mut self, strike: GfmStrike) {
+        debug_assert!(
+            W <= 256 && H <= 256,
+            "GfmStrike u8 coordinates cannot address a lattice axis past 256"
+        );
+        let strike = strike.sanitized();
+        if strike.is_silent() {
+            return;
+        }
+
+        let center_x = (strike.x as usize) % W;
+        let center_y = (strike.y as usize) % H;
+        for dy in -GFM_STRIKE_WINDOW_CELLS..=GFM_STRIKE_WINDOW_CELLS {
+            for dx in -GFM_STRIKE_WINDOW_CELLS..=GFM_STRIKE_WINDOW_CELLS {
+                let distance = ((dx * dx + dy * dy) as f32).sqrt();
+                let normalized = (1.0 - distance / GFM_STRIKE_RADIUS).clamp(0.0, 1.0);
+                let footprint = normalized * normalized;
+                if footprint <= 0.0 {
+                    continue;
+                }
+                let x = wrap_index(center_x as isize + dx, W);
+                let y = wrap_index(center_y as isize + dy, H);
+                let cell = &mut self.cells[y][x];
+                cell.energy = (cell.energy
+                    + strike.pressure * footprint * GFM_STRIKE_ENERGY_DEPOSIT)
+                    .clamp(0.0, GFM_CELL_ENERGY_CEILING);
+                cell.heat = (cell.heat + strike.heat * footprint * GFM_STRIKE_HEAT_DEPOSIT)
+                    .clamp(0.0, GFM_CELL_HEAT_CEILING);
+                cell.strain = (cell.strain
+                    + strike.rupture_bias * footprint * GFM_STRIKE_STRAIN_DEPOSIT)
+                    .clamp(0.0, GFM_CELL_STRAIN_CEILING);
+            }
+        }
+        self.strike_count = self.strike_count.wrapping_add(1);
+        self.recent_strikes[self.recent_strike_cursor] = Some(GfmStrikeMarker {
+            x: center_x as u8,
+            y: center_y as u8,
+            frame_index: self.frame_index,
+        });
+        self.recent_strike_cursor = (self.recent_strike_cursor + 1) % GFM_TERRAIN_RECENT_STRIKES;
+    }
+
+    /// Quantized read-only terrain snapshot for inspection surfaces.
+    /// On-demand work (one bounded pass over the cells, no allocation, no
+    /// RNG draw, no state change) — never called from the per-sample path.
+    pub fn terrain_snapshot(&self) -> GfmTerrainSnapshot<W, H> {
+        let mut snapshot = GfmTerrainSnapshot::empty();
+        snapshot.frame_index = self.frame_index;
+
+        for y in 0..H {
+            for x in 0..W {
+                let cell = self.cells[y][x];
+                snapshot.energy[y][x] = quantize_unit(cell.energy / GFM_CELL_ENERGY_CEILING);
+                snapshot.heat[y][x] = quantize_unit(cell.heat / GFM_CELL_HEAT_CEILING);
+                snapshot.fracture[y][x] = quantize_unit(cell.fracture);
+                snapshot.health[y][x] = cell.health;
+                snapshot.recently_ruptured[y][x] = cell.rupture_cooldown > 0;
+            }
+        }
+
+        let probe = self.probe_position();
+        let (left_probe, right_probe) = self.stereo_probe_positions();
+        snapshot.probe = (probe.0 as u8, probe.1 as u8);
+        snapshot.stereo_probes = (
+            (left_probe.0 as u8, left_probe.1 as u8),
+            (right_probe.0 as u8, right_probe.1 as u8),
+        );
+        for index in 0..GFM_TERRAIN_RECENT_STRIKES {
+            let slot = (self.recent_strike_cursor + GFM_TERRAIN_RECENT_STRIKES - 1 - index)
+                % GFM_TERRAIN_RECENT_STRIKES;
+            snapshot.recent_strikes[index] = self.recent_strikes[slot];
+        }
+
+        snapshot
+    }
+
     pub fn next_sample(&mut self) -> f32 {
         self.next_sample_with_excitation(GfmExcitation::none())
+    }
+
+    pub fn next_sample_stereo(&mut self) -> (f32, f32) {
+        self.next_sample_stereo_with_excitation(GfmExcitation::none())
+    }
+
+    /// One lattice step read through the two offset stereo tap sets. The
+    /// field update is identical to the mono path (probe reads are read-only
+    /// passes); only the readout differs. Diagnostics record the mono
+    /// fold-down as `last_output` and the louder channel as the peak.
+    pub fn next_sample_stereo_with_excitation(&mut self, excitation: GfmExcitation) -> (f32, f32) {
+        let params = self.params.sanitized();
+        let excitation = excitation.sanitized();
+        self.refresh_topology_if_needed();
+        self.sample_neighbors(params, excitation);
+        self.update_fields_health_and_phase(params, excitation);
+        let (left_position, right_position) = self.stereo_probe_positions();
+        let left =
+            sanitize_sample(self.read_probe_output_at(params, left_position.0, left_position.1));
+        let right =
+            sanitize_sample(self.read_probe_output_at(params, right_position.0, right_position.1));
+
+        self.last_output = (left + right) * 0.5;
+        self.peak_abs_output = self.peak_abs_output.max(left.abs().max(right.abs()));
+        self.frame_index = self.frame_index.wrapping_add(1);
+
+        (left, right)
     }
 
     pub fn next_sample_with_excitation(&mut self, excitation: GfmExcitation) -> f32 {
@@ -328,9 +473,9 @@ impl<const W: usize, const H: usize> GfmLattice<W, H> {
                     cell.rupture_cooldown -= 1;
                 }
 
-                cell.energy = sanitize_f32(cell.energy, 0.0).clamp(0.0, 2.8);
-                cell.strain = sanitize_f32(cell.strain, 0.0).clamp(0.0, 2.8);
-                cell.heat = sanitize_f32(cell.heat, 0.0).clamp(0.0, 2.2);
+                cell.energy = sanitize_f32(cell.energy, 0.0).clamp(0.0, GFM_CELL_ENERGY_CEILING);
+                cell.strain = sanitize_f32(cell.strain, 0.0).clamp(0.0, GFM_CELL_STRAIN_CEILING);
+                cell.heat = sanitize_f32(cell.heat, 0.0).clamp(0.0, GFM_CELL_HEAT_CEILING);
                 cell.coherence = sanitize_f32(cell.coherence, 0.0).clamp(0.0, 1.0);
                 cell.fracture = sanitize_f32(cell.fracture, 0.0).clamp(0.0, 1.0);
 
@@ -365,8 +510,10 @@ impl<const W: usize, const H: usize> GfmLattice<W, H> {
     }
 
     fn read_probe_output(&self, params: GfmParams) -> f32 {
-        let center_x = W / 2;
-        let center_y = H / 2;
+        self.read_probe_output_at(params, W / 2, H / 2)
+    }
+
+    fn read_probe_output_at(&self, params: GfmParams, center_x: usize, center_y: usize) -> f32 {
         let taps = [
             (center_x, center_y, 1.00),
             ((center_x + W - 1) % W, center_y, 0.34),

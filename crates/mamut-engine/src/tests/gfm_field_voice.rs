@@ -282,3 +282,46 @@ fn gfm_patch_voice_factory_disables_low_score_patch() {
     assert!(decision.selection().best_score() < GfmVoiceProgramSelection::MIN_PROGRAM_SCORE);
     assert!(decision.into_voice().is_none());
 }
+
+#[test]
+fn gfm_field_voice_note_strikes_change_pcm_and_stay_deterministic() {
+    for program_id in GfmProgramId::ALL_PERFORMANCE {
+        let render = |strike_notes: bool| {
+            let mut voice = GfmFieldVoice::new_live(
+                program_id,
+                GFM_PERFORMANCE_BASELINE_SEED,
+                GFM_TEST_RATE_HZ,
+                GfmPerformanceControls::DEFAULT,
+            );
+            let mut signature = 0xcbf2_9ce4_8422_2325_u64;
+            let mut finite = true;
+            for frame in 0..4_096_usize {
+                if strike_notes && frame % 512 == 0 {
+                    let note = 36 + ((frame / 512) as u8 % 5) * 12;
+                    voice.strike_note_on(note, 0.82);
+                }
+                let sample = voice.next_sample_with_live_control(0.6, 0.8);
+                finite &= sample.is_finite();
+                let pcm = sample_to_pcm16(sample);
+                signature ^= pcm as u16 as u64;
+                signature = signature.wrapping_mul(0x100_0000_01b3);
+            }
+            (signature, finite, voice.diagnostics())
+        };
+
+        let (plain_signature, plain_finite, plain_diagnostics) = render(false);
+        let (struck_signature, struck_finite, struck_diagnostics) = render(true);
+        let (repeat_signature, _, repeat_diagnostics) = render(true);
+
+        assert!(plain_finite);
+        assert!(struck_finite);
+        assert_ne!(struck_signature, plain_signature);
+        assert_eq!(struck_signature, repeat_signature);
+        assert_eq!(plain_diagnostics.strike_count, 0);
+        assert_eq!(struck_diagnostics.strike_count, 8);
+        assert_eq!(
+            struck_diagnostics.strike_count,
+            repeat_diagnostics.strike_count
+        );
+    }
+}

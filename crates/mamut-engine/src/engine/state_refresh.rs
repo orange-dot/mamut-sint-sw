@@ -129,6 +129,11 @@ impl Engine {
             amount: self.control.gfm_layer_amount,
             pressure: self.control.gfm_layer_pressure,
             effective_amount: self.gfm_layer_mix.current(),
+            note_strikes_enabled: self.gfm_note_strikes_enabled,
+            terrain: self
+                .gfm_layer_voice
+                .as_ref()
+                .map(GfmFieldVoice::terrain_snapshot),
         }
     }
 

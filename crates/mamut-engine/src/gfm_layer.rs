@@ -268,7 +268,36 @@ impl GfmFieldVoice {
     }
 
     pub fn next_sample_with_live_control(&mut self, pressure: f32, amount: f32) -> f32 {
-        let excitation = match self.mode {
+        let excitation = self.live_step_excitation(pressure, amount);
+        self.frame_index = self.frame_index.wrapping_add(1);
+        self.lattice.next_sample_with_excitation(excitation)
+    }
+
+    /// One field step read through the two offset stereo probe tap sets.
+    /// The field update is identical to the mono path; only the readout
+    /// differs.
+    pub fn next_sample_stereo_with_live_control(
+        &mut self,
+        pressure: f32,
+        amount: f32,
+    ) -> (f32, f32) {
+        let excitation = self.live_step_excitation(pressure, amount);
+        self.frame_index = self.frame_index.wrapping_add(1);
+        self.lattice.next_sample_stereo_with_excitation(excitation)
+    }
+
+    pub fn stereo_probe_positions(&self) -> ((usize, usize), (usize, usize)) {
+        self.lattice.stereo_probe_positions()
+    }
+
+    /// Quantized read-only terrain snapshot for inspection surfaces;
+    /// on-demand work off the per-sample path.
+    pub fn terrain_snapshot(&self) -> GfmTerrainSnapshot16 {
+        self.lattice.terrain_snapshot()
+    }
+
+    fn live_step_excitation(&self, pressure: f32, amount: f32) -> GfmExcitation {
+        match self.mode {
             GfmExcitationMode::OfflineGesture => {
                 let excitation = self
                     .gesture
@@ -278,9 +307,38 @@ impl GfmFieldVoice {
             GfmExcitationMode::Live => {
                 gfm_live_excitation(self.program.id(), pressure, amount, self.controls)
             }
-        };
-        self.frame_index = self.frame_index.wrapping_add(1);
-        self.lattice.next_sample_with_excitation(excitation)
+        }
+    }
+
+    /// Deterministic note-on strike into the field: pitch class and octave
+    /// select the cell band, the lattice seed folds the per-patch offset,
+    /// velocity scales strike strength. Bounded event-boundary work.
+    pub fn strike_note_on(&mut self, note: u8, velocity: f32) {
+        let strike = gfm_note_strike(
+            self.program.id(),
+            note,
+            velocity,
+            self.controls,
+            self.lattice.seed(),
+        );
+        self.lattice.inject_strike(strike);
+    }
+
+    /// Weaker release strike on note-off; never contributes rupture bias.
+    pub fn strike_note_off(&mut self, note: u8, velocity: f32) {
+        let strike = gfm_note_strike(
+            self.program.id(),
+            note,
+            velocity,
+            self.controls,
+            self.lattice.seed(),
+        );
+        self.lattice.inject_strike(GfmStrike {
+            pressure: strike.pressure * GFM_NOTE_RELEASE_STRIKE_SCALE,
+            heat: strike.heat * GFM_NOTE_RELEASE_HEAT_SCALE,
+            rupture_bias: 0.0,
+            ..strike
+        });
     }
 
     pub fn render_mono_block(&mut self, output: &mut [f32]) {
@@ -295,6 +353,53 @@ impl GfmFieldVoice {
             *left = sample;
             *right = sample;
         }
+    }
+}
+
+const GFM_NOTE_RELEASE_STRIKE_SCALE: f32 = 0.30;
+const GFM_NOTE_RELEASE_HEAT_SCALE: f32 = 0.50;
+
+fn gfm_note_strike(
+    program_id: GfmProgramId,
+    note: u8,
+    velocity: f32,
+    controls: GfmPerformanceControls,
+    seed: u64,
+) -> GfmStrike {
+    let velocity = if velocity.is_finite() {
+        velocity.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let (x, y) = note_strike_position::<GFM_V1_WIDTH, GFM_V1_HEIGHT>(note, seed);
+    let controls = controls.sanitized();
+    let (pressure, heat, rupture_bias) = match program_id {
+        GfmProgramId::HorizontPerformance => (
+            velocity * (0.30 + controls.depth * 0.42 + controls.spread * 0.10),
+            velocity * (0.05 + controls.heat * 0.14),
+            0.0,
+        ),
+        GfmProgramId::PecPerformance => (
+            velocity * (0.24 + controls.body * 0.28 + controls.depth * 0.12),
+            velocity * (0.16 + controls.heat * 0.44 + controls.brightness * 0.10),
+            0.0,
+        ),
+        GfmProgramId::BakljaPerformance => {
+            let edge = ((velocity - 0.58) / 0.42).clamp(0.0, 1.0);
+            (
+                velocity * (0.26 + controls.depth * 0.38 + controls.body * 0.12),
+                velocity * (0.10 + controls.heat * 0.22),
+                edge * (0.30 + controls.rupture * 0.55 + controls.brightness * 0.10),
+            )
+        }
+    };
+
+    GfmStrike {
+        x: x as u8,
+        y: y as u8,
+        pressure: pressure.clamp(0.0, 1.0),
+        heat: heat.clamp(0.0, 1.0),
+        rupture_bias: rupture_bias.clamp(0.0, 1.0),
     }
 }
 

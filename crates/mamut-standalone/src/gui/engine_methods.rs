@@ -36,7 +36,7 @@ impl PerformanceApp {
             PerformanceTab::Engine => {
                 self.render_output_scope_panel(ui, snapshot.as_ref(), "MASTER OSCILLOSCOPE", 220.0);
             }
-            PerformanceTab::Pc4 | PerformanceTab::Debug => {}
+            PerformanceTab::Pc4 | PerformanceTab::Debug | PerformanceTab::Inspect => {}
         }
     }
 

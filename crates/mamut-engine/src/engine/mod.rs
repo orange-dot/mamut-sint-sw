@@ -29,6 +29,7 @@ pub struct Engine {
     gfm_layer_pressure: LinearSmoother,
     gfm_layer_selection: GfmVoiceProgramSelection,
     gfm_layer_voice: Option<GfmFieldVoice>,
+    gfm_note_strikes_enabled: bool,
     bcs_layer_mode: BcsLayerMode,
     bcs_layer_mix: LinearSmoother,
     bcs_layer_note: Option<u8>,

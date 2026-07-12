@@ -9,10 +9,14 @@ use mamut_dsp::{
 };
 pub use mamut_field::GfmPerformanceControls;
 pub use mamut_field::bcs::BcsScenario;
+pub use mamut_field::{
+    GFM_TERRAIN_RECENT_STRIKES, GfmCellHealth, GfmStrikeMarker, GfmTerrainSnapshot16,
+};
 use mamut_field::{
-    GfmDiagnostics, GfmExcitation, GfmLattice16, GfmPerformanceGesture, GfmPerformanceProgram,
-    GfmProgramId,
+    GFM_V1_HEIGHT, GFM_V1_WIDTH, GfmDiagnostics, GfmExcitation, GfmLattice16,
+    GfmPerformanceGesture, GfmPerformanceProgram, GfmProgramId, GfmStrike,
     bcs::{BcsGesture, BcsParams, BcsVoice},
+    note_strike_position,
 };
 use mamut_identity::{
     DerivedState, IdentityState, MacroState, ResolvedIdentityFrame, resolve_identity,
