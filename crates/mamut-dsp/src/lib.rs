@@ -11,6 +11,7 @@ mod modulation;
 mod noise;
 mod oscillator;
 mod phase;
+mod quasicrystal;
 mod safety;
 mod smoother;
 mod waveform;
@@ -39,6 +40,13 @@ pub use modulation::{
 pub use noise::{NoiseRng, color_noise_sample};
 pub use oscillator::Oscillator;
 pub use phase::PhaseAccumulator;
+pub use quasicrystal::{
+    MOZAIK_DEFAULT_CONTRAST, MOZAIK_MAX_CONTRAST, MOZAIK_MAX_F0_HZ, MOZAIK_MIN_CONTRAST,
+    MOZAIK_MIN_F0_HZ, MOZAIK_MIN_TILE_SAMPLES, MOZAIK_SLOPE_DETENT_FIVE_EIGHTHS_Q32,
+    MOZAIK_SLOPE_DETENT_HALF_Q32, MOZAIK_SLOPE_DETENT_THREE_FIFTHS_Q32,
+    MOZAIK_SLOPE_DETENT_TWO_THIRDS_Q32, MOZAIK_SLOPE_DETENTS_Q32, MOZAIK_SLOPE_GOLDEN_Q32,
+    MOZAIK_SLOPE_MAX_Q32, MOZAIK_SLOPE_MIN_Q32, MozaikTileKind, QuasicrystalOsc, QuasicrystalWord,
+};
 pub use safety::{
     DENORMAL_FLUSH_ABS, DcBlocker, MASTER_SAFETY_CEILING, MASTER_SAFETY_KNEE, StereoDcBlocker,
     flush_tiny_sample, master_safety_limit, sanitize_block, sanitize_sample,

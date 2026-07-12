@@ -153,6 +153,9 @@ Start here:
   BCS scenario flag and interactive command evidence
 - `dsp/bcs-v1.2-playable-midi-layer-evidence.md` - playable BCS MIDI layer
   evidence for PC4 `S9` amount and `SW9` enable
+- `dsp/mozaik-v0.1-quasicrystal-osc-evidence.md` - quasicrystal (cut-and-project)
+  oscillator primitive evidence (`SET5-3`; Q32 Bresenham word, Hann tiles,
+  phason latch, detent walk, pitch-anchor honesty table)
 
 Current source-doc posture:
 

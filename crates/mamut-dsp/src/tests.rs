@@ -788,3 +788,231 @@ fn comb_and_allpass_filters_stay_finite_over_long_run() {
     );
     assert!(allpass.process(f32::NAN, f32::NAN, f32::NAN).is_finite());
 }
+
+fn quasicrystal_word_reference_kind(phason_q32: u32, slope_q32: u32, index: u64) -> MozaikTileKind {
+    let position = u64::from(phason_q32) + (index + 1) * u64::from(slope_q32);
+    let previous = u64::from(phason_q32) + index * u64::from(slope_q32);
+    if (position >> 32) > (previous >> 32) {
+        MozaikTileKind::Long
+    } else {
+        MozaikTileKind::Short
+    }
+}
+
+#[test]
+fn quasicrystal_word_matches_floor_reference_over_1e5_tiles() {
+    for slope_q32 in MOZAIK_SLOPE_DETENTS_Q32 {
+        for phason_q32 in [0_u32, 0x1234_5678, 0xDEAD_BEEF] {
+            let mut word = QuasicrystalWord::new(slope_q32, phason_q32);
+            for index in 0..100_000_u64 {
+                let expected = quasicrystal_word_reference_kind(phason_q32, slope_q32, index);
+                assert_eq!(
+                    word.next_tile_kind(),
+                    expected,
+                    "slope={slope_q32:#010x} phason={phason_q32:#010x} index={index}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn quasicrystal_long_tile_density_matches_slope_over_1e6_tiles() {
+    for slope_q32 in MOZAIK_SLOPE_DETENTS_Q32 {
+        let mut word = QuasicrystalWord::new(slope_q32, 0x0BAD_5EED);
+        let mut long_tiles = 0_u64;
+        for _ in 0..1_000_000_u64 {
+            if word.next_tile_kind() == MozaikTileKind::Long {
+                long_tiles += 1;
+            }
+        }
+        let density = long_tiles as f64 / 1_000_000.0;
+        let sigma = f64::from(slope_q32) / 4_294_967_296.0;
+        assert!(
+            (density - sigma).abs() < 1.0e-3,
+            "slope={slope_q32:#010x} density={density} sigma={sigma}"
+        );
+    }
+}
+
+#[test]
+fn quasicrystal_word_slope_clamps_to_bounds() {
+    let low = QuasicrystalWord::new(0, 0);
+    let high = QuasicrystalWord::new(u32::MAX, 0);
+    assert_eq!(low.slope_q32(), MOZAIK_SLOPE_MIN_Q32);
+    assert_eq!(high.slope_q32(), MOZAIK_SLOPE_MAX_Q32);
+}
+
+#[test]
+fn quasicrystal_detent_half_word_alternates() {
+    let mut word = QuasicrystalWord::new(MOZAIK_SLOPE_DETENT_HALF_Q32, 0);
+    let mut previous = word.next_tile_kind();
+    for _ in 0..1_000 {
+        let current = word.next_tile_kind();
+        assert_ne!(current, previous);
+        previous = current;
+    }
+}
+
+#[test]
+fn quasicrystal_phason_latch_never_splits_a_tile() {
+    const SAMPLE_RATE_HZ: f32 = 48_000.0;
+    const F0_HZ: f32 = 220.0;
+    const FRAMES: usize = 24_000;
+    const PHASON_TARGET: f32 = 0.25;
+
+    // Dry run: find a tile that starts after some settling and spans enough
+    // samples to place two distinct mid-tile change points.
+    let mut probe = QuasicrystalOsc::new();
+    let mut tile_first_sample = 0_usize;
+    let mut tile_last_sample = 0_usize;
+    let mut previous_tiles = probe.tiles_emitted();
+    for frame in 0..FRAMES {
+        probe.next_sample(F0_HZ, SAMPLE_RATE_HZ);
+        let tiles = probe.tiles_emitted();
+        if frame > 1_000 && tiles != previous_tiles {
+            if tile_first_sample == 0 {
+                tile_first_sample = frame;
+            } else {
+                tile_last_sample = frame - 1;
+                break;
+            }
+        }
+        previous_tiles = tiles;
+    }
+    assert!(
+        tile_last_sample > tile_first_sample + 4,
+        "tile too short to test"
+    );
+
+    let early_change = tile_first_sample + 1;
+    let late_change = tile_last_sample - 1;
+
+    let render = |change_at: usize| -> Vec<u32> {
+        let mut osc = QuasicrystalOsc::new();
+        let mut bits = Vec::with_capacity(FRAMES);
+        for frame in 0..FRAMES {
+            if frame == change_at {
+                osc.set_phason(PHASON_TARGET);
+            }
+            bits.push(osc.next_sample(F0_HZ, SAMPLE_RATE_HZ).to_bits());
+        }
+        bits
+    };
+
+    let early = render(early_change);
+    let late = render(late_change);
+    let unchanged = render(FRAMES + 1);
+
+    // The latch defers both requests to the same tile boundary, so the two
+    // renders are bit-identical everywhere — the tile in progress is never
+    // split.
+    assert_eq!(early, late);
+    // And the phason did land: after the latch boundary the word rearranges
+    // against the unchanged render.
+    assert_ne!(early, unchanged);
+    // Up to and including the tile in which the change was requested, the
+    // changed render still matches the unchanged one sample for sample.
+    assert_eq!(early[..=tile_last_sample], unchanged[..=tile_last_sample]);
+}
+
+#[test]
+fn quasicrystal_osc_clamps_hostile_parameters() {
+    let mut osc = QuasicrystalOsc::new();
+    osc.set_slope(f32::NAN);
+    assert_eq!(osc.slope_q32(), MOZAIK_SLOPE_GOLDEN_Q32);
+    osc.set_slope(f32::INFINITY);
+    assert_eq!(osc.slope_q32(), MOZAIK_SLOPE_GOLDEN_Q32);
+    osc.set_slope(-4.0);
+    assert_eq!(osc.slope_q32(), MOZAIK_SLOPE_MIN_Q32);
+    osc.set_slope(4.0);
+    assert_eq!(osc.slope_q32(), MOZAIK_SLOPE_MAX_Q32);
+    osc.set_slope(0.618_034);
+    assert!((osc.slope_sigma() - 0.618_034).abs() < 1.0e-6);
+
+    osc.set_contrast(f32::NAN);
+    assert_eq!(osc.contrast(), MOZAIK_DEFAULT_CONTRAST);
+    osc.set_contrast(-1.0);
+    assert_eq!(osc.contrast(), MOZAIK_MIN_CONTRAST);
+    osc.set_contrast(100.0);
+    assert_eq!(osc.contrast(), MOZAIK_MAX_CONTRAST);
+
+    osc.set_gain(f32::NEG_INFINITY);
+    assert_eq!(osc.gain(), 1.0);
+    osc.set_gain(-2.0);
+    assert_eq!(osc.gain(), 0.0);
+    osc.set_gain(2.0);
+    assert_eq!(osc.gain(), 1.0);
+
+    osc.set_phason(f32::NAN);
+    for (f0, sample_rate) in [
+        (f32::NAN, 48_000.0),
+        (f32::INFINITY, 48_000.0),
+        (-500.0, 48_000.0),
+        (1.0e9, 48_000.0),
+        (220.0, f32::NAN),
+        (220.0, -1.0),
+        (220.0, f32::INFINITY),
+    ] {
+        for _ in 0..2_048 {
+            let sample = osc.next_sample(f0, sample_rate);
+            assert!(sample.is_finite());
+            assert!(
+                sample.abs() <= 1.0,
+                "f0={f0} rate={sample_rate} sample={sample}"
+            );
+        }
+    }
+}
+
+#[test]
+fn quasicrystal_two_identical_runs_are_bit_identical() {
+    let render = || -> Vec<u32> {
+        let mut osc = QuasicrystalOsc::new();
+        osc.reset_to_phason_q32(0x5EED_0001);
+        let mut bits = Vec::with_capacity(48_000);
+        for frame in 0..48_000_usize {
+            if frame % 480 == 0 {
+                osc.set_slope(0.45 + 0.30 * (frame as f32 / 48_000.0));
+            }
+            if frame % 960 == 0 {
+                osc.shift_phason_q32(0x0100_0000);
+            }
+            bits.push(osc.next_sample(146.83, 48_000.0).to_bits());
+        }
+        bits
+    };
+
+    assert_eq!(render(), render());
+}
+
+#[test]
+fn quasicrystal_reset_reseats_word_and_tile_state() {
+    let mut osc = QuasicrystalOsc::new();
+    for _ in 0..10_000 {
+        osc.next_sample(330.0, 48_000.0);
+    }
+    osc.reset_to_phason_q32(0xABCD_0123);
+    assert_eq!(osc.phason_q32(), 0xABCD_0123);
+    assert_eq!(osc.tiles_emitted(), 0);
+
+    let mut fresh = QuasicrystalOsc::new();
+    fresh.reset_to_phason_q32(0xABCD_0123);
+    for _ in 0..10_000 {
+        let reset_sample = osc.next_sample(330.0, 48_000.0).to_bits();
+        let fresh_sample = fresh.next_sample(330.0, 48_000.0).to_bits();
+        assert_eq!(reset_sample, fresh_sample);
+    }
+}
+
+#[test]
+fn quasicrystal_min_tile_floor_holds_at_high_f0() {
+    let mut osc = QuasicrystalOsc::new();
+    // At f0 = 8 kHz and 48 kHz the raw tile lengths (~2.2 and ~3.5 samples at
+    // golden defaults) both compute below the floor, so every tile is exactly
+    // MOZAIK_MIN_TILE_SAMPLES long.
+    for _ in 0..4_800 {
+        osc.next_sample(8_000.0, 48_000.0);
+    }
+    assert_eq!(osc.tiles_emitted(), 1_200);
+}
