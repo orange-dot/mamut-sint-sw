@@ -40,8 +40,11 @@ Current status:
 - Sprint 2 standalone audio milestone is implemented
 - Sprint 3 standalone hardening is implemented
 - Sprint 4 playable productization is implemented
-- transport-boundary hardening has reached its local freeze point
-- `EPM1` transport architecture is now frozen pending shared platform extraction
+- transport-boundary hardening reached its local freeze point; the freeze was
+  rescinded on 2026-07-06 by ADR 0005 for the MIDI 2.0 UMP track
+- the MIDI 2.0 migration (UMP-first internal protocol, per-note
+  expressiveness deep in the engine/DSP) is planned in
+  `docs/EPM1_BACKLOG_SET4_MIDI2_UMP_EXPRESSIVENESS.md`
 - plugin/editor work is intentionally deferred
 
 ## Canonical Smoke Path
@@ -212,7 +215,8 @@ Live set slots:
 
 - `docs/mamut-epm-program-map.md` - umbrella map for `Mamut EPM`, `EPM1`, and `EPM2`
 - `docs/README.md` - local `EPM1` doc ownership and cross-repo references
-- `docs/EPM1_TRANSPORT_FREEZE.md` - explicit transport freeze, assumptions, and resume point
+- `docs/EPM1_TRANSPORT_FREEZE.md` - rescinded transport freeze (see ADR 0005); preserved for history
+- `docs/EPM1_BACKLOG_SET4_MIDI2_UMP_EXPRESSIVENESS.md` - MIDI 2.0 UMP migration backlog (`SET4-0..12`; `SET4-9..12` is the Android touch-surface track — native UMP over a UDP link)
 - `docs/EPM1_SPRINT_6_PC4_PERFORMANCE_RIG.md` - Sprint 6 plan for `PC4` live rig, performance flow, and live UI
 - `docs/EPM1_SPRINT_6A_HOST_UNDERRUN_STABILITY.md` - next work item for real-host underrun diagnosis and stability tuning
 - `docs/EPM1_PC4_LIVE_PROFILE.md` - locked Sprint 6 `PC4` mapping, patch-switch, and controller policy

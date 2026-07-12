@@ -52,7 +52,7 @@ mamut-standalone  — standalone binary: composes mamut-runtime + mamut-tui + ef
 mamut-seq         — laptop MIDI sequencer binary (Backlog SET3): opens a virtual ALSA
                     output port and plays deterministic scenario files, plus an interactive
                     live TUI (`live`). Pure MIDI source: no dependency on any other mamut
-                    crate; the transport freeze is respected by construction. See
+                    crate; it makes zero runtime changes by construction. See
                     docs/EPM1_BACKLOG_SET3_*.
 ```
 
@@ -88,9 +88,9 @@ Cross-thread structure (read this before touching transport):
 - MIDI `panic` and `reset_controllers` bypass the normal runtime-control queue and go through a priority action path directly.
 - Engine snapshot generation and patch load are deliberately off the audio callback fast path (this was the work `EPM1_TRANSPORT_FREEZE.md` ratified).
 
-## Transport freeze (read this before designing)
+## Transport posture (read this before designing)
 
-`docs/EPM1_TRANSPORT_FREEZE.md` freezes the standalone transport architecture. **Frozen**: direct redesign of the standalone transport boundary, queue architecture experimentation in `mamut-standalone`/`mamut-runtime`, callback/runtime-boundary redesign beyond bugfixes. **Allowed**: ordinary bugfixes, narrow correctness fixes that don't reopen transport architecture, docs alignment. Future transport evolution moves to a shared `mamut-platform` track, not here. If a task seems to want a "queue rewrite" or "lock-free transport experiment", stop and confirm with the user — that work is out of scope for this repo.
+The former transport freeze (`docs/EPM1_TRANSPORT_FREEZE.md`) was **rescinded on 2026-07-06 by ADR 0005** (`docs/adrs/0005-midi2-ump-transport-unfreeze.md`): `EPM1` adopted the MIDI 2.0 UMP track and transport-level work is open locally, scoped by `docs/EPM1_BACKLOG_SET4_MIDI2_UMP_EXPRESSIVENESS.md` (UMP-first internal protocol, translated MIDI 1.0/MPE ingress, JR-timestamp scheduling, trace widening). What did **not** change: the ADR 0001 realtime rules are standing requirements — bounded queues only; no allocation/logging/blocking on the MIDI callback or render path; drop counters stay visible; the panic/reset priority bypass stays. Transport changes ride Backlog Set 4 slices with the review gates in `docs/review-gates.md`; the unfreeze is not a license for ad-hoc transport experiments outside that backlog.
 
 ## GUI track (read this before designing UI)
 
@@ -103,7 +103,7 @@ Read these in order before authoring GUI changes:
 - `docs/adrs/0002-reopen-plugin-editor-track-via-vizia.md` — withdrawn 2026-05-13; preserved for context.
 - `docs/ui/epm1-gui-design-system.md` — palette, typography, knob geometry, panel chrome, screen wireframes.
 
-The transport freeze remains in effect. GUI work does not touch the transport boundary, the audio callback, the MIDI ingress callback, or the voice allocator. The `SessionStateSource` trait in `crates/mamut-runtime/src/session/state_source.rs` is a read-only consumer interface over already-published metrics and snapshots. Its sibling `SessionCommandSink` (introduced 2026-05-13, doctrine retained under ADR 0004) covers the GUI's *write* surface — `panic`, `reset_controllers`, `set_macro`, `set_direct_param` — as a thin doctrine layer over already-shipped command paths (`Arc<PriorityActions>` and `mpsc::Sender<EngineCommand>`). Slot switching is deliberately not part of the sink: `RuntimeSession::switch_patch` is `&mut self` because it rebuilds the audio runtime; slot-grid clicks route as an `AppEvent::RequestSlotSwitch(slot)` consumed by the main loop where the session is still owned mutably.
+The ADR 0004 GUI boundary is unchanged by the ADR 0005 transport unfreeze: GUI work still does not touch the transport boundary, the audio callback, the MIDI ingress callback, or the voice allocator. The `SessionStateSource` trait in `crates/mamut-runtime/src/session/state_source.rs` is a read-only consumer interface over already-published metrics and snapshots. Its sibling `SessionCommandSink` (introduced 2026-05-13, doctrine retained under ADR 0004) covers the GUI's *write* surface — `panic`, `reset_controllers`, `set_macro`, `set_direct_param` — as a thin doctrine layer over already-shipped command paths (`Arc<PriorityActions>` and `mpsc::Sender<EngineCommand>`). Slot switching is deliberately not part of the sink: `RuntimeSession::switch_patch` is `&mut self` because it rebuilds the audio runtime; slot-grid clicks route as an `AppEvent::RequestSlotSwitch(slot)` consumed by the main loop where the session is still owned mutably.
 
 ## Review gates (mandatory for core changes)
 
@@ -151,22 +151,24 @@ Factory bank lives in `patches/factory/*.toml`; the locked 8-slot live set is `0
 1. `README.md` — feature surface, factory bank, runtime flags
 2. `AGENTS.md` — coding rules, agent discipline (the rules govern every change)
 3. `docs/README.md` — local doc map and external anchors
-4. `docs/EPM1_TRANSPORT_FREEZE.md` — what you are not allowed to redesign
+4. `docs/EPM1_TRANSPORT_FREEZE.md` — rescinded freeze note (history; see ADR 0005)
 5. `docs/EPM1_PC4_LIVE_PROFILE.md` — locked PC4 control map, slot policy, performance-window truth model
 6. `docs/EPM1_FIRST_PERFORMANCE_PLAYBOOK.md` — startup runbook for the first real performance
 7. `docs/review-gates.md` — exactly which agent gates are mandatory for which change type
 8. `docs/dsp/{primitives,render-path,control-identity}-math.md` — DSP math companions
-9. `docs/adrs/0001-standalone-midi-ingress-hardening.md` — accepted MIDI hygiene decision
+9. `docs/adrs/0001-standalone-midi-ingress-hardening.md` — accepted MIDI hygiene decision; realtime rules standing, escape clause amended in part by ADR 0005
 10. `docs/adrs/0002-reopen-plugin-editor-track-via-vizia.md` — withdrawn 2026-05-13; preserved for context
 11. `docs/adrs/0003-gui-information-architecture.md` — accepted four-screen GUI information architecture (`PERFORM`, `SOUND`, `SYSTEM`, `INSPECT`)
 12. `docs/adrs/0004-egui-ia-restructure-plan-b.md` — accepted plan-B activation; the active GUI redesign plan
-13. `docs/ui/epm1-gui-design-system.md` — palette, typography, knob geometry, panel chrome, and screen wireframes that govern the GUI redesign
-14. `docs/live-sessions/` — real hardware run evidence (preserve as evidence; not portable defaults)
+13. `docs/adrs/0005-midi2-ump-transport-unfreeze.md` — accepted MIDI 2.0 UMP direction and transport unfreeze
+14. `docs/EPM1_BACKLOG_SET4_MIDI2_UMP_EXPRESSIVENESS.md` — the MIDI 2.0 migration backlog (`SET4-0..12`, including the `SET4-9..12` touch-surface track)
+15. `docs/ui/epm1-gui-design-system.md` — palette, typography, knob geometry, panel chrome, and screen wireframes that govern the GUI redesign
+16. `docs/live-sessions/` — real hardware run evidence (preserve as evidence; not portable defaults)
 
 ## Things to avoid
 
 - Adding allocation, logging, formatting, panic-prone calls, or `clone`/`collect` to the audio callback, render loop, MIDI callback, or voice allocator.
-- Reopening transport architecture inside `mamut-runtime` or `mamut-standalone` while the freeze in `docs/EPM1_TRANSPORT_FREEZE.md` is active.
+- Transport-level changes outside a Backlog Set 4 slice or without the mandated review gates. The freeze was rescinded by ADR 0005, but the ADR 0001 realtime rules still bind: bounded queues, no callback I/O, drop visibility.
 - Letting docs claim a boundary, schema, or runtime behavior that code no longer implements (the integrated reviewer enforces this).
 - Adding a workspace member, raising MSRV, weakening the `unsafe_code = "forbid"` posture, or relaxing the clippy panic/unwrap warnings without an explicit task.
 - Renaming or reflowing factory patches or live-set slots — they are locked. The `glass-tide` etc. names are spec, not placeholders.

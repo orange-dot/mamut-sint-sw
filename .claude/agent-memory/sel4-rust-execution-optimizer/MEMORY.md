@@ -1,0 +1,1 @@
+- [GFM hot-path measurement path](mamut-field-gfm-measurement-path.md) — no bench harness in mamut-sint-sw; validate via render examples + cost model, not criterion

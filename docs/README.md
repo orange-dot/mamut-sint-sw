@@ -15,7 +15,8 @@ Ownership split:
 Start here:
 
 - `mamut-epm-program-map.md` - shared program map for `Mamut EPM`, `EPM1`, and `EPM2`
-- `EPM1_TRANSPORT_FREEZE.md` - local freeze/resume note for the last direct `EPM1` transport slice
+- `EPM1_TRANSPORT_FREEZE.md` - rescinded (ADR 0005, 2026-07-06) freeze note for
+  the earlier local transport slice; preserved for history
 - `EPM1_SPRINT_6_PC4_PERFORMANCE_RIG.md` - Sprint 6 backlog, acceptance bar, and live-rig contract
 - `EPM1_SPRINT_6A_HOST_UNDERRUN_STABILITY.md` - next work item for real-host underrun diagnosis and performance stabilization
 - `EPM1_BACKLOG_SET1_GFM_PLAYABLE_FIELD.md` - proposed backlog: note-driven
@@ -25,6 +26,23 @@ Start here:
 - `EPM1_BACKLOG_SET3_LAPTOP_MIDI_SEQUENCER.md` - proposed backlog:
   `mamut-seq` laptop MIDI sequencer as the default development-time input
   replacing the physical `PC4` rig
+- `EPM1_BACKLOG_SET4_MIDI2_UMP_EXPRESSIVENESS.md` - active backlog:
+  MIDI 2.0 UMP migration with per-note expressiveness deep in the engine
+  and DSP (UMP-first internal protocol, translated MIDI1/MPE ingress,
+  JR-timestamp scheduling); includes the ADR 0005 transport unfreeze and
+  the `SET4-9..12` touch-surface track (the Android `Mamut Instrument`
+  surface as the played native UMP source over a UDP link)
+- `EPM1_BACKLOG_SET5_ORBITA_MOZAIK_KOSAVA.md` - proposed backlog: three new
+  DSP worlds beside GFM — `Orbita` (resonance capture, tidal dissipation,
+  Roche breakup), `Mozaik` (quasicrystal cut-and-project oscillator with
+  phason modulation), `Kosava` (gust-spectrum wind with per-note vortex
+  lock-in); evidence-first, session-only controls, no schema growth
+- `EPM1_MIDI2_V0.1_ALSA_UMP_SPIKE_EVIDENCE.md` - SET4-1 evidence: ALSA UMP
+  feasibility spike — native UMP MIDI 2.0 client from Rust, virtual UMP
+  endpoint visible to tooling, 16-bit-velocity NoteOn decoded end to end,
+  the legacy downconversion trap demonstrated, and the FFI-route (B) and
+  message-model (own `mamut-midi2`) decisions with the unsafe-surface
+  inventory
 - `EPM1_SEQ_V0.1_VIRTUAL_PORT_EVIDENCE.md` - SET3-1 evidence: `mamut-seq` virtual
   MIDI output port opens and is enumerated by `mamut-standalone list-midi`
 - `EPM1_SEQ_V0.2_SCENARIO_PLAYER_EVIDENCE.md` - SET3-2 evidence: deterministic
@@ -37,7 +55,8 @@ Start here:
 - `EPM1_FIRST_PERFORMANCE_PLAYBOOK.md` - shortest trustworthy path for the first real `PC4` performance session
 - `adrs/0001-standalone-midi-ingress-hardening.md` - accepted narrow bugfix
   decision for MIDI callback hygiene, drop visibility, and controller burst
-  coalescing under the transport freeze
+  coalescing under the then-active transport freeze (amended in part by
+  ADR 0005; its realtime rules remain standing requirements)
 - `adrs/0002-reopen-plugin-editor-track-via-vizia.md` - withdrawn
   2026-05-13; preserved for context. The Phase 1 Vizia spike failed the
   decision gate and the plugin/editor track returns to deferred per
@@ -48,6 +67,10 @@ Start here:
 - `adrs/0004-egui-ia-restructure-plan-b.md` - accepted decision to
   implement the ADR 0003 IA inside the existing `crates/mamut-standalone`
   `egui` codebase (no new GUI crate); supersedes ADR 0002 in posture
+- `adrs/0005-midi2-ump-transport-unfreeze.md` - accepted MIDI 2.0 UMP
+  direction: UMP-first internal protocol, translated MIDI 1.0/MPE ingress,
+  JR-timestamp scheduling; rescinds the `EPM1_TRANSPORT_FREEZE.md` freeze
+  and amends ADR 0001's escape clause in part
 - `ui/epm1-gui-design-system.md` - palette, typography, knob geometry,
   panel chrome, density rules, screen wireframes, and high-risk widget
   rendering strategies for the GUI redesign
@@ -112,6 +135,16 @@ Start here:
   aftertouch/K8 color entry and release evidence
 - `dsp/gfm-v1.8-swapped-k8-aftertouch-controls-evidence.md` - swapped K8 gate
   and aftertouch amount control evidence
+- `dsp/gfm-v1.9-field-workbench-evidence.md` - experimental field workbench
+  surface (reverted from production; reference for the `INSPECT` field view)
+- `dsp/gfm-v2.0-seven-program-evidence.md` - experimental seven-program
+  surface (not production; the three-program contract stands)
+- `dsp/gfm-v2.1-note-strike-excitation-evidence.md` - note-driven field
+  strike excitation evidence (`SET1-1`; the field hears played notes)
+- `dsp/gfm-v2.2-stereo-probe-evidence.md` - stereo field probe evidence
+  (`SET1-2`; offset tap pair replaces the artificial GFM-layer spread)
+- `dsp/gfm-v2.3-inspect-field-view-evidence.md` - read-only GFM field view
+  on the `INSPECT` screen (`SET1-3`; live 16x16 terrain, strike/probe overlays)
 - `dsp/bcs-v0.1-hopf-duffing-playground-evidence.md` - first offline
   Hopf/Duffing BCS playground render evidence
 - `dsp/bcs-v1.0-engine-layer-smoke-evidence.md` - disabled-by-default BCS
@@ -125,9 +158,10 @@ Current source-doc posture:
 
 - local `EPM1` implementation truth lives in this repo's code, runtime, patches,
   and top-level README
-- local transport architecture work is now frozen at the current bridge state;
-  future transport evolution is expected to move into the shared Linux audio
-  platform documentation track
+- local transport architecture work was re-opened on 2026-07-06 by ADR 0005
+  for the MIDI 2.0 UMP track (Backlog Set 4); the ADR 0001 realtime rules
+  remain standing requirements, and transport changes ride the Set 4 review
+  gates
 - the current shared software/source architecture docs that shaped `EPM1`
   still live in the sibling `mamut-sint-hw` docs track
 - the current shared Linux audio platform direction now lives in
