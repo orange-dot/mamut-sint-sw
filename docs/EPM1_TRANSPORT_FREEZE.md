@@ -1,5 +1,13 @@
 # `EPM1` Transport Freeze
 
+Status: **rescinded 2026-07-06 by ADR 0005**
+(`docs/adrs/0005-midi2-ump-transport-unfreeze.md`). Transport-level work
+proceeds locally under `EPM1` Backlog Set 4
+(`docs/EPM1_BACKLOG_SET4_MIDI2_UMP_EXPRESSIVENESS.md`). The ADR 0001
+realtime rules survive as standing technical requirements. This document
+is preserved for history; the sections below describe the freeze as it
+stood.
+
 This note freezes the current `EPM1` transport story at the documentation
 level.
 

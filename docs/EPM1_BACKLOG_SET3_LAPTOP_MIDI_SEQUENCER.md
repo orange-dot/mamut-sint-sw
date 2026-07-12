@@ -39,8 +39,11 @@ Items:
 
 - **Zero runtime changes**: `mamut-seq` is a pure MIDI source. No changes to
   `mamut-runtime` MIDI ingress, the transport boundary, or
-  `mamut-standalone` are needed or allowed under this backlog; the transport
-  freeze is respected by construction.
+  `mamut-standalone` are needed or allowed under this backlog; `mamut-seq`
+  stays a pure MIDI source by construction. (Written under the transport
+  freeze, since rescinded by ADR 0005; the zero-runtime-changes rule stands
+  on its own for this set. UMP output for `mamut-seq` is Backlog Set 4
+  `SET4-7` work.)
 - **No new external dependencies in v1**: everything needed is already in
   `[workspace.dependencies]` — `midir` (virtual port), `serde`/`toml`
   (scenarios), `ratatui`/`crossterm` (live mode), `anyhow`/`thiserror`.

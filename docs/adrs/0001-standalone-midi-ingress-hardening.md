@@ -2,6 +2,12 @@
 
 Status: Accepted
 
+Note (2026-07-06): amended in part by ADR 0005
+(`docs/adrs/0005-midi2-ump-transport-unfreeze.md`) — the closing escape
+clause routing the next transport decision to the shared platform track
+is superseded for the MIDI 2.0 scope. The realtime rules in this ADR
+remain standing requirements.
+
 ## Context
 
 `mamut-sint-sw` is under the local `EPM1` transport freeze. The standalone
