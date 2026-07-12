@@ -21,8 +21,9 @@ use anyhow::{Context, Result, anyhow};
 use crossbeam_queue::ArrayQueue;
 use mamut_dsp::StereoBlockMut;
 use mamut_engine::{
-    BcsLayerMode, BcsLayerSnapshot, BcsScenario, ControllerEvent, DEFAULT_GFM_LAYER_SEED, Engine,
-    EngineConfig, EngineSnapshot, GfmLayerMode, GfmVoiceProgramSelection, NoteEvent, ProcessBlock,
+    BcsLayerMode, BcsLayerSnapshot, BcsScenario, ControllerEvent, DEFAULT_GFM_LAYER_SEED,
+    DEFAULT_MOZAIK_SEED, Engine, EngineConfig, EngineSnapshot, GfmLayerMode,
+    GfmVoiceProgramSelection, MozaikMode, MozaikParam, MozaikSnapshot, NoteEvent, ProcessBlock,
     Scheduled,
 };
 use mamut_params::{MacroId, ParamId, ParamUnit, param_by_key, param_spec};

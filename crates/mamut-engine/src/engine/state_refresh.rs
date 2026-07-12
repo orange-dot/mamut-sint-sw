@@ -28,6 +28,9 @@ impl Engine {
         self.bcs_layer_note = None;
         self.bcs_layer_frequency_hz = None;
         self.bcs_layer_voice = None;
+        // Mozaik mode and control targets survive the reset (like the GFM
+        // mode); the rebuilt voices reconfigure their oscillators on trigger.
+        self.reinit_mozaik_smoothing_to_targets();
     }
 
     pub(super) fn refresh_resolved_state(&mut self) {

@@ -105,6 +105,7 @@ pub struct RuntimeSession {
     pub terminal_output_enabled: bool,
     pub gfm_layer_seed: Option<u64>,
     pub bcs_layer_scenario: Option<BcsScenario>,
+    pub mozaik_seed: Option<u64>,
     pub bend_range: f32,
     pub tx: mpsc::Sender<EngineCommand>,
     pub midi_input_queue: Arc<ArrayQueue<RealtimeMidiMessage>>,

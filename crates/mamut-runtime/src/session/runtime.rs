@@ -162,6 +162,7 @@ impl RuntimeSession {
             self.alsa_tuning,
             self.gfm_layer_seed,
             self.bcs_layer_scenario,
+            self.mozaik_seed,
             Arc::clone(&self.input_metrics),
             Arc::clone(&self.recording_metrics),
         )

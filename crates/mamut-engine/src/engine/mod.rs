@@ -35,6 +35,16 @@ pub struct Engine {
     bcs_layer_note: Option<u8>,
     bcs_layer_frequency_hz: Option<f32>,
     bcs_layer_voice: Option<BcsVoice>,
+    mozaik_mode: MozaikMode,
+    mozaik_controls: MozaikControlValues,
+    mozaik_mix: LinearSmoother,
+    mozaik_slope_sigma: LinearSmoother,
+    mozaik_contrast_gamma: LinearSmoother,
+    mozaik_phason: LinearSmoother,
+    mozaik_drift: LinearSmoother,
+    mozaik_slope_snapped: bool,
+    mozaik_drift_accum: f64,
+    mozaik_frame: MozaikFrame,
 }
 
 mod conversions;
@@ -43,6 +53,8 @@ mod events;
 mod layers;
 mod lifecycle;
 mod macro_state;
+mod mozaik;
 mod process;
 mod state_refresh;
 use conversions::*;
+pub(crate) use mozaik::{MozaikControlValues, MozaikFrame};

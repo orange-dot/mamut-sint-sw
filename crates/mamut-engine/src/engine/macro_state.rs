@@ -45,6 +45,7 @@ impl Engine {
         let stereo_width = direct.stereo_width;
         let strain_drive = 1.0 + derived.strain * 0.22;
         let strain_bias = identity.baklja_edge * 0.18;
+        let mozaik = self.advance_mozaik_frame();
 
         let mut left = 0.0;
         let mut right = 0.0;
@@ -232,9 +233,23 @@ impl Engine {
                 + additive_mix;
             let cross_amount = direct.cross_mix_amount.clamp(0.0, 1.0);
             let ring_amount = direct.ring_mod_amount.clamp(0.0, 1.0);
-            let source_mix = (summed_source * (1.0 - cross_amount) + crossed_source * cross_amount)
+            let mut source_mix = (summed_source * (1.0 - cross_amount)
+                + crossed_source * cross_amount)
                 * (1.0 - ring_amount)
                 + (osc1_source * osc2_mix * 1.4) * ring_amount;
+            // Mozaik voice source (SET5-4): summed with the oscillator mix
+            // pre-filter, tracking the same voice frequency as the spectral
+            // and additive sources. Skipped entirely while disabled so the
+            // disabled render stays bit-identical to the pre-slice baseline.
+            if let Some(frame) = mozaik {
+                voice.mozaik.set_slope_q32(frame.slope_q32);
+                voice.mozaik.set_contrast(frame.contrast);
+                voice
+                    .mozaik
+                    .set_phason_q32(voice.mozaik_phason_base_q32.wrapping_add(frame.phason_q32));
+                let mozaik_f0 = midi_note_hz(spectral_note);
+                source_mix += voice.mozaik.next_sample(mozaik_f0, sample_rate_hz) * frame.mix;
+            }
             let pre_filter = soft_clip(
                 (source_mix + body_mix) * (pre_filter_gain + direct.filter_drive * 0.8),
                 strain_bias,

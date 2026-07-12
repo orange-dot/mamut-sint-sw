@@ -8,6 +8,7 @@ pub fn build_audio_runtime(
     alsa_tuning: AlsaPlaybackTuning,
     gfm_layer_seed: Option<u64>,
     bcs_layer_scenario: Option<BcsScenario>,
+    mozaik_seed: Option<u64>,
     input_metrics: Arc<InputMetrics>,
     recording_metrics: Arc<RecordingMetrics>,
 ) -> Result<PreparedAudioRuntime> {
@@ -34,6 +35,7 @@ pub fn build_audio_runtime(
     )?;
     engine.set_gfm_layer_mode(gfm_layer_mode_from_seed(gfm_layer_seed));
     engine.set_bcs_layer_mode(bcs_layer_mode_from_scenario(bcs_layer_scenario));
+    engine.set_mozaik_mode(mozaik_mode_from_seed(mozaik_seed));
     let (producer, consumer) = RingBuffer::<StereoFrame>::new(AUDIO_QUEUE_CAPACITY_FRAMES);
     let (scope_producer, scope_consumer) =
         RingBuffer::<StereoFrame>::new(SCOPE_QUEUE_CAPACITY_FRAMES);
@@ -138,6 +140,10 @@ pub fn print_runtime_help() {
     println!(
         "  bcs <off|stable-anchor|edge-sweep|subharmonic-pressure|recovery-return> set BCS layer"
     );
+    println!("  mozaik                   show the Mozaik voice-source status line");
+    println!("  mozaik on [seed]         enable the Mozaik voice source (session-only)");
+    println!("  mozaik off               disable the Mozaik voice source");
+    println!("  mozaik set <mix|slope|contrast|phason|drift> <0..1> set one Mozaik control");
     println!("  record <seconds> [path]  record final Mamut stereo output to f32 WAV");
     println!("  record-stop              stop the active output recording");
     println!("  audio                    list ALSA hw playback outputs");
@@ -155,6 +161,7 @@ pub fn print_runtime_help() {
     println!("  --trace-midi             log incoming MIDI messages to stderr");
     println!("  --gfm-layer-seed <u64-or-0xHEX> enable the engine GFM layer at launch");
     println!("  --bcs-layer-scenario <scenario> select the engine BCS scenario mode at launch");
+    println!("  --mozaik [seed]          enable the Mozaik voice source at launch");
     println!("  demo                     switch the session to the demo performer");
     println!("  quit                     stop playback and exit");
 }

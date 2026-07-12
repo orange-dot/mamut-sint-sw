@@ -1,11 +1,11 @@
 use mamut_dsp::{
     AdsrEnvelope, AdsrTiming, BandlimitedTriangle, DENORMAL_FLUSH_ABS, Lfo, LfoShape,
-    LinearSmoother, MASTER_SAFETY_KNEE, NoiseRng, Oscillator, SimpleChorus, SimpleReverb,
-    StateVariableFilter, StereoBlockMut, StereoDcBlocker, additive_partial_count, additive_ratio,
-    additive_weight, color_noise_sample, cross_mix_sample, db_to_gain, equal_power_pan,
-    master_safety_limit, midi_note_hz, mixed_wave_bandlimited, mixed_wave_osc2_bandlimited,
-    oscillator_preview_sample, sanitize_sample, sine_phase_sample, soft_clip,
-    spectral_wavetable_sample,
+    LinearSmoother, MASTER_SAFETY_KNEE, NoiseRng, Oscillator, QuasicrystalOsc, SimpleChorus,
+    SimpleReverb, StateVariableFilter, StereoBlockMut, StereoDcBlocker, additive_partial_count,
+    additive_ratio, additive_weight, color_noise_sample, cross_mix_sample, db_to_gain,
+    equal_power_pan, master_safety_limit, midi_note_hz, mixed_wave_bandlimited,
+    mixed_wave_osc2_bandlimited, oscillator_preview_sample, sanitize_sample, sine_phase_sample,
+    soft_clip, spectral_wavetable_sample,
 };
 pub use mamut_field::GfmPerformanceControls;
 pub use mamut_field::bcs::BcsScenario;
@@ -34,9 +34,10 @@ mod helpers;
 mod state;
 
 pub use api::{
-    BcsLayerMode, BcsLayerSnapshot, ControllerEvent, DEFAULT_GFM_LAYER_SEED, EngineConfig,
-    GfmLayerMode, GfmLayerSnapshot, GfmVoiceProgramSelection, NoteEvent, ProcessBlock, Scheduled,
-    ScheduledControllerEvent, ScheduledNoteEvent,
+    BcsLayerMode, BcsLayerSnapshot, ControllerEvent, DEFAULT_GFM_LAYER_SEED, DEFAULT_MOZAIK_SEED,
+    EngineConfig, GfmLayerMode, GfmLayerSnapshot, GfmVoiceProgramSelection, MozaikMode,
+    MozaikParam, MozaikSnapshot, NoteEvent, ProcessBlock, Scheduled, ScheduledControllerEvent,
+    ScheduledNoteEvent,
 };
 pub use engine::Engine;
 pub use gfm_layer::{
@@ -52,7 +53,8 @@ pub(crate) use api::{
     BCS_ENGINE_LAYER_GAIN, BCS_LAYER_CONTROL_DEADZONE, BCS_LAYER_MIX_ATTACK_MS,
     BCS_LAYER_MIX_RELEASE_MS, GFM_LAYER_CONTROL_DEADZONE, GFM_LAYER_MIX_ATTACK_MS,
     GFM_LAYER_MIX_RELEASE_MS, GFM_LAYER_PRESSURE_ATTACK_MS, GFM_LAYER_PRESSURE_RELEASE_MS,
-    MASTER_DC_BLOCKER_CUTOFF_HZ,
+    MASTER_DC_BLOCKER_CUTOFF_HZ, MOZAIK_CONTROL_SMOOTHING_MS, MOZAIK_MIX_ATTACK_MS,
+    MOZAIK_MIX_RELEASE_MS,
 };
 pub(crate) use gfm_layer::{
     gfm_momentary_layer_amount, normalize_bcs_layer_control, normalize_gfm_layer_control,

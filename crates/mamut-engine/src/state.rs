@@ -137,6 +137,7 @@ pub struct EngineSnapshot {
     pub performance_response: PerformanceResponseSnapshot,
     pub gfm_layer: GfmLayerSnapshot,
     pub bcs_layer: BcsLayerSnapshot,
+    pub mozaik: MozaikSnapshot,
     pub voices: Vec<VoiceSnapshot>,
     pub held_notes: Vec<u8>,
     pub output_safety: OutputSafetySnapshot,
@@ -470,6 +471,10 @@ pub(crate) struct VoiceState {
     pub(crate) filter: StateVariableFilter,
     pub(crate) amp_env: AdsrEnvelope,
     pub(crate) filter_env: AdsrEnvelope,
+    /// Mozaik voice source (`SET5-4`): always present, gain-gated by the
+    /// engine's mozaik mix, reseated on trigger while the mode is enabled.
+    pub(crate) mozaik: QuasicrystalOsc,
+    pub(crate) mozaik_phason_base_q32: u32,
 }
 
 impl VoiceState {
@@ -494,6 +499,8 @@ impl VoiceState {
             jitter: NoiseRng::new(seed ^ 0xA5A5_5A5A),
             noise_color_state: 0.0,
             filter: StateVariableFilter::new(),
+            mozaik: QuasicrystalOsc::new(),
+            mozaik_phason_base_q32: 0,
             amp_env: AdsrEnvelope::new(
                 sample_rate_hz,
                 AdsrTiming {

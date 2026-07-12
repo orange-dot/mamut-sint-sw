@@ -156,6 +156,10 @@ Start here:
 - `dsp/mozaik-v0.1-quasicrystal-osc-evidence.md` - quasicrystal (cut-and-project)
   oscillator primitive evidence (`SET5-3`; Q32 Bresenham word, Hann tiles,
   phason latch, detent walk, pitch-anchor honesty table)
+- `dsp/mozaik-v0.2-voice-source-evidence.md` - Mozaik engine voice-source
+  integration evidence (`SET5-4`; per-voice pre-filter blend, five session
+  controls, `--mozaik`/headless surface, disabled bit-identity vs the
+  pre-slice baseline, measured per-block cost)
 
 Current source-doc posture:
 

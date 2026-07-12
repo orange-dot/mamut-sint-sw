@@ -7,6 +7,7 @@ pub fn dry_run(options: &DryRunOptions) -> Result<()> {
     let mut engine = Engine::new(EngineConfig::default(), patch)?;
     engine.set_gfm_layer_mode(gfm_layer_mode_from_seed(options.gfm_layer_seed));
     engine.set_bcs_layer_mode(bcs_layer_mode_from_scenario(options.bcs_layer_scenario));
+    engine.set_mozaik_mode(mozaik_mode_from_seed(options.mozaik_seed));
     let mut left = vec![0.0_f32; 256];
     let mut right = vec![0.0_f32; 256];
 
@@ -96,6 +97,7 @@ pub fn dry_run(options: &DryRunOptions) -> Result<()> {
     );
     println!("{}", gfm_layer_status_line(&snapshot));
     println!("{}", bcs_layer_status_line(&snapshot));
+    println!("{}", mozaik_status_line(&snapshot));
 
     Ok(())
 }
@@ -104,6 +106,39 @@ pub fn gfm_layer_mode_from_seed(seed: Option<u64>) -> GfmLayerMode {
     match seed {
         Some(seed) => GfmLayerMode::Enabled { seed },
         None => GfmLayerMode::Disabled,
+    }
+}
+
+pub fn mozaik_mode_from_seed(seed: Option<u64>) -> MozaikMode {
+    match seed {
+        Some(seed) => MozaikMode::Enabled { seed },
+        None => MozaikMode::Disabled,
+    }
+}
+
+pub fn mozaik_status_line(snapshot: &EngineSnapshot) -> String {
+    mozaik_status_line_from_snapshot(snapshot.mozaik)
+}
+
+pub fn mozaik_status_line_from_snapshot(mozaik: MozaikSnapshot) -> String {
+    match mozaik.mode {
+        MozaikMode::Disabled => "mozaik: mode=disabled".to_string(),
+        MozaikMode::Enabled { seed } => {
+            format!(
+                "mozaik: mode=enabled seed={} mix={:.3} effective_mix={:.3} slope={:.3} sigma={:.6} snapped={} contrast={:.3} gamma={:.3} phason={:.3} drift={:.3} drift_phason={:.3}",
+                format_gfm_seed(seed),
+                mozaik.mix,
+                mozaik.effective_mix,
+                mozaik.slope,
+                mozaik.slope_sigma,
+                on_off_bool(mozaik.slope_snapped),
+                mozaik.contrast,
+                mozaik.contrast_gamma,
+                mozaik.phason,
+                mozaik.drift,
+                mozaik.drift_phason,
+            )
+        }
     }
 }
 

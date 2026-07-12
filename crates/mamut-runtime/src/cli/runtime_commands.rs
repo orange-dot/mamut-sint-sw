@@ -64,6 +64,40 @@ pub fn parse_runtime_ui_command(input: &str) -> Result<RuntimeUiCommand> {
                 parse_optional_bcs_layer_scenario(value)?,
             ))
         }
+        "mozaik" => match parts.next() {
+            None => Ok(RuntimeUiCommand::MozaikStatus),
+            Some("on") => {
+                let seed = match parts.next() {
+                    Some(value) => parse_mozaik_seed(value)?,
+                    None => DEFAULT_MOZAIK_SEED,
+                };
+                if parts.next().is_some() {
+                    return Err(anyhow!("mozaik on accepts at most one seed"));
+                }
+                Ok(RuntimeUiCommand::MozaikMode(Some(seed)))
+            }
+            Some("off") => {
+                if parts.next().is_some() {
+                    return Err(anyhow!("mozaik off does not accept arguments"));
+                }
+                Ok(RuntimeUiCommand::MozaikMode(None))
+            }
+            Some("set") => {
+                let param = parts.next().context("mozaik set requires a control name")?;
+                let value = parts.next().context("mozaik set requires a value")?;
+                if parts.next().is_some() {
+                    return Err(anyhow!("mozaik set accepts exactly two arguments"));
+                }
+                let param = parse_mozaik_param(param)?;
+                let value = value
+                    .parse::<f32>()
+                    .with_context(|| format!("invalid mozaik value `{value}`"))?;
+                Ok(RuntimeUiCommand::MozaikSet(param, value))
+            }
+            Some(other) => Err(anyhow!(
+                "unknown mozaik subcommand `{other}`; expected on, off, or set"
+            )),
+        },
         "record" | "rec" => {
             let seconds = parts
                 .next()
@@ -103,6 +137,19 @@ pub fn parse_runtime_ui_command(input: &str) -> Result<RuntimeUiCommand> {
         "demo" => Ok(RuntimeUiCommand::Demo),
         "quit" | "exit" => Ok(RuntimeUiCommand::Quit),
         other => Err(anyhow!("unknown runtime command `{other}`")),
+    }
+}
+
+pub fn parse_mozaik_param(value: &str) -> Result<MozaikParam> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "mix" => Ok(MozaikParam::Mix),
+        "slope" => Ok(MozaikParam::Slope),
+        "contrast" => Ok(MozaikParam::Contrast),
+        "phason" => Ok(MozaikParam::Phason),
+        "drift" => Ok(MozaikParam::Drift),
+        _ => Err(anyhow!(
+            "unknown mozaik control `{value}`; expected mix, slope, contrast, phason, or drift"
+        )),
     }
 }
 

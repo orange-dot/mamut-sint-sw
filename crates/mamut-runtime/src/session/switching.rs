@@ -55,6 +55,43 @@ impl RuntimeSession {
         Ok(snapshot)
     }
 
+    pub fn set_mozaik_seed(&mut self, seed: Option<u64>) -> Result<MozaikSnapshot> {
+        if self.mozaik_seed == seed {
+            return Ok(self.request_snapshot()?.mozaik);
+        }
+
+        let mode = mozaik_mode_from_seed(seed);
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.tx
+            .send(EngineCommand::SetMozaikMode(mode, reply_tx))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
+        let snapshot = reply_rx
+            .recv_timeout(Duration::from_millis(500))
+            .map_err(|_| anyhow!("timed out applying Mozaik mode"))?
+            .map_err(|error| anyhow!(error))?;
+
+        self.mozaik_seed = seed;
+        if self.terminal_output_enabled {
+            println!(
+                "mozaik {}",
+                seed.map(format_gfm_seed)
+                    .unwrap_or_else(|| "disabled".to_string())
+            );
+        }
+        Ok(snapshot)
+    }
+
+    pub fn set_mozaik_param(&self, param: MozaikParam, value: f32) -> Result<MozaikSnapshot> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.tx
+            .send(EngineCommand::SetMozaikParam(param, value, reply_tx))
+            .map_err(|_| anyhow!("audio runtime is no longer available"))?;
+        reply_rx
+            .recv_timeout(Duration::from_millis(500))
+            .map_err(|_| anyhow!("timed out applying Mozaik control"))?
+            .map_err(|error| anyhow!(error))
+    }
+
     pub fn switch_audio(&mut self, selector: String) -> Result<()> {
         let keep_demo = self.driver.is_demo();
         let runtime = build_audio_runtime(
@@ -64,6 +101,7 @@ impl RuntimeSession {
             self.alsa_tuning,
             self.gfm_layer_seed,
             self.bcs_layer_scenario,
+            self.mozaik_seed,
             Arc::clone(&self.input_metrics),
             Arc::clone(&self.recording_metrics),
         )?;

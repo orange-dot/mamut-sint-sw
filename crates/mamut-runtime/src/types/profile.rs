@@ -27,6 +27,7 @@ pub struct PlayOptions {
     pub gui: bool,
     pub gfm_layer_seed: Option<u64>,
     pub bcs_layer_scenario: Option<BcsScenario>,
+    pub mozaik_seed: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -34,6 +35,7 @@ pub struct DryRunOptions {
     pub patch_path: PathBuf,
     pub gfm_layer_seed: Option<u64>,
     pub bcs_layer_scenario: Option<BcsScenario>,
+    pub mozaik_seed: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +89,15 @@ pub enum EngineCommand {
     SetBcsLayerMode(
         BcsLayerMode,
         mpsc::Sender<std::result::Result<BcsLayerSnapshot, String>>,
+    ),
+    SetMozaikMode(
+        MozaikMode,
+        mpsc::Sender<std::result::Result<MozaikSnapshot, String>>,
+    ),
+    SetMozaikParam(
+        MozaikParam,
+        f32,
+        mpsc::Sender<std::result::Result<MozaikSnapshot, String>>,
     ),
     StartOutputRecording(
         OutputRecordingRequest,
@@ -210,6 +221,9 @@ pub enum RuntimeUiCommand {
     Panic,
     ResetControllers,
     BcsLayer(Option<BcsScenario>),
+    MozaikStatus,
+    MozaikMode(Option<u64>),
+    MozaikSet(MozaikParam, f32),
     Record { seconds: u64, path: Option<PathBuf> },
     RecordStop,
     AudioList,

@@ -63,6 +63,18 @@ impl RuntimeSession {
                     self.set_bcs_layer_scenario(scenario)?;
                     self.print_status()?;
                 }
+                Ok(RuntimeUiCommand::MozaikStatus) => {
+                    let snapshot = self.request_snapshot()?;
+                    println!("{}", mozaik_status_line(&snapshot));
+                }
+                Ok(RuntimeUiCommand::MozaikMode(seed)) => {
+                    let snapshot = self.set_mozaik_seed(seed)?;
+                    println!("{}", mozaik_status_line_from_snapshot(snapshot));
+                }
+                Ok(RuntimeUiCommand::MozaikSet(param, value)) => {
+                    let snapshot = self.set_mozaik_param(param, value)?;
+                    println!("{}", mozaik_status_line_from_snapshot(snapshot));
+                }
                 Ok(RuntimeUiCommand::Record { seconds, path }) => {
                     let path = self.start_output_recording(seconds, path)?;
                     println!("recording {seconds}s -> {}", path.display());
@@ -117,6 +129,7 @@ impl RuntimeSession {
             self.alsa_tuning,
             self.gfm_layer_seed,
             self.bcs_layer_scenario,
+            self.mozaik_seed,
             Arc::clone(&self.input_metrics),
             Arc::clone(&self.recording_metrics),
         )?;

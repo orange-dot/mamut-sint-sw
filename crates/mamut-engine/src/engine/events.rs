@@ -81,6 +81,7 @@ impl Engine {
             self.last_direct.osc2_start_phase,
             self.last_direct.additive_random_detune_cents,
         );
+        self.configure_mozaik_voice_on_trigger(voice_index);
         self.strike_gfm_layer_note_on(note, velocity);
         self.refresh_bcs_layer_pitch();
     }

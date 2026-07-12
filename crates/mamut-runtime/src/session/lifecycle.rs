@@ -19,6 +19,7 @@ impl RuntimeSession {
             alsa_tuning,
             options.gfm_layer_seed,
             options.bcs_layer_scenario,
+            options.mozaik_seed,
             Arc::clone(&input_metrics),
             Arc::clone(&recording_metrics),
         )?;
@@ -44,6 +45,7 @@ impl RuntimeSession {
             terminal_output_enabled: true,
             gfm_layer_seed: options.gfm_layer_seed,
             bcs_layer_scenario: options.bcs_layer_scenario,
+            mozaik_seed: options.mozaik_seed,
             bend_range: runtime.bend_range,
             tx: runtime.tx,
             midi_input_queue: runtime.midi_input_queue,

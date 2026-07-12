@@ -79,6 +79,7 @@ fn run() -> Result<()> {
             patch_path: default_patch_path(),
             gfm_layer_seed: None,
             bcs_layer_scenario: None,
+            mozaik_seed: None,
         }),
         Some(other) => Err(anyhow!("unknown command `{other}`")),
     }

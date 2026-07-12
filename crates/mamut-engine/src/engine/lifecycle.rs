@@ -51,6 +51,16 @@ impl Engine {
             bcs_layer_note: None,
             bcs_layer_frequency_hz: None,
             bcs_layer_voice: None,
+            mozaik_mode: MozaikMode::Disabled,
+            mozaik_controls: MozaikControlValues::disabled(),
+            mozaik_mix: LinearSmoother::new(0.0),
+            mozaik_slope_sigma: LinearSmoother::new(0.0),
+            mozaik_contrast_gamma: LinearSmoother::new(0.0),
+            mozaik_phason: LinearSmoother::new(0.0),
+            mozaik_drift: LinearSmoother::new(0.0),
+            mozaik_slope_snapped: false,
+            mozaik_drift_accum: 0.0,
+            mozaik_frame: MozaikFrame::idle(),
         };
         engine.refresh_resolved_state();
         Ok(engine)
@@ -97,6 +107,7 @@ impl Engine {
         self.force_disable_auto_armed_gfm_layer();
         self.reset_gfm_layer_smoothing();
         self.reset_bcs_layer_smoothing();
+        self.reset_mozaik_controls_to_defaults();
 
         if sustain_was_down {
             for voice in &mut self.voices {

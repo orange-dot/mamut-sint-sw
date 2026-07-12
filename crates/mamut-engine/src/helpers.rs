@@ -119,6 +119,110 @@ pub(crate) fn gfm_engine_layer_gain(program_id: GfmProgramId) -> f32 {
     }
 }
 
+pub(crate) const MOZAIK_SLOPE_SIGMA_MIN: f32 = 0.45;
+pub(crate) const MOZAIK_SLOPE_SIGMA_SPAN: f32 = 0.30;
+pub(crate) const MOZAIK_SLOPE_DETENT_SNAP: f32 = 0.004;
+pub(crate) const MOZAIK_CONTRAST_GAMMA_MIN: f32 = 1.0;
+pub(crate) const MOZAIK_CONTRAST_GAMMA_SPAN: f32 = 1.2;
+pub(crate) const MOZAIK_MAX_DRIFT_CYCLES_PER_SECOND: f32 = 0.5;
+pub(crate) const MOZAIK_DEFAULT_MIX: f32 = 0.35;
+pub(crate) const MOZAIK_DEFAULT_PHASON: f32 = 0.0;
+pub(crate) const MOZAIK_DEFAULT_DRIFT: f32 = 0.0;
+
+const Q32_ONE_F64: f64 = 4_294_967_296.0;
+
+/// Slope detents in the `sigma` domain, golden first so it wins exact-tie
+/// snaps (the backlog rule: where snap zones would overlap the nearest
+/// detent wins, and golden beats `5/8`).
+pub(crate) const MOZAIK_SIGMA_DETENTS: [(f32, u32); 5] = [
+    (
+        (mamut_dsp::MOZAIK_SLOPE_GOLDEN_Q32 as f64 / Q32_ONE_F64) as f32,
+        mamut_dsp::MOZAIK_SLOPE_GOLDEN_Q32,
+    ),
+    (
+        (mamut_dsp::MOZAIK_SLOPE_DETENT_HALF_Q32 as f64 / Q32_ONE_F64) as f32,
+        mamut_dsp::MOZAIK_SLOPE_DETENT_HALF_Q32,
+    ),
+    (
+        (mamut_dsp::MOZAIK_SLOPE_DETENT_THREE_FIFTHS_Q32 as f64 / Q32_ONE_F64) as f32,
+        mamut_dsp::MOZAIK_SLOPE_DETENT_THREE_FIFTHS_Q32,
+    ),
+    (
+        (mamut_dsp::MOZAIK_SLOPE_DETENT_FIVE_EIGHTHS_Q32 as f64 / Q32_ONE_F64) as f32,
+        mamut_dsp::MOZAIK_SLOPE_DETENT_FIVE_EIGHTHS_Q32,
+    ),
+    (
+        (mamut_dsp::MOZAIK_SLOPE_DETENT_TWO_THIRDS_Q32 as f64 / Q32_ONE_F64) as f32,
+        mamut_dsp::MOZAIK_SLOPE_DETENT_TWO_THIRDS_Q32,
+    ),
+];
+
+/// Default slope control position: the golden detent.
+pub(crate) const MOZAIK_DEFAULT_SLOPE_CONTROL: f32 =
+    (MOZAIK_SIGMA_DETENTS[0].0 - MOZAIK_SLOPE_SIGMA_MIN) / MOZAIK_SLOPE_SIGMA_SPAN;
+
+/// Default contrast control position: `gamma = tau`.
+pub(crate) const MOZAIK_DEFAULT_CONTRAST_CONTROL: f32 =
+    (mamut_dsp::MOZAIK_DEFAULT_CONTRAST - MOZAIK_CONTRAST_GAMMA_MIN) / MOZAIK_CONTRAST_GAMMA_SPAN;
+
+/// Sanitize a `[0, 1]` Mozaik control value; non-finite falls back to the
+/// caller's default.
+pub(crate) fn sanitize_mozaik_control(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        fallback
+    }
+}
+
+/// Map a slope control `[0, 1]` to a `sigma` target with the gentle detent
+/// snap. The snap lives here in the mapping, not in the oscillator. Returns
+/// the (possibly snapped) `sigma` and whether it snapped.
+pub(crate) fn mozaik_sigma_from_control(control: f32) -> (f32, bool) {
+    let sigma = MOZAIK_SLOPE_SIGMA_MIN + MOZAIK_SLOPE_SIGMA_SPAN * control.clamp(0.0, 1.0);
+    let mut best_sigma = sigma;
+    let mut best_distance = f32::INFINITY;
+    let mut snapped = false;
+    for (detent_sigma, _) in MOZAIK_SIGMA_DETENTS {
+        let distance = (sigma - detent_sigma).abs();
+        if distance <= MOZAIK_SLOPE_DETENT_SNAP && distance < best_distance {
+            best_sigma = detent_sigma;
+            best_distance = distance;
+            snapped = true;
+        }
+    }
+    (best_sigma, snapped)
+}
+
+/// Convert a smoothed `sigma` to Q32, landing exactly on the shipped detent
+/// constants when the value equals a detent's `f32` mirror.
+pub(crate) fn mozaik_slope_q32_from_sigma(sigma: f32) -> u32 {
+    for (detent_sigma, detent_q32) in MOZAIK_SIGMA_DETENTS {
+        if sigma == detent_sigma {
+            return detent_q32;
+        }
+    }
+    let clamped = f64::from(sigma).clamp(0.45, 0.75);
+    ((clamped * Q32_ONE_F64).round() as u64).min(u64::from(u32::MAX)) as u32
+}
+
+pub(crate) fn mozaik_gamma_from_control(control: f32) -> f32 {
+    MOZAIK_CONTRAST_GAMMA_MIN + MOZAIK_CONTRAST_GAMMA_SPAN * control.clamp(0.0, 1.0)
+}
+
+/// Per-voice initial phason: the layer seed folded with the voice slot via a
+/// splitmix64-style finalizer, taking the top 32 bits.
+pub(crate) fn mozaik_voice_phason_q32(seed: u64, slot: usize) -> u32 {
+    let mut state = seed
+        ^ (slot as u64)
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .wrapping_add(0x9E37_79B9_7F4A_7C15);
+    state = (state ^ (state >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    state = (state ^ (state >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    state ^= state >> 31;
+    (state >> 32) as u32
+}
+
 pub(crate) fn resolve_direct_parameters(
     patch: &PatchFileV1,
     resolved_frame: ResolvedIdentityFrame,

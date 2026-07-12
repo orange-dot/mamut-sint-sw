@@ -11,6 +11,10 @@ pub(crate) const BCS_LAYER_MIX_ATTACK_MS: f32 = 45.0;
 pub(crate) const BCS_LAYER_MIX_RELEASE_MS: f32 = 100.0;
 pub(crate) const BCS_ENGINE_LAYER_GAIN: f32 = 1.0;
 pub const DEFAULT_GFM_LAYER_SEED: u64 = 0x6A46_4D40;
+pub(crate) const MOZAIK_MIX_ATTACK_MS: f32 = 60.0;
+pub(crate) const MOZAIK_MIX_RELEASE_MS: f32 = 90.0;
+pub(crate) const MOZAIK_CONTROL_SMOOTHING_MS: f32 = 30.0;
+pub const DEFAULT_MOZAIK_SEED: u64 = 0x4D6F_7A31;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EngineConfig {
@@ -131,6 +135,71 @@ pub enum BcsLayerMode {
     Enabled {
         scenario: BcsScenario,
     },
+}
+
+/// Session-only Mozaik voice-source mode (`SET5-4`). The seed offsets the
+/// per-voice initial phason; it never touches the patch schema.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MozaikMode {
+    #[default]
+    Disabled,
+    Enabled {
+        seed: u64,
+    },
+}
+
+/// The five Mozaik session controls (plus the on/off mode). All take a
+/// normalized `[0, 1]` value; the engine maps slope to `sigma in
+/// [0.45, 0.75]` (with detent snap) and contrast to `gamma in [1.0, 2.2]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MozaikParam {
+    Mix,
+    Slope,
+    Contrast,
+    Phason,
+    Drift,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MozaikSnapshot {
+    pub mode: MozaikMode,
+    /// Control-domain mix target `[0, 1]`.
+    pub mix: f32,
+    /// Smoothed mix currently applied in the render loop.
+    pub effective_mix: f32,
+    /// Control-domain slope `[0, 1]`.
+    pub slope: f32,
+    /// Mapped (and possibly detent-snapped) slope target `sigma`.
+    pub slope_sigma: f32,
+    pub slope_snapped: bool,
+    /// Control-domain contrast `[0, 1]`.
+    pub contrast: f32,
+    /// Mapped contrast target `gamma`.
+    pub contrast_gamma: f32,
+    /// Control-domain phason offset `[0, 1]`.
+    pub phason: f32,
+    /// Control-domain drift `[0, 1]` (`0` = frozen).
+    pub drift: f32,
+    /// Accumulated auto-phason offset from drift, wrapped to `[0, 1)`.
+    pub drift_phason: f32,
+}
+
+impl Default for MozaikSnapshot {
+    fn default() -> Self {
+        Self {
+            mode: MozaikMode::Disabled,
+            mix: 0.0,
+            effective_mix: 0.0,
+            slope: 0.0,
+            slope_sigma: 0.0,
+            slope_snapped: false,
+            contrast: 0.0,
+            contrast_gamma: 0.0,
+            phason: 0.0,
+            drift: 0.0,
+            drift_phason: 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

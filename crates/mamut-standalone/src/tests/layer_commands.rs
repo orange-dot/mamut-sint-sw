@@ -150,3 +150,66 @@ fn engine_command_sets_bcs_layer_mode_enabled_and_disabled() {
         BcsLayerSnapshot::default()
     );
 }
+
+#[test]
+fn mozaik_status_line_reports_disabled_and_enabled_modes() {
+    use mamut_engine::{MozaikMode, MozaikParam};
+
+    let disabled = mozaik_status_line(&test_snapshot());
+    assert_eq!(disabled, "mozaik: mode=disabled");
+
+    let path = resolve_patch_argument(Some("ember-vault")).expect("factory patch resolves");
+    let patch = load_patch_from_path(&path).expect("patch loads");
+    let mut engine = Engine::new(EngineConfig::default(), patch).expect("engine builds");
+    engine.set_mozaik_mode(MozaikMode::Enabled { seed: 0x4D6F_7A31 });
+    engine.set_mozaik_param(MozaikParam::Drift, 0.5);
+    let enabled = mozaik_status_line(&engine.snapshot());
+
+    assert!(enabled.contains("mode=enabled"));
+    assert!(enabled.contains("seed=0x4D6F7A31"));
+    assert!(enabled.contains("mix=0.350"));
+    assert!(enabled.contains("sigma=0.618034"));
+    assert!(enabled.contains("snapped=on"));
+    assert!(enabled.contains("gamma=1.618"));
+    assert!(enabled.contains("drift=0.500"));
+}
+
+#[test]
+fn engine_command_sets_mozaik_mode_and_params() {
+    use mamut_engine::{MozaikMode, MozaikParam};
+
+    let mut state = test_engine_thread_state_for_patch("ember-vault");
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    assert!(state.handle_command(EngineCommand::SetMozaikMode(
+        MozaikMode::Enabled { seed: 0x4D6F_7A31 },
+        reply_tx,
+    )));
+    let snapshot = reply_rx
+        .recv_timeout(Duration::from_millis(50))
+        .expect("enabled reply arrives")
+        .expect("enabled command succeeds");
+    assert_eq!(snapshot.mode, MozaikMode::Enabled { seed: 0x4D6F_7A31 });
+    assert_eq!(snapshot.mix, 0.35);
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    assert!(state.handle_command(EngineCommand::SetMozaikParam(
+        MozaikParam::Slope,
+        0.2,
+        reply_tx,
+    )));
+    let snapshot = reply_rx
+        .recv_timeout(Duration::from_millis(50))
+        .expect("param reply arrives")
+        .expect("param command succeeds");
+    assert_eq!(snapshot.slope, 0.2);
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    assert!(state.handle_command(EngineCommand::SetMozaikMode(MozaikMode::Disabled, reply_tx,)));
+    let snapshot = reply_rx
+        .recv_timeout(Duration::from_millis(50))
+        .expect("disabled reply arrives")
+        .expect("disabled command succeeds");
+    assert_eq!(snapshot.mode, MozaikMode::Disabled);
+    assert_eq!(state.engine.snapshot().mozaik.mode, MozaikMode::Disabled);
+}

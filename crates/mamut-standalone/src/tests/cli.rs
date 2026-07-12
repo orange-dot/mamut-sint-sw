@@ -189,3 +189,62 @@ fn parse_bcs_layer_scenario_accepts_aliases_and_off() {
     assert!(parse_optional_bcs_layer_scenario("not-a-scenario").is_err());
     assert!(parse_play_options(&["--bcs-layer-scenario".to_string()]).is_err());
 }
+
+#[test]
+fn parse_play_and_dry_run_options_support_the_mozaik_flag() {
+    use mamut_engine::DEFAULT_MOZAIK_SEED;
+
+    let options = parse_play_options(&["razor-thaw".to_string()]).expect("play options parse");
+    assert_eq!(options.mozaik_seed, None);
+
+    let options = parse_play_options(&["--mozaik".to_string(), "razor-thaw".to_string()])
+        .expect("bare --mozaik parses");
+    assert_eq!(options.mozaik_seed, Some(DEFAULT_MOZAIK_SEED));
+    assert!(
+        options
+            .patch_path
+            .ends_with("patches/factory/razor-thaw.toml")
+    );
+
+    let options = parse_dry_run_options(&[
+        "--mozaik".to_string(),
+        "0x4D6F_7A31".to_string(),
+        "razor-thaw".to_string(),
+    ])
+    .expect("--mozaik with explicit seed parses");
+    assert_eq!(options.mozaik_seed, Some(0x4D6F_7A31));
+
+    let options = parse_dry_run_options(&["--mozaik".to_string()]).expect("trailing --mozaik");
+    assert_eq!(options.mozaik_seed, Some(DEFAULT_MOZAIK_SEED));
+
+    assert!(parse_dry_run_options(&["--mozaik".to_string(), "0xZZ".to_string()]).is_err());
+}
+
+#[test]
+fn parse_runtime_ui_command_supports_mozaik_commands() {
+    use mamut_engine::{DEFAULT_MOZAIK_SEED, MozaikParam};
+
+    assert!(matches!(
+        parse_runtime_ui_command("mozaik").expect("status parses"),
+        RuntimeUiCommand::MozaikStatus
+    ));
+    assert!(matches!(
+        parse_runtime_ui_command("mozaik on").expect("on parses"),
+        RuntimeUiCommand::MozaikMode(Some(seed)) if seed == DEFAULT_MOZAIK_SEED
+    ));
+    assert!(matches!(
+        parse_runtime_ui_command("mozaik on 0x123").expect("seeded on parses"),
+        RuntimeUiCommand::MozaikMode(Some(0x123))
+    ));
+    assert!(matches!(
+        parse_runtime_ui_command("mozaik off").expect("off parses"),
+        RuntimeUiCommand::MozaikMode(None)
+    ));
+    assert!(matches!(
+        parse_runtime_ui_command("mozaik set drift 0.75").expect("set parses"),
+        RuntimeUiCommand::MozaikSet(MozaikParam::Drift, value) if (value - 0.75).abs() < 1.0e-6
+    ));
+    assert!(parse_runtime_ui_command("mozaik set nothing 0.5").is_err());
+    assert!(parse_runtime_ui_command("mozaik set drift").is_err());
+    assert!(parse_runtime_ui_command("mozaik maybe").is_err());
+}

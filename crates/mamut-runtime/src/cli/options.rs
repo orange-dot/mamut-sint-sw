@@ -16,6 +16,7 @@ pub fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
     let mut gui = false;
     let mut gfm_layer_seed = None;
     let mut bcs_layer_scenario = None;
+    let mut mozaik_seed = None;
 
     let mut index = 0;
     while index < args.len() {
@@ -107,6 +108,11 @@ pub fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
                 bcs_layer_scenario = parse_optional_bcs_layer_scenario(value)?;
                 index += 2;
             }
+            "--mozaik" => {
+                let (seed, consumed) = parse_optional_mozaik_seed(args.get(index + 1))?;
+                mozaik_seed = Some(seed);
+                index += 1 + consumed;
+            }
             option if option.starts_with("--") => {
                 return Err(anyhow!("unknown play option `{option}`"));
             }
@@ -138,6 +144,7 @@ pub fn parse_play_options(args: &[String]) -> Result<PlayOptions> {
         gui,
         gfm_layer_seed,
         bcs_layer_scenario,
+        mozaik_seed,
     })
 }
 
@@ -145,6 +152,7 @@ pub fn parse_dry_run_options(args: &[String]) -> Result<DryRunOptions> {
     let mut patch_arg: Option<String> = None;
     let mut gfm_layer_seed = None;
     let mut bcs_layer_scenario = None;
+    let mut mozaik_seed = None;
 
     let mut index = 0;
     while index < args.len() {
@@ -162,6 +170,11 @@ pub fn parse_dry_run_options(args: &[String]) -> Result<DryRunOptions> {
                     .context("missing value after --bcs-layer-scenario")?;
                 bcs_layer_scenario = parse_optional_bcs_layer_scenario(value)?;
                 index += 2;
+            }
+            "--mozaik" => {
+                let (seed, consumed) = parse_optional_mozaik_seed(args.get(index + 1))?;
+                mozaik_seed = Some(seed);
+                index += 1 + consumed;
             }
             option if option.starts_with("--") => {
                 return Err(anyhow!("unknown dry-run option `{option}`"));
@@ -182,6 +195,7 @@ pub fn parse_dry_run_options(args: &[String]) -> Result<DryRunOptions> {
         patch_path: resolve_patch_argument(patch_arg.as_deref())?,
         gfm_layer_seed,
         bcs_layer_scenario,
+        mozaik_seed,
     })
 }
 
@@ -199,9 +213,35 @@ pub fn parse_sample_rate_hz(value: &str) -> Result<u32> {
 }
 
 pub fn parse_gfm_layer_seed(value: &str) -> Result<u64> {
+    parse_seed_u64(value, "GFM layer")
+}
+
+pub fn parse_mozaik_seed(value: &str) -> Result<u64> {
+    parse_seed_u64(value, "Mozaik")
+}
+
+/// `--mozaik [<seed>]`: the seed is optional. A following token is consumed
+/// as the seed only when it is seed-shaped (all digits, or `0x` hex); other
+/// tokens are left for the positional patch argument and the default seed is
+/// used. A seed-shaped token that fails to parse is a hard error.
+pub fn parse_optional_mozaik_seed(next: Option<&String>) -> Result<(u64, usize)> {
+    match next {
+        Some(value) if mozaik_seed_shaped(value) => Ok((parse_mozaik_seed(value)?, 1)),
+        _ => Ok((DEFAULT_MOZAIK_SEED, 0)),
+    }
+}
+
+fn mozaik_seed_shaped(value: &str) -> bool {
+    let normalized = value.replace('_', "");
+    normalized.starts_with("0x")
+        || normalized.starts_with("0X")
+        || (!normalized.is_empty() && normalized.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+fn parse_seed_u64(value: &str, what: &str) -> Result<u64> {
     let normalized = value.replace('_', "");
     if normalized.is_empty() {
-        return Err(anyhow!("invalid GFM layer seed `{value}`"));
+        return Err(anyhow!("invalid {what} seed `{value}`"));
     }
 
     if let Some(hex) = normalized
@@ -209,13 +249,13 @@ pub fn parse_gfm_layer_seed(value: &str) -> Result<u64> {
         .or_else(|| normalized.strip_prefix("0X"))
     {
         if hex.is_empty() {
-            return Err(anyhow!("invalid GFM layer seed `{value}`"));
+            return Err(anyhow!("invalid {what} seed `{value}`"));
         }
-        u64::from_str_radix(hex, 16).with_context(|| format!("invalid GFM layer seed `{value}`"))
+        u64::from_str_radix(hex, 16).with_context(|| format!("invalid {what} seed `{value}`"))
     } else {
         normalized
             .parse::<u64>()
-            .with_context(|| format!("invalid GFM layer seed `{value}`"))
+            .with_context(|| format!("invalid {what} seed `{value}`"))
     }
 }
 

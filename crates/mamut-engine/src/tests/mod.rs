@@ -43,6 +43,7 @@ mod bcs_layer;
 mod direct_params;
 mod gfm_field_voice;
 mod gfm_layer;
+mod mozaik;
 mod output_safety;
 mod runtime_state;
 mod voice_runtime;

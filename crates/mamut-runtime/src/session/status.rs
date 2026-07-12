@@ -42,6 +42,7 @@ impl RuntimeSession {
         println!("mode: {}", self.driver.detail());
         println!("{}", gfm_layer_status_line(&snapshot));
         println!("{}", bcs_layer_status_line(&snapshot));
+        println!("{}", mozaik_status_line(&snapshot));
         println!("tags: {tags}");
         let transport = self.transport_metrics.snapshot();
         let input = self.input_metrics.snapshot();

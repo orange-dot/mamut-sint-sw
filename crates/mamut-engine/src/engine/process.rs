@@ -146,6 +146,7 @@ impl Engine {
             },
             gfm_layer: self.gfm_layer_snapshot(),
             bcs_layer: self.bcs_layer_snapshot(),
+            mozaik: self.mozaik_snapshot(),
             voices,
             held_notes,
             output_safety: self.last_output_safety,

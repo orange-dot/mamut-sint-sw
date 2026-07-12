@@ -136,6 +136,12 @@ impl EngineThreadState {
             EngineCommand::SetBcsLayerMode(mode, reply) => {
                 let _ = reply.send(Ok(self.engine.set_bcs_layer_mode(mode)));
             }
+            EngineCommand::SetMozaikMode(mode, reply) => {
+                let _ = reply.send(Ok(self.engine.set_mozaik_mode(mode)));
+            }
+            EngineCommand::SetMozaikParam(param, value, reply) => {
+                let _ = reply.send(Ok(self.engine.set_mozaik_param(param, value)));
+            }
             EngineCommand::StartOutputRecording(request, reply) => {
                 let _ = reply.send(self.start_output_recording(request));
             }
@@ -168,6 +174,12 @@ impl EngineThreadState {
                 }
                 Ok(EngineCommand::SetBcsLayerMode(mode, reply)) => {
                     let _ = reply.send(Ok(self.engine.set_bcs_layer_mode(mode)));
+                }
+                Ok(EngineCommand::SetMozaikMode(mode, reply)) => {
+                    let _ = reply.send(Ok(self.engine.set_mozaik_mode(mode)));
+                }
+                Ok(EngineCommand::SetMozaikParam(param, value, reply)) => {
+                    let _ = reply.send(Ok(self.engine.set_mozaik_param(param, value)));
                 }
                 Ok(EngineCommand::StartOutputRecording(request, reply)) => {
                     let _ = reply.send(self.start_output_recording(request));
