@@ -222,9 +222,8 @@ gracefully and predictably; nothing is hidden by the floor.
 - **DC is real and by design**: the `+L/−S` polarity convention with `γ > 1`
   leaves `0.12–0.28` DC at full gain across the contrast range (table above).
   The primitive does not hide it; the engine slice (`SET5-4`) blends Mozaik
-  pre-filter into the voice path, where the existing per-voice/master
-  `DcBlocker` chain is the stated answer. The evidence for that lands with
-  `SET5-4`, not here.
+  pre-filter into the voice path, where the existing master `DcBlocker` is
+  the stated answer. The evidence for that lands with `SET5-4`, not here.
 - **Peak hits `1.0` exactly** at `gain = 1` (Hann apex). The primitive is
   full-scale; mixing headroom is the integrator's job (`mozaik_mix` in
   `SET5-4`).

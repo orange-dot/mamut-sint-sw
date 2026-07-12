@@ -177,7 +177,8 @@ impl Engine {
 
             let spectral_note =
                 note as f32 + pitch_bend_semitones + spread_detune_semitones + pitch_instability;
-            let spectral_freq = (midi_note_hz(spectral_note)
+            let spectral_hz = midi_note_hz(spectral_note);
+            let spectral_freq = (spectral_hz
                 * direct.spectral_ratio
                 * 2.0_f32.powf(direct.spectral_fine_tune_cents / 1200.0))
             .clamp(4.0, sample_rate_hz * 0.45);
@@ -191,7 +192,7 @@ impl Engine {
 
             let additive_mix = if direct.additive_level > f32::EPSILON {
                 let partial_count = additive_partial_count(direct.additive_partial_count);
-                let base_freq = midi_note_hz(spectral_note).clamp(4.0, sample_rate_hz * 0.45);
+                let base_freq = spectral_hz.clamp(4.0, sample_rate_hz * 0.45);
                 let mut sample_sum = 0.0_f32;
                 let mut weight_sum = 0.0_f32;
                 for index in 0..partial_count {
@@ -247,8 +248,7 @@ impl Engine {
                 voice
                     .mozaik
                     .set_phason_q32(voice.mozaik_phason_base_q32.wrapping_add(frame.phason_q32));
-                let mozaik_f0 = midi_note_hz(spectral_note);
-                source_mix += voice.mozaik.next_sample(mozaik_f0, sample_rate_hz) * frame.mix;
+                source_mix += voice.mozaik.next_sample(spectral_hz, sample_rate_hz) * frame.mix;
             }
             let pre_filter = soft_clip(
                 (source_mix + body_mix) * (pre_filter_gain + direct.filter_drive * 0.8),

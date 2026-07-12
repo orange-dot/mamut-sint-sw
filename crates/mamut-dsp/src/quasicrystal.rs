@@ -174,8 +174,14 @@ impl QuasicrystalOsc {
     }
 
     pub fn set_slope_q32(&mut self, slope_q32: u32) {
-        self.word.set_slope_q32(slope_q32);
-        self.slope_sigma = slope_q32_to_sigma(self.word.slope_q32());
+        let clamped = clamp_slope_q32(slope_q32);
+        // The cached `sigma` only changes when the clamped slope does, so skip
+        // the f64 conversion in steady state (the hot path sets the same slope
+        // every sample, and identically across voices).
+        if clamped != self.word.slope_q32() {
+            self.word.set_slope_q32(clamped);
+            self.slope_sigma = slope_q32_to_sigma(clamped);
+        }
     }
 
     /// Set the contrast `gamma = d_L / d_S`; non-finite falls back to the

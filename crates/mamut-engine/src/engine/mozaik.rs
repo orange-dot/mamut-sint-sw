@@ -76,6 +76,9 @@ impl Engine {
                     self.mozaik_controls.mix,
                     smoothing_sample_count(self.config.sample_rate_hz, MOZAIK_MIX_ATTACK_MS),
                 );
+                // Keep the cached frame consistent with the ramp start; the
+                // first rendered frame overwrites it anyway.
+                self.mozaik_frame.mix = self.mozaik_mix.current();
                 for index in 0..self.voices.len() {
                     self.configure_mozaik_voice_on_trigger(index);
                 }
