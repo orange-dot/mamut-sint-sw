@@ -2,7 +2,9 @@
 
 Date: 2026-07-12
 
-Status: proposed backlog. No implementation from this document has landed.
+Status: active. `SET5-3` and `SET5-4` (the Mozaik track) landed 2026-07-12
+(commits `1ec7ddf`, `c8edd46`, review-fix `04375f9`); `SET5-1/2`, `SET5-5/6`,
+and `SET5-7` are not started.
 Each item ships as its own slice with its own evidence document and review
 gates. Evidence file names are proposals; final numbering is assigned at
 landing time, continuing each concept's own `docs/dsp/` chain the way
@@ -41,9 +43,9 @@ Items:
 2. `SET5-2` — Orbita v0.2: engine per-voice moon layer plus session
    controls
 3. `SET5-3` — Mozaik v0.1: quasicrystal oscillator primitive
-   (`mamut-dsp`) plus offline render evidence
+   (`mamut-dsp`) plus offline render evidence — **landed** (`1ec7ddf`)
 4. `SET5-4` — Mozaik v0.2: engine voice-source integration plus session
-   controls
+   controls — **landed** (`c8edd46`, review-fix `04375f9`)
 5. `SET5-5` — Kosava v0.1: gust-field and vortex lock-in primitives
    (`mamut-dsp`) plus offline render evidence
 6. `SET5-6` — Kosava v0.2: engine ensemble wind layer plus session
@@ -119,9 +121,12 @@ Findings from the 2026-07-12 pre-backlog assessment, anchored to source:
 - **Opt-in and bounded in the mix**: each concept is a layer or source
   blend over the Mamut voice, disabled by default, exactly like the GFM
   layer. With a concept `Disabled`, the render output must be
-  bit-identical to the pre-slice baseline (verified against baseline
-  signatures rendered at the parent commit and recorded in the same
-  evidence doc).
+  bit-identical to the pre-slice baseline. The baseline signatures are
+  rendered at the parent commit, recorded in the evidence doc, **and
+  hardcoded as asserts inside the A/B example itself** so the
+  bit-identity bar is executable on every run, not prose (the `SET5-4`
+  landing proved this mechanic; it is the standard for `SET5-2` and
+  `SET5-6`).
 - **No patch-schema growth.** `schema_version` stays 1; factory patches
   and the live set stay locked; all controls are session-only (CLI flag,
   headless command, engine setter). GUI exposure (including `INSPECT`
@@ -130,6 +135,11 @@ Findings from the 2026-07-12 pre-backlog assessment, anchored to source:
 - **Session controls are capped at five per concept** (plus the on/off
   mode). If a design wants a sixth knob, something is wrong with the
   model; redesign instead of adding it.
+- **Session-layer knob values do not survive a runtime engine rebuild**
+  (patch or audio-config switch reapplies only the mode/seed with the
+  on-enable defaults). This matches GFM/BCS and is accepted for the
+  whole set — stated here once so it is not re-litigated per slice or
+  re-flagged per review.
 - **SET4 independence.** Nothing in this set touches transport, MIDI
   parsing, queue payloads, or the callback. Per-note extension points
   (Orbita perturbation kicks, Kosava per-note wind boost) are *named* in
@@ -338,6 +348,12 @@ controls expose the four continuous axes plus the momentary `kick`
   `orbita` (status line), `orbita on|off`, `orbita set <param> <0..1>`,
   `orbita kick [<amount>]`. `EngineCommand` grows the matching variants
   riding the existing bounded control queue (not the priority path).
+  The optional-seed form (`--orbita` alone enables with a default seed;
+  `--orbita 42` seeds explicitly) deliberately copies the heuristic
+  `SET5-4` landed for `--mozaik [<seed>]`. It is asymmetric with
+  `--gfm-layer-seed` (mandatory arg) by design and safe because no
+  factory patch is digit/hex-named; copy the `SET5-4` shape verbatim so
+  a reviewer does not re-flag the asymmetry per concept.
 - `reset_controllers` clears Orbita control smoothing to defaults;
   `panic` already silences voices, which resets systems on the next
   trigger — state that in the evidence, don't add special cases.
@@ -351,7 +367,8 @@ controls expose the four continuous axes plus the momentary `kick`
 - **Disabled bit-identity**: with `OrbitaLayerMode::Disabled`, the A/B
   example's "A" signature equals the pre-slice baseline signature for
   the same command (baseline rendered at the parent commit, recorded in
-  the evidence doc).
+  the evidence doc, and asserted in the example — the `SET5-4`
+  mechanic).
 - Enabled render shows per-voice independence: two overlapping notes
   where one voice's moons capture while the other's stay loose (scripted
   via note timing against a slow `dissipation`).
@@ -652,7 +669,9 @@ its most performance-shaped slice.
   tuned in-slice under the binding constraint that `kosava on` plus a
   held mid-range chord ignites at least one voice within a few seconds
   in `dry-run`, with no `set` required.
-- Runtime plumbing as before: `--kosava [<seed>]`, headless `kosava` /
+- Runtime plumbing as before: `--kosava [<seed>]` (optional-seed
+  heuristic copied verbatim from the landed `--mozaik [<seed>]` — see
+  the `SET5-2` note), headless `kosava` /
   `kosava on|off` / `kosava set <param> <0..1>`, `EngineCommand`
   variants, `status` snapshot line. `reset_controllers` resets the
   controls to defaults; the gust field itself is *not* reseeded by
@@ -667,7 +686,8 @@ its most performance-shaped slice.
 ### Acceptance
 
 - Disabled bit-identity against the pre-slice baseline (same bar as
-  `SET5-2`/`SET5-4`).
+  `SET5-2`/`SET5-4`: signatures asserted in the example, not just
+  recorded).
 - The chord scenario ignites notes in band order under a single wind
   ramp, audibly and in the printed ignition table; ramping back down
   extinguishes them at measurably different (hysteresis) wind values.
@@ -707,11 +727,21 @@ built. Same closing role `SET4-8` plays for Set 4.
   with the `audio_baseline.rs` harness pattern, with the RPi3B headless
   target explicitly flagged as untested-here (that budget conversation
   belongs to the `SET2` cost track; this table feeds it, honestly).
+  The block-timing harness is currently copy-pasted per A/B example
+  (`SET5-4` did this); by the time three copies exist, this item either
+  extracts a shared `audio_baseline`-style helper or explicitly blesses
+  the copy-paste in the cost table's method note — decided here, once,
+  not per slice.
 - **Docs truth pass**: `README.md` gains the three session-control
   surfaces (flags + headless commands); `CLAUDE.md` crate/architecture
   notes mention the new `mamut-dsp` modules and engine layers;
   `docs/README.md` indexes all six evidence docs; `AGENTS.md` checked
-  (likely no change — no new crates, no new build commands).
+  (likely no change — no new crates, no new build commands). The
+  `sound_lab` extension intent table (GFM/BCS enable hints in saved
+  Sound Lab patches) carries no Orbita/Mozaik/Kosava intent — this pass
+  decides whether to add the three hints or to record explicitly that
+  session-only layers stay out of the intent table (the Mozaik v0.2
+  evidence doc left this open by name).
 - **Honesty ledger**, final form, per concept (the believed-new claims
   re-checked against what shipped):
 
