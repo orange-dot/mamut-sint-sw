@@ -52,6 +52,9 @@ Items:
    controls; the meteorological-arpeggiator demo
 7. `SET5-7` — consolidation: cross-concept cost table, docs truth,
    honesty ledger
+8. `SET5-8` — session-layer controller bindings: play the Set 5 layers
+   from MIDI CC (touch surface / any controller) via the controller
+   profile
 
 ## Assessment Inputs (What The Code Says Today)
 
@@ -353,7 +356,10 @@ controls expose the four continuous axes plus the momentary `kick`
   `SET5-4` landed for `--mozaik [<seed>]`. It is asymmetric with
   `--gfm-layer-seed` (mandatory arg) by design and safe because no
   factory patch is digit/hex-named; copy the `SET5-4` shape verbatim so
-  a reviewer does not re-flag the asymmetry per concept.
+  a reviewer does not re-flag the asymmetry per concept. This slice also
+  adds the `orbita_control` profile binding kind by mirroring the
+  `SET5-8` `mozaik_control` shape (kind + action + routing through the
+  same control path as the headless `set`).
 - `reset_controllers` clears Orbita control smoothing to defaults;
   `panic` already silences voices, which resets systems on the next
   trigger — state that in the evidence, don't add special cases.
@@ -673,7 +679,8 @@ its most performance-shaped slice.
   heuristic copied verbatim from the landed `--mozaik [<seed>]` — see
   the `SET5-2` note), headless `kosava` /
   `kosava on|off` / `kosava set <param> <0..1>`, `EngineCommand`
-  variants, `status` snapshot line. `reset_controllers` resets the
+  variants, `status` snapshot line, plus the `kosava_control` profile
+  binding kind mirroring the `SET5-8` shape. `reset_controllers` resets the
   controls to defaults; the gust field itself is *not* reseeded by
   reset (weather does not restart when the player resets controllers —
   reseed only on mode re-enable; state this in tests).
@@ -777,6 +784,78 @@ built. Same closing role `SET4-8` plays for Set 4.
 
 S–M
 
+## SET5-8: Session-Layer Controller Bindings — Play The Layers From MIDI
+
+### Rationale
+
+The Set 5 layers are playable only from the headless prompt and CLI
+flags; a live performer holds a controller, not a terminal. The
+controller profile already maps arbitrary CCs to
+`gfm_layer_amount` / `bcs_layer_gain` / `bcs_layer_enabled`
+(`crates/mamut-runtime/src/types/profile.rs::ControllerBindingKind`,
+`profiles/pc4-full.toml`), so the precedent for "CC drives a session
+layer" exists in full. This slice extends it to Mozaik (landed) and
+defines the shape Orbita/Kosava copy inside their own v0.2 slices. The
+immediate consumer is the `pc4ms-touch-surface-android` `Mamut
+Instrument` mode's configurable slide lane (tracked in that repo:
+`docs/PC4MS-TOUCH-SURFACE-BACKLOG.md`, items `TS-1..3`), but any CC
+source qualifies.
+
+### Design Sketch
+
+- New profile binding kind `mozaik_control` with `target` one of
+  `mix | slope | contrast | phason | drift`, parsed into a matching
+  `ControllerBindingAction` variant. Routing: the binding resolves to
+  the **same** control path the headless `mozaik set <param> <0..1>`
+  uses (`RuntimeUiCommand::MozaikSet(MozaikParam, f32)` →
+  `EngineCommand` on the bounded control queue) — one truth for
+  clamping, smoothing, and detent-snap; no second parameter path.
+- CC value maps linearly `0..127 → 0.0..1.0` (the layer mapping owns
+  any nonlinearity, e.g. the slope detent snap — already in the
+  engine setter, not re-implemented here).
+- Mode stays out of reach by design: no binding kind enables/disables
+  a layer in v1 (`bcs_layer_enabled` is the precedent that it *can* be
+  done; for the seeded layers, enable stays a deliberate CLI/headless
+  act so a stray CC cannot re-seed a running texture; state this in
+  the profile docs).
+- CC on a disabled layer behaves exactly like `mozaik set` on a
+  disabled layer today (accepted into the pending control state or
+  ignored — whichever the landed `SET5-4` semantics are; do not invent
+  a third behavior).
+- New example profile `profiles/android-touch.toml`: channel-1
+  instrument-mode surface — macros CC16–20, expression CC11, and free
+  CCs 21+ bound to `mozaik_control` targets (mix first), with comments
+  naming the app-side preset (`Profile CC 21–31`) they pair with.
+- Orbita/Kosava: their v0.2 slices add `orbita_control` /
+  `kosava_control` by mirroring this kind + action + routing shape —
+  noted in `SET5-2`/`SET5-6` by reference, not duplicated here.
+- Profiles are session-side files, not patches: **no schema growth**,
+  `schema_version` untouched, factory bank untouched.
+
+### Acceptance
+
+- With `--controller-profile profiles/android-touch.toml`, a CC bound
+  to `mozaik_control mix` audibly moves the enabled layer's mix on a
+  held note, with the same smoothing as headless `mozaik set mix`;
+  `--trace-midi` names the binding like existing bound CCs.
+- Parsing tests: kind/target matrix, unknown target rejected with a
+  useful error; routing test proving CC and headless `set` converge on
+  the same `EngineCommand`.
+- Disabled-layer behavior matches the landed headless semantics
+  (asserted in a test, stated in docs).
+- `README.md` controller-profile section and `docs/README.md` updated
+  in the same change; the touch-surface backlog reference recorded.
+- `cargo fmt --all --check`, `cargo test --locked` green.
+
+### Review Gates
+
+- `sel4-rust-systems-reviewer` (`mamut-runtime` parsing/routing)
+- `sel4-integrated-systems-reviewer` (cross-repo contract + docs truth)
+
+### Size
+
+S–M
+
 ## Suggested Order And Dependencies
 
 1. The three v0.1 slices (`SET5-1`, `SET5-3`, `SET5-5`) are mutually
@@ -790,7 +869,12 @@ S–M
    per-voice pre-filter insertion and the mode/snapshot idiom — land one
    first, let the reviewers bless the shape, then mirror it in the other
    two rather than inventing three shapes.
-4. `SET5-7` closes after all six.
+4. `SET5-8` needs only the landed `SET5-4` (it binds CCs to the landed
+   Mozaik control path) and can run in parallel with the Orbita/Kosava
+   tracks; its `orbita_control`/`kosava_control` mirrors land inside
+   `SET5-2`/`SET5-6`, not here.
+5. `SET5-7` closes after all six concept slices (`SET5-8` may land
+   before or after it; the docs-truth pass covers whatever has landed).
 
 Interplay with the active Set 4: none required in either direction. The
 named extension points (Orbita `kick` from per-note bend/pressure,
