@@ -68,6 +68,7 @@ pub(crate) fn sound_lab_source_for_controller_binding(
         ControllerBindingAction::GfmLayerAmount
             | ControllerBindingAction::BcsLayerAmount
             | ControllerBindingAction::BcsLayerEnabled
+            | ControllerBindingAction::MozaikControl(_)
     ) {
         return None;
     }

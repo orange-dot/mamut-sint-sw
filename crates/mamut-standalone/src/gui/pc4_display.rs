@@ -54,9 +54,21 @@ pub(crate) fn binding_normalized_value(
             }
             _ => 0.0,
         },
+        ControllerBindingAction::MozaikControl(param) => mozaik_control_value(snapshot, param),
         ControllerBindingAction::Runtime(_) | ControllerBindingAction::Reserved => 0.0,
     }
     .clamp(0.0, 1.0)
+}
+
+/// Read-only mirror: the control-domain value of a Mozaik session control.
+pub(crate) fn mozaik_control_value(snapshot: &EngineSnapshot, param: MozaikParam) -> f32 {
+    match param {
+        MozaikParam::Mix => snapshot.mozaik.mix,
+        MozaikParam::Slope => snapshot.mozaik.slope,
+        MozaikParam::Contrast => snapshot.mozaik.contrast,
+        MozaikParam::Phason => snapshot.mozaik.phason,
+        MozaikParam::Drift => snapshot.mozaik.drift,
+    }
 }
 
 pub(crate) fn normalize_param_value(id: ParamId, value: f32) -> f32 {
@@ -84,6 +96,9 @@ pub(crate) fn short_pc4_action(action: ControllerBindingAction) -> String {
         ControllerBindingAction::GfmLayerAmount => "GFM Gate".to_string(),
         ControllerBindingAction::BcsLayerAmount => "BCS Gain".to_string(),
         ControllerBindingAction::BcsLayerEnabled => "BCS Enable".to_string(),
+        ControllerBindingAction::MozaikControl(param) => {
+            format!("Mozaik {}", mozaik_param_name(param))
+        }
         ControllerBindingAction::Runtime(message) => describe_runtime_control_message(message),
         ControllerBindingAction::ToggleParam(id) => param_spec(id).name.to_string(),
         ControllerBindingAction::Reserved => "Reserved".to_string(),
@@ -195,6 +210,12 @@ pub(crate) fn binding_display_value(
             },
             None,
         ),
+        ControllerBindingAction::MozaikControl(param) => {
+            let value = format!("{:.2}", mozaik_control_value(snapshot, param));
+            let secondary = matches!(param, MozaikParam::Mix)
+                .then(|| format!("eff {:.2}", snapshot.mozaik.effective_mix));
+            (value, secondary)
+        }
         ControllerBindingAction::Runtime(_) => ("trigger".to_string(), None),
         ControllerBindingAction::ToggleParam(id) => {
             (toggle_param_display_value(snapshot, id), None)

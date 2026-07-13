@@ -112,6 +112,12 @@ pub fn parse_profile_cc_binding(
                 enabled: value >= 0.5,
             }),
         )),
+        // Route to the bounded runtime-control queue (not a realtime ControllerEvent):
+        // the session drains it into the same `set_mozaik_param` path the headless
+        // `mozaik set` uses. `value` is already the linear `0..127 -> 0.0..1.0` map.
+        ControllerBindingAction::MozaikControl(param) => Some(ParsedMidiMessage::Runtime(
+            RuntimeControlMessage::MozaikControl(param, value),
+        )),
         ControllerBindingAction::Runtime(message) => {
             (value >= 0.5).then_some(ParsedMidiMessage::Runtime(message))
         }
@@ -190,6 +196,7 @@ fn sound_lab_overlay_source_for_cc(
         ControllerBindingAction::GfmLayerAmount
             | ControllerBindingAction::BcsLayerAmount
             | ControllerBindingAction::BcsLayerEnabled
+            | ControllerBindingAction::MozaikControl(_)
     ) {
         return None;
     }

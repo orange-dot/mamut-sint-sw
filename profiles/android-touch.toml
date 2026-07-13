@@ -1,0 +1,102 @@
+# Mamut controller profile for the PC4MS Android touch surface, Mamut Instrument
+# mode. Pairs with the app in the sibling repo pc4-microkit-studio
+# (apps/pc4ms-touch-surface-android, docs/PC4MS-TOUCH-SURFACE-BACKLOG.md items
+# TS-1..3). The app plays on MIDI channel 1; run mamut with:
+#
+#   cargo run --locked -p mamut-standalone -- play \
+#       --audio-device hw:<card>,0 --midi-device <Android> --midi-channel 1 \
+#       --controller-profile profiles/android-touch.toml --mozaik --trace-midi
+#
+# Fixed app controls that mamut already handles natively (no binding needed):
+# note on/off, pitch bend (0xE0), channel aftertouch (0xD0), sustain (CC64),
+# and program change 0..7 (locked live set). This profile only remaps the CCs
+# the app sends as macro faders, expression, and the configurable slide lane.
+
+name = "android-touch"
+version = 1
+
+# --- The five public macros (app macro faders CC16-20) -----------------------
+
+[[binding]]
+control = "Gravitacija"
+cc = 16
+kind = "macro"
+target = "gravitacija"
+
+[[binding]]
+control = "Bloom"
+cc = 17
+kind = "macro"
+target = "bloom"
+
+[[binding]]
+control = "Heat"
+cc = 18
+kind = "macro"
+target = "heat"
+
+[[binding]]
+control = "Ruin"
+cc = 19
+kind = "macro"
+target = "ruin"
+
+[[binding]]
+control = "Swarm"
+cc = 20
+kind = "macro"
+target = "swarm"
+
+# --- Expression (app CC11 fader / slide preset) -> master output level --------
+# mamut has no dedicated expression control; the master output trim is the
+# honest volume-like target for the app's Expression fader. Note this is an
+# absolute set across the full trim range (~ -24..+12 dB): CC 0 attenuates hard,
+# CC 127 boosts into the final-stage limiter, and it OVERRIDES the patch's own
+# output trim. It is a master-level fader, not an attenuation-only expression
+# scaler (the Linear/Log scale model cannot express attenuate-only).
+
+[[binding]]
+control = "Expression"
+cc = 11
+kind = "direct_param"
+target = "final_stage_output_trim_db"
+
+# --- Mozaik session layer (SET5-8) -------------------------------------------
+# These pair with the app slide-lane preset band "Profile CC 21-31" (TS-2): set
+# the slide target to a Profile CC and the vertical slide drives a Mozaik axis.
+# CC 0..127 maps linearly to 0.0..1.0; the engine owns clamping, smoothing, and
+# the slope detent-snap (one truth, the same path as headless `mozaik set`).
+#
+# Enable the layer deliberately first (`--mozaik` / headless `mozaik on`); no
+# `mozaik_control` binding enables or re-seeds the layer, so a stray CC cannot
+# restart a running texture. `mix` is the recommended first target.
+
+[[binding]]
+control = "Mozaik Mix"
+cc = 21
+kind = "mozaik_control"
+target = "mix"
+
+[[binding]]
+control = "Mozaik Slope"
+cc = 22
+kind = "mozaik_control"
+target = "slope"
+
+[[binding]]
+control = "Mozaik Contrast"
+cc = 23
+kind = "mozaik_control"
+target = "contrast"
+
+[[binding]]
+control = "Mozaik Phason"
+cc = 24
+kind = "mozaik_control"
+target = "phason"
+
+[[binding]]
+control = "Mozaik Drift"
+cc = 25
+kind = "mozaik_control"
+target = "drift"

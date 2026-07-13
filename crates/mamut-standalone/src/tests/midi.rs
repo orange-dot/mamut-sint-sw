@@ -378,3 +378,158 @@ fn midi_trace_worker_drains_records_and_writes_footer_on_shutdown() {
     assert!(text.contains("# midi_lines: 1"));
     assert_eq!(metrics.snapshot().trace_records_dropped, 0);
 }
+
+fn mozaik_control_profile(cc: u8, target: &str) -> anyhow::Result<ControllerProfile> {
+    let input = format!(
+        "[[binding]]\ncontrol = \"Mozaik\"\ncc = {cc}\nkind = \"mozaik_control\"\ntarget = \"{target}\"\n"
+    );
+    controller_profile_from_toml(&input, Path::new("mozaik.toml"))
+}
+
+#[test]
+fn mozaik_control_profile_parses_target_matrix() {
+    use mamut_engine::MozaikParam;
+    let cases = [
+        ("mix", MozaikParam::Mix),
+        ("slope", MozaikParam::Slope),
+        ("contrast", MozaikParam::Contrast),
+        ("phason", MozaikParam::Phason),
+        ("drift", MozaikParam::Drift),
+    ];
+    for (target, expected) in cases {
+        let profile = mozaik_control_profile(21, target).expect("mozaik profile parses");
+        assert_eq!(
+            profile.binding_for_cc(21).map(|binding| binding.action),
+            Some(ControllerBindingAction::MozaikControl(expected)),
+            "target {target}"
+        );
+    }
+}
+
+#[test]
+fn mozaik_control_profile_rejects_unknown_and_missing_target() {
+    let unknown = mozaik_control_profile(21, "wobble").expect_err("unknown target rejected");
+    assert!(
+        format!("{unknown:#}").contains("unknown mozaik control"),
+        "error should name the bad target: {unknown:#}"
+    );
+
+    let missing = controller_profile_from_toml(
+        "[[binding]]\ncontrol = \"Mozaik\"\ncc = 21\nkind = \"mozaik_control\"\n",
+        Path::new("mozaik.toml"),
+    )
+    .expect_err("missing target rejected");
+    assert!(
+        format!("{missing:#}").contains("mozaik_control binding requires target"),
+        "error should demand a target: {missing:#}"
+    );
+}
+
+#[test]
+fn mozaik_control_cc_routes_to_bounded_runtime_control_queue() {
+    use mamut_engine::MozaikParam;
+    // A mozaik_control CC becomes a RuntimeControlMessage (bounded control queue),
+    // NOT a realtime ControllerEvent — the session drains it into set_mozaik_param.
+    let profile = mozaik_control_profile(21, "mix").expect("profile parses");
+    let parsed = parse_midi_message(&[0xB0, 21, 64], 2.0, None, Some(&profile)).expect("cc parses");
+    match parsed {
+        ParsedMidiMessage::Runtime(RuntimeControlMessage::MozaikControl(param, value)) => {
+            assert_eq!(param, MozaikParam::Mix);
+            assert!(
+                (value - 64.0 / 127.0).abs() < 1.0e-6,
+                "linear 0..127 -> 0..1"
+            );
+        }
+        other => panic!("expected runtime mozaik control, got {other:?}"),
+    }
+}
+
+#[test]
+fn mozaik_control_cc_and_headless_set_converge_on_same_param() {
+    use mamut_engine::MozaikParam;
+    // Convergence: both the bound CC and the headless `mozaik set` resolve to the
+    // same MozaikParam, which the session feeds to the one set_mozaik_param path
+    // (EngineCommand::SetMozaikParam). Disabled-layer behavior is therefore whatever
+    // the landed SET5-4 engine semantics are — there is no second parameter path.
+    let profile = mozaik_control_profile(21, "slope").expect("profile parses");
+    let cc_param = match parse_midi_message(&[0xB0, 21, 80], 2.0, None, Some(&profile)) {
+        Some(ParsedMidiMessage::Runtime(RuntimeControlMessage::MozaikControl(param, _))) => param,
+        other => panic!("expected runtime mozaik control, got {other:?}"),
+    };
+    let headless_param = match parse_runtime_ui_command("mozaik set slope 0.63") {
+        Ok(RuntimeUiCommand::MozaikSet(param, _)) => param,
+        other => panic!("expected headless mozaik set, got {other:?}"),
+    };
+    assert_eq!(cc_param, MozaikParam::Slope);
+    assert_eq!(cc_param, headless_param);
+}
+
+#[test]
+fn mozaik_control_binding_names_appear_in_trace_and_last_control() {
+    let profile = mozaik_control_profile(21, "mix").expect("profile parses");
+    let parsed = parse_midi_message(&[0xB0, 21, 100], 2.0, Some(1), Some(&profile));
+    let line = format_midi_trace_message(
+        &[0xB0, 21, 100],
+        Some(1),
+        Some(&profile),
+        parsed,
+        MidiTraceTiming {
+            elapsed_seconds: 2.0,
+            delta_millis: 5.0,
+        },
+    );
+    assert!(
+        line.contains("profile Mozaik"),
+        "trace names the control: {line}"
+    );
+    assert!(
+        line.contains("mozaik mix"),
+        "trace names the action: {line}"
+    );
+
+    let event = last_control_event(
+        &[0xB0, 21, 100],
+        Some(1),
+        Some(&profile),
+        parsed,
+        Instant::now(),
+        false,
+    )
+    .expect("mozaik control event");
+    assert_eq!(event.action, "mozaik mix");
+    assert_eq!(event.verdict, LastControlVerdict::Accepted);
+}
+
+#[test]
+fn android_touch_profile_binds_macros_expression_and_mozaik() {
+    use mamut_engine::MozaikParam;
+    let profile = controller_profile_from_toml(
+        include_str!("../../../../profiles/android-touch.toml"),
+        Path::new("android-touch.toml"),
+    )
+    .expect("android-touch profile parses");
+    assert_eq!(profile.name, "android-touch");
+    // Macros CC16-20.
+    assert!(matches!(
+        profile.binding_for_cc(16).map(|binding| binding.action),
+        Some(ControllerBindingAction::Macro(MacroId::Gravitacija))
+    ));
+    assert!(matches!(
+        profile.binding_for_cc(20).map(|binding| binding.action),
+        Some(ControllerBindingAction::Macro(MacroId::Swarm))
+    ));
+    // Expression CC11 -> a direct param (master output level).
+    assert!(matches!(
+        profile.binding_for_cc(11).map(|binding| binding.action),
+        Some(ControllerBindingAction::DirectParam { .. })
+    ));
+    // Mozaik session layer on the Profile CC 21-31 band, mix first.
+    assert_eq!(
+        profile.binding_for_cc(21).map(|binding| binding.action),
+        Some(ControllerBindingAction::MozaikControl(MozaikParam::Mix))
+    );
+    assert_eq!(
+        profile.binding_for_cc(25).map(|binding| binding.action),
+        Some(ControllerBindingAction::MozaikControl(MozaikParam::Drift))
+    );
+}

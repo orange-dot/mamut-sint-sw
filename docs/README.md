@@ -33,11 +33,17 @@ Start here:
   the `SET4-9..12` touch-surface track (the Android `Mamut Instrument`
   surface as the played native UMP source over a UDP link)
 - `EPM1_BACKLOG_SET5_ORBITA_MOZAIK_KOSAVA.md` - active backlog
-  (`SET5-3/4` Mozaik landed; Orbita, Kosava, consolidation open): three new
-  DSP worlds beside GFM — `Orbita` (resonance capture, tidal dissipation,
-  Roche breakup), `Mozaik` (quasicrystal cut-and-project oscillator with
-  phason modulation), `Kosava` (gust-spectrum wind with per-note vortex
-  lock-in); evidence-first, session-only controls, no schema growth
+  (`SET5-3/4` Mozaik landed; `SET5-8` controller bindings landed host-side —
+  audible rig pairing is the open cross-repo `TS-3`; Orbita, Kosava,
+  consolidation open): three new DSP worlds beside GFM — `Orbita` (resonance
+  capture, tidal dissipation, Roche breakup), `Mozaik` (quasicrystal
+  cut-and-project oscillator with phason modulation), `Kosava` (gust-spectrum
+  wind with per-note vortex lock-in); evidence-first, session-only controls,
+  no schema growth. `SET5-8` adds the `mozaik_control` controller-profile
+  binding kind and `profiles/android-touch.toml`, letting a MIDI CC (the
+  PC4MS Android touch surface's configurable slide lane, tracked cross-repo in
+  `pc4-microkit-studio` `docs/PC4MS-TOUCH-SURFACE-BACKLOG.md` `TS-1..3`) drive
+  a Mozaik axis through the same path as the headless `mozaik set`
 - `EPM1_MIDI2_V0.1_ALSA_UMP_SPIKE_EVIDENCE.md` - SET4-1 evidence: ALSA UMP
   feasibility spike — native UMP MIDI 2.0 client from Rust, virtual UMP
   endpoint visible to tooling, 16-bit-velocity NoteOn decoded end to end,

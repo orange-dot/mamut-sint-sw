@@ -188,6 +188,21 @@ Runtime notes:
   back from GUI clicks/drags
 - without `--controller-profile`, the legacy fallback keeps `CC16..20` mapped
   to `Gravitacija`, `Bloom`, `Heat`, `Ruin`, and `Swarm`
+- controller-profile binding `kind`s: `macro`, `direct_param`, `gfm_layer_amount`,
+  `bcs_layer_amount`/`bcs_layer_gain`, `bcs_layer_enabled`, `mozaik_control`,
+  `runtime_action`, `toggle_param`, `reserved`
+- `mozaik_control` (SET5-8) binds a CC to a Mozaik session control via
+  `target = "mix" | "slope" | "contrast" | "phason" | "drift"`; the CC value maps
+  linearly `0..127 -> 0.0..1.0` and routes through the same
+  `EngineCommand::SetMozaikParam` path as the headless `mozaik set` (one truth for
+  clamping, smoothing, and the slope detent-snap). No `mozaik_control` binding
+  enables, disables, or re-seeds the Mozaik layer — enable stays a deliberate
+  `--mozaik` / `mozaik on` act, so a stray CC cannot restart a running texture
+  (unlike `bcs_layer_enabled`, which does gate the BCS layer from a CC)
+- `profiles/android-touch.toml` is the example channel-1 surface for the PC4MS
+  Android touch instrument (sibling repo `pc4-microkit-studio`,
+  `docs/PC4MS-TOUCH-SURFACE-BACKLOG.md` items `TS-1..3`): macros `CC16..20`,
+  expression `CC11`, and Mozaik on the app's `Profile CC 21-31` slide-lane band
 
 Factory bank:
 

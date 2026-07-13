@@ -53,6 +53,9 @@ pub fn describe_binding_action(action: ControllerBindingAction) -> String {
         ControllerBindingAction::GfmLayerAmount => "gfm layer gate".to_string(),
         ControllerBindingAction::BcsLayerAmount => "bcs layer gain".to_string(),
         ControllerBindingAction::BcsLayerEnabled => "bcs layer enable".to_string(),
+        ControllerBindingAction::MozaikControl(param) => {
+            format!("mozaik {}", mozaik_param_name(param))
+        }
         ControllerBindingAction::Runtime(message) => describe_runtime_control_message(message),
         ControllerBindingAction::ToggleParam(id) => format!("toggle {}", param_spec(id).name),
         ControllerBindingAction::Reserved => "reserved".to_string(),
@@ -68,6 +71,20 @@ pub fn describe_runtime_control_message(message: RuntimeControlMessage) -> Strin
         RuntimeControlMessage::PrevFavorite => "previous favorite".to_string(),
         RuntimeControlMessage::FavoriteSlot(slot) => format!("favorite slot={slot}"),
         RuntimeControlMessage::ToggleParam(id) => format!("toggle {}", param_spec(id).name),
+        RuntimeControlMessage::MozaikControl(param, value) => {
+            format!("mozaik {} value={value:.3}", mozaik_param_name(param))
+        }
+    }
+}
+
+/// Short display name for a Mozaik session control, shared by trace and mirror text.
+pub fn mozaik_param_name(param: MozaikParam) -> &'static str {
+    match param {
+        MozaikParam::Mix => "mix",
+        MozaikParam::Slope => "slope",
+        MozaikParam::Contrast => "contrast",
+        MozaikParam::Phason => "phason",
+        MozaikParam::Drift => "drift",
     }
 }
 

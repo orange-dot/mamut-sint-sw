@@ -313,6 +313,20 @@ impl RuntimeSession {
                         messages.push(format!("toggle {} ignored: {error}", param_spec(id).name))
                     }
                 },
+                RuntimeControlMessage::MozaikControl(param, value) => {
+                    // Same session method the headless `mozaik set` command calls, so a bound
+                    // CC and the prompt converge on one `EngineCommand::SetMozaikParam` path.
+                    match self.set_mozaik_param(param, value) {
+                        Ok(_) => messages.push(format!(
+                            "controller action -> mozaik {} {value:.3}",
+                            mozaik_param_name(param)
+                        )),
+                        Err(error) => messages.push(format!(
+                            "mozaik {} ignored: {error}",
+                            mozaik_param_name(param)
+                        )),
+                    }
+                }
             }
         }
         Ok(messages)

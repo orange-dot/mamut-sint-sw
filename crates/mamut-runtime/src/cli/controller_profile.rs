@@ -145,6 +145,17 @@ pub fn controller_binding_action(
             Ok(ControllerBindingAction::BcsLayerAmount)
         }
         ControllerBindingKind::BcsLayerEnabled => Ok(ControllerBindingAction::BcsLayerEnabled),
+        ControllerBindingKind::MozaikControl => {
+            let target = binding
+                .target
+                .as_deref()
+                .ok_or_else(|| anyhow!("mozaik_control binding requires target"))?;
+            // Reuse the headless `mozaik set <param>` parser so both paths accept the
+            // same target vocabulary and reject unknowns with the same message.
+            Ok(ControllerBindingAction::MozaikControl(parse_mozaik_param(
+                target,
+            )?))
+        }
         ControllerBindingKind::RuntimeAction => {
             let action = binding
                 .action

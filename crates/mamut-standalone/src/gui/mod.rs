@@ -2,7 +2,9 @@ use std::{env, path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use eframe::{NativeOptions, egui};
-use mamut_engine::{BcsLayerMode, BcsScenario, EngineSnapshot, GfmLayerMode, GfmTerrainSnapshot16};
+use mamut_engine::{
+    BcsLayerMode, BcsScenario, EngineSnapshot, GfmLayerMode, GfmTerrainSnapshot16, MozaikParam,
+};
 use mamut_params::{MacroId, ParamId, ParamSection, ParamSpec, ParamUnit, all_params, param_spec};
 use mamut_runtime::*;
 

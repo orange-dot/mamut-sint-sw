@@ -3,8 +3,12 @@
 Date: 2026-07-12
 
 Status: active. `SET5-3` and `SET5-4` (the Mozaik track) landed 2026-07-12
-(commits `1ec7ddf`, `c8edd46`, review-fix `04375f9`); `SET5-1/2`, `SET5-5/6`,
-and `SET5-7` are not started.
+(commits `1ec7ddf`, `c8edd46`, review-fix `04375f9`); `SET5-8` host-side
+controller bindings for the landed Mozaik track (the `mozaik_control` kind,
+`profiles/android-touch.toml`, and parse/route/convergence tests) landed
+2026-07-13 — the end-to-end *audible* rig pairing that its acceptance leads
+with is the open cross-repo `TS-3` (app repo `pc4-microkit-studio`);
+`SET5-1/2`, `SET5-5/6`, and `SET5-7` are not started.
 Each item ships as its own slice with its own evidence document and review
 gates. Evidence file names are proposals; final numbering is assigned at
 landing time, continuing each concept's own `docs/dsp/` chain the way
@@ -54,7 +58,9 @@ Items:
    honesty ledger
 8. `SET5-8` — session-layer controller bindings: play the Set 5 layers
    from MIDI CC (touch surface / any controller) via the controller
-   profile
+   profile — **host-side landed** (`mozaik_control` kind +
+   `profiles/android-touch.toml` + parse/route/convergence tests; the audible
+   end-to-end rig pairing is the open cross-repo `TS-3`)
 
 ## Assessment Inputs (What The Code Says Today)
 

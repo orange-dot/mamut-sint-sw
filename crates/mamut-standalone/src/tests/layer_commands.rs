@@ -213,3 +213,29 @@ fn engine_command_sets_mozaik_mode_and_params() {
     assert_eq!(snapshot.mode, MozaikMode::Disabled);
     assert_eq!(state.engine.snapshot().mozaik.mode, MozaikMode::Disabled);
 }
+
+#[test]
+fn mozaik_control_cc_on_disabled_layer_matches_headless_set_semantics() {
+    use mamut_engine::{MozaikMode, MozaikParam};
+
+    // A `mozaik_control` CC and the headless `mozaik set` command both emit the same
+    // EngineCommand::SetMozaikParam (SET5-8 convergence). On a disabled layer the landed
+    // SET5-4 semantics accept and store the control (mode untouched; it applies when the
+    // layer is later enabled). Asserting it here covers the disabled-layer acceptance for
+    // the bound-CC path, since the two paths are the identical command by construction.
+    let mut state = test_engine_thread_state_for_patch("ember-vault");
+    assert_eq!(state.engine.snapshot().mozaik.mode, MozaikMode::Disabled);
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    assert!(state.handle_command(EngineCommand::SetMozaikParam(
+        MozaikParam::Slope,
+        0.2,
+        reply_tx,
+    )));
+    let snapshot = reply_rx
+        .recv_timeout(Duration::from_millis(50))
+        .expect("disabled-layer param reply arrives")
+        .expect("disabled-layer param command succeeds");
+    assert_eq!(snapshot.mode, MozaikMode::Disabled);
+    assert_eq!(snapshot.slope, 0.2);
+}

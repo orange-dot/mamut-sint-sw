@@ -107,7 +107,7 @@ pub enum EngineCommand {
     Shutdown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RuntimeControlMessage {
     ProgramChange(u8),
     Panic,
@@ -116,6 +116,11 @@ pub enum RuntimeControlMessage {
     PrevFavorite,
     FavoriteSlot(usize),
     ToggleParam(ParamId),
+    /// A controller-profile CC bound to a Mozaik session control (SET5-8). The
+    /// session drains this and calls `set_mozaik_param`, converging on the same
+    /// `EngineCommand::SetMozaikParam` path as the headless `mozaik set` command —
+    /// there is no second parameter path. Carries the linear `0..1` CC value.
+    MozaikControl(MozaikParam, f32),
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +164,7 @@ pub enum ControllerBindingAction {
     GfmLayerAmount,
     BcsLayerAmount,
     BcsLayerEnabled,
+    MozaikControl(MozaikParam),
     Runtime(RuntimeControlMessage),
     ToggleParam(ParamId),
     Reserved,
@@ -200,6 +206,7 @@ pub enum ControllerBindingKind {
     BcsLayerAmount,
     BcsLayerGain,
     BcsLayerEnabled,
+    MozaikControl,
     RuntimeAction,
     ToggleParam,
     Reserved,
