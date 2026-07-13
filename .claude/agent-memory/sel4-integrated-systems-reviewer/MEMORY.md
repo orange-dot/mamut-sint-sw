@@ -5,3 +5,5 @@
 - [Scenario control-address contract](scenario-profile-name-contract.md) — scenarios name profile controls, never raw CC; mod_wheel/sustain are schema step-kinds with CC in code
 - [SET4 range-enumeration drift](drift-set4-range-enumeration.md) — SET4-0..N range is hard-coded in CLAUDE.md + both READMEs; appending slices drifts them; touch-surface cut rides SET4-6 as another UMP source
 - [Backlog review-gate convention](backlog-review-gate-convention.md) — per-item gates list only slice-specific reviewers; integrated docs-truth pass deferred to closing slice; matches SET4, not drift; CI builds mamut-engine examples only
+- [Runtime-control queue is discrete-event](boundary-runtime-control-queue-continuous.md) — 64-slot drop-newest no-coalesce queue; SET5-8 mozaik_control is 1st continuous sender; orbita/kosava_control will copy the shape
+- [Mozaik enable-safety over-generalized](drift-mozaik-enable-safety-overgeneralized.md) — SET5-8 README says "No binding kind enables…a layer" but bcs_layer_enabled does; backlog had the correct Mozaik-scoped wording
