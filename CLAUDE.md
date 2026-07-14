@@ -161,9 +161,10 @@ Factory bank lives in `patches/factory/*.toml`; the locked 8-slot live set is `0
 11. `docs/adrs/0003-gui-information-architecture.md` — accepted four-screen GUI information architecture (`PERFORM`, `SOUND`, `SYSTEM`, `INSPECT`)
 12. `docs/adrs/0004-egui-ia-restructure-plan-b.md` — accepted plan-B activation; the active GUI redesign plan
 13. `docs/adrs/0005-midi2-ump-transport-unfreeze.md` — accepted MIDI 2.0 UMP direction and transport unfreeze
-14. `docs/EPM1_BACKLOG_SET4_MIDI2_UMP_EXPRESSIVENESS.md` — the MIDI 2.0 migration backlog (`SET4-0..12`, including the `SET4-9..12` touch-surface track)
-15. `docs/ui/epm1-gui-design-system.md` — palette, typography, knob geometry, panel chrome, and screen wireframes that govern the GUI redesign
-16. `docs/live-sessions/` — real hardware run evidence (preserve as evidence; not portable defaults)
+14. `docs/adrs/0006-tonewheel-generator-track.md` — accepted tonewheel generator track: global shared generator, chain position, control doctrine, binding naming policy, reference-driven calibration
+15. `docs/EPM1_BACKLOG_SET4_MIDI2_UMP_EXPRESSIVENESS.md` — the MIDI 2.0 migration backlog (`SET4-0..12`, including the `SET4-9..12` touch-surface track)
+16. `docs/ui/epm1-gui-design-system.md` — palette, typography, knob geometry, panel chrome, and screen wireframes that govern the GUI redesign
+17. `docs/live-sessions/` — real hardware run evidence (preserve as evidence; not portable defaults)
 
 ## Things to avoid
 

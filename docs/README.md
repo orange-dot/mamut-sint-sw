@@ -44,6 +44,16 @@ Start here:
   PC4MS Android touch surface's configurable slide lane, tracked cross-repo in
   `pc4-microkit-studio` `docs/PC4MS-TOUCH-SURFACE-BACKLOG.md` `TS-1..3`) drive
   a Mozaik axis through the same path as the headless `mozaik set`
+- `EPM1_BACKLOG_SET6_TONEWHEEL_GENERATOR.md` - accepted backlog (operator
+  decisions 2026-07-14; no slices landed yet): a component-modeled
+  electromechanical tonewheel organ as the first engine-global sound
+  source — a shared 91-wheel generator with gear-ratio tuning, a
+  key-contact/busbar model (foldback, tapering, loudness robbing, key
+  click), single-trigger percussion, a dispersive vibrato/chorus scanner,
+  preamp drive, and a source-agnostic two-rotor rotary-speaker layer;
+  calibrated against operator-provided reference recordings through an
+  offline analysis harness; evidence-first, session-only controls, no
+  schema growth, and a binding generic-vocabulary naming policy
 - `EPM1_MIDI2_V0.1_ALSA_UMP_SPIKE_EVIDENCE.md` - SET4-1 evidence: ALSA UMP
   feasibility spike — native UMP MIDI 2.0 client from Rust, virtual UMP
   endpoint visible to tooling, 16-bit-velocity NoteOn decoded end to end,
@@ -78,6 +88,13 @@ Start here:
   direction: UMP-first internal protocol, translated MIDI 1.0/MPE ingress,
   JR-timestamp scheduling; rescinds the `EPM1_TRANSPORT_FREEZE.md` freeze
   and amends ADR 0001's escape clause in part
+- `adrs/0006-tonewheel-generator-track.md` - accepted tonewheel generator
+  track decision record (Backlog Set 6): component model with one global
+  shared 91-wheel generator (rejecting the per-voice additive extension),
+  organ-bus chain position, session-only control doctrine with the
+  registration vector as one control, the binding generic-vocabulary
+  naming policy, reference-recording calibration strategy, and the rotary
+  speaker as a source-agnostic engine-global layer
 - `ui/epm1-gui-design-system.md` - palette, typography, knob geometry,
   panel chrome, density rules, screen wireframes, and high-risk widget
   rendering strategies for the GUI redesign
